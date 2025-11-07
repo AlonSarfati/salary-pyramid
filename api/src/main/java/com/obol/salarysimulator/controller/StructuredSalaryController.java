@@ -23,8 +23,6 @@ public class StructuredSalaryController {
     @Autowired
     private ComponentManagementService componentService;
 
-
-
     // 🔹 Save or update structure
     @PostMapping("/components")
     public ResponseEntity<String> saveOrUpdateComponents(@RequestBody List<SalaryComponent> components) {
@@ -43,7 +41,7 @@ public class StructuredSalaryController {
     }
 
     // 🔹 Simulate with only base + overrides
-    @GetMapping("/simulate")
+    @PostMapping("/simulate")
     public StructuredSalaryResult simulate(@RequestBody SimulationOverrideRequest request) {
         return salaryService.simulateWithOverrides(
                 request.getBaseSalary(),
