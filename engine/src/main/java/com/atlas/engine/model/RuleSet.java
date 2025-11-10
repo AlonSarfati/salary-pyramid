@@ -10,8 +10,8 @@ import java.util.*;
 @AllArgsConstructor
 @Builder
 public class RuleSet {
-    private final String id;
-    private final List<Rule> rules;
+    private String id;
+    private List<Rule> rules;
 
     public Map<String, Rule> activeRuleIndex(java.time.LocalDate date) {
         Map<String, Rule> idx = new HashMap<>();
