@@ -8,11 +8,7 @@
         <groupId>com.atlas</groupId>
         <artifactId>obol-salary-simulator</artifactId>
         <version>0.1.0-SNAPSHOT</version>
-<<<<<<< HEAD
-        <relativePath>../‏‏pom.xml</relativePath>
-=======
         <relativePath>../pom.xml</relativePath>
->>>>>>> f4b783057e5112365cf0a997d5505aad4ad5f5bd
     </parent>
 
     <artifactId>api</artifactId>
@@ -23,7 +19,10 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.atlas</groupId>
             <artifactId>engine</artifactId>
@@ -55,8 +54,6 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-<<<<<<< HEAD
-=======
                 <version>${spring.boot.version}</version>
                 <executions>
                     <execution>
@@ -65,7 +62,6 @@
                         </goals>
                     </execution>
                 </executions>
->>>>>>> f4b783057e5112365cf0a997d5505aad4ad5f5bd
             </plugin>
 
             <!-- Keep -parameters for Spring argument names -->
