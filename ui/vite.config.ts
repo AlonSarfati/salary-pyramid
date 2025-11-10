@@ -54,7 +54,18 @@
       outDir: 'build',
     },
     server: {
+<<<<<<< HEAD
       port: 3000,
       open: true,
+=======
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8080',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api/, '')
+        }
+      }
+>>>>>>> f4b783057e5112365cf0a997d5505aad4ad5f5bd
     },
   });

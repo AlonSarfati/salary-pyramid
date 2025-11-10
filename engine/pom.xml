@@ -8,7 +8,11 @@
         <groupId>com.atlas</groupId>
         <artifactId>obol-salary-simulator</artifactId>
         <version>0.1.0-SNAPSHOT</version>
+<<<<<<< HEAD
         <relativePath>../‏‏pom.xml</relativePath>
+=======
+        <relativePath>../pom.xml</relativePath>
+>>>>>>> f4b783057e5112365cf0a997d5505aad4ad5f5bd
     </parent>
 
     <artifactId>engine</artifactId>
