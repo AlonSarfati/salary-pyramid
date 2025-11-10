@@ -1,0 +1,8 @@
+.git
+**/target
+**/.idea
+**/.classpath
+**/.project
+ui/node_modules
+ui/dist
+node_modules
