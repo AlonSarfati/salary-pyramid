@@ -7,11 +7,6 @@ import RuleBuilder from './components/RuleBuilder';
 import ComponentsGraph from './components/ComponentsGraph';
 import ResultsPage from './components/ResultsPage';
 import AdminPage from './components/AdminPage';
-<<<<<<< HEAD
-=======
-import SimulateHookup from './components/SimulateHookup';
-
->>>>>>> f4b783057e5112365cf0a997d5505aad4ad5f5bd
 
 type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'components-graph' | 'results' | 'admin';
 
@@ -43,11 +38,6 @@ export default function App() {
         return <ResultsPage />;
       case 'admin':
         return <AdminPage />;
-<<<<<<< HEAD
-=======
-      case 'simulate-hookup':
-        return <SimulateHookup />;
->>>>>>> f4b783057e5112365cf0a997d5505aad4ad5f5bd
       default:
         return <HomePage onNavigate={setCurrentPage} />;
     }
