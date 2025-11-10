@@ -10,20 +10,20 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/rulesets")
 public class RulesController {
 
-    private final RulesService rules;
+    private final RulesService rulesService;
 
-    public RulesController(RulesService rules) { this.rules = rules; }
+    public RulesController(RulesService rulesService) { this.rulesService = rulesService; }
 
     @PostMapping
     public ResponseEntity<RuleSetResponse> create(@RequestBody RuleSetRequest req) {
-        String id = rules.saveDraft(req);
+        String id = rulesService.saveDraft(req);
         return ResponseEntity.ok(new RuleSetResponse(id, "DRAFT"));
     }
 
     @PostMapping("/{tenantId}/{rulesetId}/publish")
     public ResponseEntity<RuleSetResponse> publish(@PathVariable String tenantId,
                                                    @PathVariable String rulesetId) {
-        rules.publish(tenantId, rulesetId);
+        rulesService.publish(tenantId, rulesetId);
         return ResponseEntity.ok(new RuleSetResponse(rulesetId, "ACTIVE"));
     }
 }
