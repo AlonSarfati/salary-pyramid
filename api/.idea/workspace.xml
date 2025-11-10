@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="6bcdf9ce-4636-4cef-ae5e-2416f4144ffe" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/../pom.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/SalarySimulatorApplication.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/config/ContributionGroupProperties.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/controller/StructuredSalaryController.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/model/SalaryComponent.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/model/SimulationOverrideRequest.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/model/StructuredSalaryResult.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/repository/SalaryComponentRepository.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/repository/SalaryStructureLoader.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/service/ComponentManagementService.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/service/StructuredSalaryService.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/com/obol/salarysimulator/util/SalaryComponentFileWriter.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/resources/application.properties" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/resources/components.json" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Class" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="2vwbjEuuiuUkuY6DXEbFnxtmlKM" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Application.Main.executor": "Run",
+    "Application.SalarySimulatorApplication.executor": "Run",
+    "Maven.salary-simulator [clean].executor": "Run",
+    "Maven.salary-simulator [install].executor": "Run",
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "main",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/Users/alon3/Desktop/javaproj/obol-salary-simulator",
+    "onboarding.tips.debug.path": "C:/Users/alon3/Desktop/javaproj/obol-salary-simulator/src/main/java/org/example/Main.java",
+    "settings.editor.selected.configurable": "reference.projectsettings.compiler.annotationProcessors"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
+      <recent name="com.obol.salarysimulator.repository" />
+    </key>
+  </component>
+  <component name="RunManager">
+    <configuration name="SalarySimulatorApplication" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="com.obol.salarysimulator.SalarySimulatorApplication" />
+      <module name="salary-simulator" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.obol.salarysimulator.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Application.SalarySimulatorApplication" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="jdk-17.0.10-corretto-17.0.10-4caba194b151-5cd809f4" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="6bcdf9ce-4636-4cef-ae5e-2416f4144ffe" name="Changes" comment="" />
+      <created>1745059220089</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1745059220089</updated>
+    </task>
+    <servers />
+  </component>
+</project>
