@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  api:
+    image: alonsar/salary-simulation:0.1.0
+    container_name: salary-sim-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/salarysim
+      SPRING_DATASOURCE_USERNAME: atlas
+      SPRING_DATASOURCE_PASSWORD: atlas
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    container_name: salary-sim-db
+    environment:
+      POSTGRES_DB: salarysim
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"   # optional, if you also want to connect via DBeaver/pgAdmin
+
+volumes:
+  pgdata:
