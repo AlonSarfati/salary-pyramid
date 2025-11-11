@@ -1,5 +1,0 @@
-curl -s http://localhost:8080/rulesets -H "Content-Type: application/json" -d "{\"name\":\"default-2025\",\"tenantId\":\"default\",\"rules\":[{\"target\":\"Expert Bonus\",\"expression\":\"${Base} * 0.06\",\"dependsOn\":[\"Base\"]},{\"target\":\"Responsibility Bonus\",\"expression\":\"(${Base}+${Expert Bonus})*0.04\",\"dependsOn\":[\"Base\",\"Expert Bonus\"]},{\"target\":\"Full Bonus\",\"expression\":\"(${Base}+${Expert Bonus}+${Responsibility Bonus})*0.05\",\"dependsOn\":[\"Base\",\"Expert Bonus\",\"Responsibility Bonus\"]},{\"target\":\"Fixed Travel\",\"expression\":\"200\",\"dependsOn\":[]}]}\"
-
-curl -s -X POST http://localhost:8080/rulesets/default/default-2025/publish
-
-curl -s -X POST http://localhost:8080/simulate/employee -H "Content-Type: application/json" -d '{ "tenantId":"default", "rulesetId":null, "period":{"from":"2025-01-01","to":"2025-01-31"}, "employee":{"id":"E1","base":10000,"hours":12,"rate":null,"extra":{}} }'

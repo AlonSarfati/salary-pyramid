@@ -1,0 +1,35 @@
+name: Build & Push Docker Image
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag for Docker image (e.g. 0.1.0)'
+        required: true
+        default: '0.1.0'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version || '0.1.0' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: docker build -t atlas/salary-sim-api:${VERSION} .
+
+      - name: Tag for Docker Hub
+        run: docker tag atlas/salary-sim-api:${VERSION} alonsar/salary-simulation:${VERSION}
+
+      - name: Push to Docker Hub
+        run: docker push alonsar/salary-simulation:${VERSION}
