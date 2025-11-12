@@ -8,6 +8,7 @@ import com.atlas.engine.model.RuleSet;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.*;
 
 @Service
@@ -22,20 +23,20 @@ public class SimulationService {
     }
 
     public SimEmployeeResponse simulateEmployee(SimEmployeeRequest req) {
-        RuleSet rs = resolveRules(req.tenantId(), req.rulesetId(), req.period());
-        EvaluationResult out = evaluator.evaluateAll(rs, Mappers.toEvalContext(req.period(), req.employee()));
+        RuleSet rs = resolveRules(req.tenantId(), req.rulesetId(), req.payDay());
+        EvaluationResult out = evaluator.evaluateAll(rs, Mappers.toEvalContext(req.payDay(), req.employee()));
         return Mappers.toResponse(out);
     }
 
     public SimBulkResponse simulateBulk(SimBulkRequest req) {
-        RuleSet rs = resolveRules(req.tenantId(), req.rulesetId(), req.period());
+        RuleSet rs = resolveRules(req.tenantId(), req.rulesetId(), req.payDay());
 
         List<Map<String,Object>> per = new ArrayList<>();
         Map<String, BigDecimal> totalsByComponent = new LinkedHashMap<>();
         BigDecimal grand = BigDecimal.ZERO;
 
         for (var emp : req.employees()) {
-            var out = evaluator.evaluateAll(rs, Mappers.toEvalContext(req.period(), emp));
+            var out = evaluator.evaluateAll(rs, Mappers.toEvalContext(req.payDay(), emp));
             per.add(Map.of("employeeId", emp.id(), "total", out.total()));
             grand = grand.add(out.total());
             out.components().forEach((k,v) ->
@@ -44,9 +45,9 @@ public class SimulationService {
         return new SimBulkResponse(per, totalsByComponent, grand);
     }
 
-    private RuleSet resolveRules(String tenantId, String rulesetId, PeriodDto period) {
+    private RuleSet resolveRules(String tenantId, String rulesetId, LocalDate payDay) {
         if (rulesetId != null) return rules.getById(tenantId, rulesetId);
-        var date = period != null && period.from() != null ? period.from() : java.time.LocalDate.now();
+        var date = payDay != null ? payDay : java.time.LocalDate.now();
         return rules.getActive(tenantId, date);
     }
 }

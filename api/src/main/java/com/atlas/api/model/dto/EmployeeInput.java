@@ -7,5 +7,5 @@ public record EmployeeInput(String id,
                             BigDecimal base,
                             BigDecimal hours,
                             BigDecimal rate,
-                            Map<String, BigDecimal> extra // any additional inputs
+                            Map<String, Object> extra // any additional inputs
 ) {}
