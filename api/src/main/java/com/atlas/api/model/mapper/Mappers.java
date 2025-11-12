@@ -26,7 +26,7 @@ public class Mappers {
     }
 
     public static EvalContext toEvalContext(PeriodDto p, EmployeeInput e) {
-        Map<String, BigDecimal> inputs = new HashMap<>();
+        Map<String, Object> inputs = new HashMap<>();
         if (e.base() != null)  inputs.put("Base", e.base());
         if (e.hours() != null) inputs.put("HOURS", e.hours());
         if (e.rate() != null)  inputs.put("RATE", e.rate());

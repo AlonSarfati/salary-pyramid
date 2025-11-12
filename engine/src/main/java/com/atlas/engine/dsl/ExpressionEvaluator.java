@@ -20,18 +20,18 @@ public class ExpressionEvaluator {
         return vars;
     }
 
-    public BigDecimal eval(String expr, Map<String, BigDecimal> vars) {
+    public BigDecimal eval(String expr, Map<String, Object> vars) {
         String replaced = replaceVars(expr, vars);
         return evalArithmetic(replaced);
     }
 
-    private String replaceVars(String expr, Map<String, BigDecimal> vars) {
+    private String replaceVars(String expr, Map<String, Object> vars) {
         Matcher m = VAR.matcher(expr);
         StringBuffer sb = new StringBuffer();
         while (m.find()) {
             String key = m.group(1);
-            BigDecimal v = vars.getOrDefault(key, BigDecimal.ZERO);
-            m.appendReplacement(sb, v.toPlainString());
+            Object v = vars.getOrDefault(key, BigDecimal.ZERO);
+            m.appendReplacement(sb, v.toString());
         }
         m.appendTail(sb);
         return sb.toString();
