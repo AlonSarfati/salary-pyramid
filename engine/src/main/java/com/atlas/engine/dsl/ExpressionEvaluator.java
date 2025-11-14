@@ -6,8 +6,13 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Minimal, safe evaluator: supports + - * / ( ), variables ${X}, min(), max(), if(cond,a,b).
- *  cond: a>b, a>=b, a<b, a<=b, a==b, a!=b (numbers only).
+/**
+ * Minimal, safe evaluator:
+ *  - variables: ${Name}
+ *  - operators: + - * / ( )
+ *  - functions: min(a,b), max(a,b)
+ *  - conditional: if(cond, a, b) where cond is numeric comparison:
+ *      a>b, a>=b, a<b, a<=b, a==b, a!=b
  */
 public class ExpressionEvaluator {
     private static final Pattern VAR = Pattern.compile("\\$\\{([^}]+)}");
