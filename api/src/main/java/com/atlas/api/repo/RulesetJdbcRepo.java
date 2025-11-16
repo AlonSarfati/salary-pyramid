@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.DataClassRowMapper;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
 import java.util.*;
 
 @Repository
@@ -26,6 +27,23 @@ public class RulesetJdbcRepo {
         var sql = "SELECT ruleset_id FROM tenant_active_ruleset WHERE tenant_id=:t";
         var list = jdbc.queryForList(sql, Map.of("t", tenantId), String.class);
         return list.stream().findFirst();
+    }
+
+    public List<String> findAllActiveRulesetIds(String tenantId, LocalDate date) {
+
+        String sql = """
+        SELECT ruleset_id
+        FROM ruleset
+        WHERE tenant_id = :tenant
+            AND status = 'ACTIVE'
+    """;
+
+        var params = new MapSqlParameterSource()
+                .addValue("tenant", tenantId)
+                .addValue("d", date);
+
+        return jdbc.query(sql, params,
+                (rs, rowNum) -> rs.getString("ruleset_id"));
     }
 
     public List<RuleRow> listRules(String rulesetId) {

@@ -49,6 +49,21 @@ public class RulesServiceMemory implements RulesService {
     }
 
     @Override
+    public List<RuleSet> getActiveList(String tenantId, LocalDate onDate) {
+        // For in-memory impl: just return the single active ruleset as a list (or empty if none)
+        String tenant = tenantFor(tenantId);
+        String activeId = activeByTenant.get(tenant);
+        if (activeId == null) {
+            return List.of(); // or throw, depending on how you want the API to behave
+        }
+        RuleSet rs = store.getOrDefault(tenant, Map.of()).get(activeId);
+        if (rs == null) {
+            throw new IllegalStateException("Active ruleset id not found: " + activeId);
+        }
+        return List.of(rs);
+    }
+
+    @Override
     public RuleSet getById(String tenantId, String id) {
         return store.getOrDefault(tenantFor(tenantId), Map.of()).get(id);
     }

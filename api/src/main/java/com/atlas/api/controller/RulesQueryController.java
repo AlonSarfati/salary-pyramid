@@ -17,9 +17,20 @@ public class RulesQueryController {
 
     // minimal list: just return ids we know about in memory (tenant "default")
     @GetMapping("/{tenantId}/active")
-    public ResponseEntity<Map<String,Object>> active(@PathVariable String tenantId) {
-        RuleSet rs = rules.getActive(tenantId, LocalDate.now());
-        return ResponseEntity.ok(Map.of("tenantId", tenantId, "rulesetId", rs.getId(), "count", rs.getRules().size()));
+    public ResponseEntity<Map<String, Object>> active(@PathVariable String tenantId) {
+        List<RuleSet> list = rules.getActiveList(tenantId, LocalDate.now());
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "tenantId", tenantId,
+                        "ruleSets", list.stream()
+                                .map(rs -> Map.of(
+                                        "rulesetId", rs.getId(),
+                                        "count", rs.getRules().size()
+                                ))
+                                .toList()
+                )
+        );
     }
 
     // (optional) fetch a ruleset’s targets quickly for UI display

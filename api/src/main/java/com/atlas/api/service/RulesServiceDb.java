@@ -68,6 +68,14 @@ public class RulesServiceDb implements RulesService {
     }
 
     @Override
+    public List<RuleSet> getActiveList(String tenantId, LocalDate onDate) {
+        var ids = repo.findAllActiveRulesetIds(tenant(tenantId), onDate);
+        return ids.stream()
+                .map(id -> getById(tenantId, id))
+                .toList();
+    }
+
+    @Override
     public RuleSet getById(String tenantId, String id) {
         var rs = repo.findById(tenant(tenantId), id)
                 .orElseThrow(() -> new NoSuchElementException("Ruleset not found: " + id));

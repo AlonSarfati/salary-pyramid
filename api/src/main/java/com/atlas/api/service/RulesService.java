@@ -12,5 +12,6 @@ public interface RulesService {
     String saveDraft(RuleSetRequest req);
     void publish(String tenantId, String rulesetId);
     RuleSet getActive(String tenantId, LocalDate onDate);
+    List<RuleSet> getActiveList(String tenantId, LocalDate onDate);
     RuleSet getById(String tenantId, String id);
 }
