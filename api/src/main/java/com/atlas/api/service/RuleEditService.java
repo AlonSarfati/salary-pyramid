@@ -37,6 +37,17 @@ public class RuleEditService {
         return rulesService.getById(tenantId, rulesetId);
     }
 
+    public RuleSet deleteRule(String tenantId, String rulesetId, String target) {
+        RuleSet rs = rulesService.getById(tenantId, rulesetId);
+        // Remove the rule with the given target
+        List<Rule> updated = rs.getRules().stream()
+                .filter(r -> !r.getTarget().equals(target))
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        rulesService.replaceRules(tenantId, rulesetId, updated);
+        return rulesService.getById(tenantId, rulesetId);
+    }
+
     private Rule apply(Rule r, RuleUpdateRequest req) {
         // Create a mutable copy (assuming Lombok setters; otherwise use constructor)
         r.setExpression(defaultIfNull(req.expression(), r.getExpression()));

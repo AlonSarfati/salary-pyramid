@@ -115,8 +115,13 @@ public class RegexTableCallResolver implements TableCallResolver {
             return;
         }
         // variable name -> look up in vars
+        // If variable not found, default to BigDecimal.ZERO (for numeric) or empty string (for string)
         Object v = vars.get(token);
-        if (v == null) throw new IllegalArgumentException("Unknown variable: " + token);
+        if (v == null) {
+            // Default to zero for missing variables
+            out.add(BigDecimal.ZERO);
+            return;
+        }
 
         // allow "2025-11-01" string as LocalDate
         if (v instanceof String s && s.matches("\\d{4}-\\d{2}-\\d{2}")) {

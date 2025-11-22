@@ -22,13 +22,13 @@ public class EngineSmokeTest {
 
     @Test
     void simpleChain() {
-        Rule expert = new Rule("Expert Bonus", "${Base} * 0.06",
-                List.of("Base"), null, null, Map.of());
-        Rule resp   = new Rule("Responsibility Bonus", "(${Base}+${Expert Bonus}) * 0.04",
-                List.of("Base","Expert Bonus"), null, null, Map.of());
-        Rule full   = new Rule("Full Bonus", "(${Base}+${Expert Bonus}+${Responsibility Bonus})*0.05",
-                List.of("Base","Expert Bonus","Responsibility Bonus"), null, null, Map.of());
-        Rule travel = new Rule("Fixed Travel", "200", List.of(), null, null, Map.of());
+        Rule expert = new Rule("ExpertBonus", "BaseSalary * 0.06",
+                List.of("BaseSalary"), null, null, Map.of());
+        Rule resp   = new Rule("ResponsibilityBonus", "(BaseSalary + ExpertBonus) * 0.04",
+                List.of("BaseSalary","ExpertBonus"), null, null, Map.of());
+        Rule full   = new Rule("FullBonus", "(BaseSalary + ExpertBonus + ResponsibilityBonus) * 0.05",
+                List.of("BaseSalary","ExpertBonus","ResponsibilityBonus"), null, null, Map.of());
+        Rule travel = new Rule("FixedTravel", "200", List.of(), null, null, Map.of());
 
         RuleSet rs = new RuleSet("default", List.of(expert, resp, full, travel));
 
@@ -36,14 +36,14 @@ public class EngineSmokeTest {
         Evaluator evaluator = new DefaultEvaluator(NOOP_TABLES);
 
         // EvalContext now accepts Map<String, Object>; this still works as-is.
-        EvalContext ctx = new EvalContext(Map.of("Base", new BigDecimal("10000")), LocalDate.now());
+        EvalContext ctx = new EvalContext(Map.of("BaseSalary", new BigDecimal("10000")), LocalDate.now());
 
         EvaluationResult result = evaluator.evaluateAll(rs, ctx);
 
-        assertAmountEquals("600.0",  result.components().get("Expert Bonus").amount());
-        assertAmountEquals("424.0",  result.components().get("Responsibility Bonus").amount());
-        assertAmountEquals("551.2",  result.components().get("Full Bonus").amount());
-        assertAmountEquals("200",    result.components().get("Fixed Travel").amount());
+        assertAmountEquals("600.0",  result.components().get("ExpertBonus").amount());
+        assertAmountEquals("424.0",  result.components().get("ResponsibilityBonus").amount());
+        assertAmountEquals("551.2",  result.components().get("FullBonus").amount());
+        assertAmountEquals("200",    result.components().get("FixedTravel").amount());
         assertAmountEquals("1775.2", result.total());
     }
 

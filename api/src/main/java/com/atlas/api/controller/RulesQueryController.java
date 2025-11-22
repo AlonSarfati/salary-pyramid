@@ -13,7 +13,11 @@ import java.util.*;
 @RequestMapping("/rulesets")
 public class RulesQueryController {
     private final RulesService rules;
-    public RulesQueryController(RulesService rules) { this.rules = rules; }
+    private final com.atlas.api.service.RulesServiceDb rulesDb;
+    public RulesQueryController(RulesService rules, com.atlas.api.service.RulesServiceDb rulesDb) { 
+        this.rules = rules; 
+        this.rulesDb = rulesDb;
+    }
 
     // minimal list: just return ids we know about in memory (tenant "default")
     @GetMapping("/{tenantId}/active")
@@ -24,10 +28,15 @@ public class RulesQueryController {
                 Map.of(
                         "tenantId", tenantId,
                         "ruleSets", list.stream()
-                                .map(rs -> Map.of(
-                                        "rulesetId", rs.getId(),
-                                        "count", rs.getRules().size()
-                                ))
+                                .map(rs -> {
+                                    // Get ruleset name from database
+                                    String name = rulesDb.getRulesetName(tenantId, rs.getId());
+                                    return Map.of(
+                                            "rulesetId", rs.getId(),
+                                            "name", name != null ? name : rs.getId(),
+                                            "count", rs.getRules().size()
+                                    );
+                                })
                                 .toList()
                 )
         );

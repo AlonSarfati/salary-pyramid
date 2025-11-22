@@ -33,7 +33,8 @@ public class TableServiceDb implements TableService {
                 rs -> rs.next() ? rs.getString(1) : null);
 
         if (columnsJson == null) {
-            throw new NoSuchElementException("Table not found: %s/%s/%s".formatted(tenantId, componentTarget, tableName));
+            // Table doesn't exist - return zero instead of throwing exception
+            return BigDecimal.ZERO;
         }
 
         List<String> cols = parseColumnOrder(columnsJson);
@@ -58,7 +59,10 @@ public class TableServiceDb implements TableService {
                 hit = r.value();
             }
         }
-        if (hit == null) throw new NoSuchElementException("No matching row in " + tableName);
+        // Return zero if no matching row found (graceful degradation)
+        if (hit == null) {
+            return BigDecimal.ZERO;
+        }
         return hit;
     }
 
@@ -84,12 +88,30 @@ public class TableServiceDb implements TableService {
                 var keyNode = node.get(col);
                 if (keyNode == null) return false;
 
-                if (keyNode.isObject() && keyNode.has("min") && keyNode.has("max") && val instanceof Number num) {
-                    long v = num.longValue();
-                    long min = keyNode.get("min").asLong();
-                    long max = keyNode.get("max").asLong();
-                    if (v < min || v > max) return false;
+                // Check if this is a range object (has min or max property)
+                if (keyNode.isObject() && (keyNode.has("min") || keyNode.has("max")) && val instanceof Number num) {
+                    double v = num.doubleValue();
+                    boolean matches = true;
+                    
+                    // Check min bound (if present) - inclusive: v >= min
+                    if (keyNode.has("min") && !keyNode.get("min").isNull()) {
+                        double min = keyNode.get("min").asDouble();
+                        if (v < min) {
+                            matches = false;
+                        }
+                    }
+                    
+                    // Check max bound (if present) - exclusive: v < max (max is NOT included)
+                    if (matches && keyNode.has("max") && !keyNode.get("max").isNull()) {
+                        double max = keyNode.get("max").asDouble();
+                        if (v >= max) {  // Changed from > to >= to exclude max
+                            matches = false;
+                        }
+                    }
+                    
+                    if (!matches) return false;
                 } else {
+                    // Exact match for non-range values
                     String s = String.valueOf(val);
                     if (!Objects.equals(keyNode.asText(), s)) return false;
                 }

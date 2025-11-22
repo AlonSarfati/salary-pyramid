@@ -46,4 +46,13 @@ public class RulesEditorController {
         RuleSet rs = edit.getRuleset(tenantId, rulesetId);
         return ResponseEntity.ok(validator.validate(rs, req));
     }
+
+    // 4) Delete a rule from a ruleset
+    @DeleteMapping("/{tenantId}/{rulesetId}/rules/{target}")
+    public ResponseEntity<RuleSet> deleteRule(@PathVariable String tenantId,
+                                               @PathVariable String rulesetId,
+                                               @PathVariable String target) {
+        RuleSet updated = edit.deleteRule(tenantId, rulesetId, target);
+        return ResponseEntity.ok(updated);
+    }
 }

@@ -22,16 +22,27 @@ export default function App() {
     { id: 'admin' as Page, icon: Shield, label: 'Admin' },
   ];
 
+  // Map tenant display name to tenantId for API calls
+  const getTenantId = (tenantName: string): string => {
+    const mapping: Record<string, string> = {
+      'Acme Corp': 'default',
+      'TechStart Inc': 'techstart',
+      'Global Enterprises': 'global',
+    };
+    return mapping[tenantName] || 'default';
+  };
+
   const renderPage = () => {
+    const tenantId = getTenantId(tenant);
     switch (currentPage) {
       case 'home':
         return <HomePage onNavigate={setCurrentPage} />;
       case 'simulate-single':
-        return <SimulateSingle />;
+        return <SimulateSingle tenantId={tenantId} />;
       case 'simulate-bulk':
-        return <SimulateBulk />;
+        return <SimulateBulk tenantId={tenantId} />;
       case 'rule-builder':
-        return <RuleBuilder />;
+        return <RuleBuilder tenantId={tenantId} />;
       case 'components-graph':
         return <ComponentsGraph />;
       case 'results':

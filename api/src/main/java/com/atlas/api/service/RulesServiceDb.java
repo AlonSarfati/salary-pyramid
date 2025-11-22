@@ -94,5 +94,11 @@ public class RulesServiceDb implements RulesService {
         return new RuleSet(rs.ruleset_id(), rules);
     }
 
+    public String getRulesetName(String tenantId, String rulesetId) {
+        return repo.findById(tenant(tenantId), rulesetId)
+                .map(rs -> rs.name())
+                .orElse(rulesetId);
+    }
+
     private static String tenant(String t) { return t != null ? t : "default"; }
 }

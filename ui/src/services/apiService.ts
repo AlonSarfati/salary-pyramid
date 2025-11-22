@@ -1,0 +1,298 @@
+const API_BASE = '/api';
+
+// Types matching the backend DTOs
+export type RuleDto = {
+  target: string;
+  expression: string;
+  dependsOn: string[];
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  meta?: Record<string, string>;
+};
+
+export type RuleSet = {
+  id: string;
+  rules: RuleDto[];
+};
+
+export type RuleSetRequest = {
+  name: string;
+  tenantId: string;
+  rules: RuleDto[];
+};
+
+export type RuleSetResponse = {
+  rulesetId: string;
+  status: string;
+};
+
+export type RuleUpdateRequest = {
+  expression: string;
+  dependsOn?: string[] | null;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  taxable?: boolean | null;
+  group?: string | null;
+};
+
+export type ValidateRequest = {
+  sampleInputs?: Record<string, number>;
+};
+
+export type ValidateIssue = {
+  component?: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+};
+
+export type ValidateResponse = {
+  valid: boolean;
+  issues: ValidateIssue[];
+};
+
+export type EmployeeInput = {
+  id: string;
+  base?: number;
+  hours?: number;
+  rate?: number;
+  sales?: number;
+  performance?: number;
+  yearsOfService?: number;
+  hasFamily?: number;
+  isManager?: number;
+  department?: string;
+  status?: string;
+  extra?: Record<string, number | string>;
+};
+
+export type SimEmployeeRequest = {
+  tenantId: string;
+  rulesetId?: string | null;
+  payDay: string;
+  employee: EmployeeInput;
+};
+
+export type SimEmployeeResponse = {
+  components: Record<string, number>;
+  total: number;
+};
+
+export type SimBulkRequest = {
+  tenantId: string;
+  rulesetId?: string | null;
+  payDay: string;
+  employees: EmployeeInput[];
+};
+
+export type SimBulkResponse = {
+  results: Array<{ employeeId: string; total: number }>;
+  totalsByComponent: Record<string, number>;
+  grandTotal: number;
+};
+
+// Helper function for API calls
+async function apiCall<T>(
+  endpoint: string,
+  options?: RequestInit
+): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    ...options,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API call failed: ${response.status} - ${errorText}`);
+  }
+
+  return response.json();
+}
+
+// Ruleset Management
+export const rulesetApi = {
+  // Get active rulesets for a tenant
+  async getActive(tenantId: string = 'default'): Promise<{
+    tenantId: string;
+    ruleSets: Array<{ rulesetId: string; count: number }>;
+  }> {
+    return apiCall(`/rulesets/${tenantId}/active`);
+  },
+
+  // Get a specific ruleset
+  async getRuleset(
+    tenantId: string,
+    rulesetId: string
+  ): Promise<RuleSet> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}`);
+  },
+
+  // Get targets (component names) for a ruleset
+  async getTargets(
+    tenantId: string,
+    rulesetId: string
+  ): Promise<{ rulesetId: string; targets: string[] }> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}/targets`);
+  },
+
+  // Create a new ruleset (draft)
+  async create(request: RuleSetRequest): Promise<RuleSetResponse> {
+    return apiCall('/rulesets', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // Publish a ruleset
+  async publish(
+    tenantId: string,
+    rulesetId: string
+  ): Promise<RuleSetResponse> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}/publish`, {
+      method: 'POST',
+    });
+  },
+};
+
+// Rule Editing
+export const ruleApi = {
+  // Update a rule
+  async updateRule(
+    tenantId: string,
+    rulesetId: string,
+    target: string,
+    request: RuleUpdateRequest
+  ): Promise<RuleSet> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}/rules/${encodeURIComponent(target)}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // Validate a ruleset
+  async validate(
+    tenantId: string,
+    rulesetId: string,
+    request?: ValidateRequest
+  ): Promise<ValidateResponse> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}/validate`, {
+      method: 'POST',
+      body: JSON.stringify(request || {}),
+    });
+  },
+
+  // Delete a rule
+  async deleteRule(
+    tenantId: string,
+    rulesetId: string,
+    target: string
+  ): Promise<RuleSet> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}/rules/${encodeURIComponent(target)}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// Simulation
+export const simulationApi = {
+  // Simulate single employee
+  async simulateEmployee(
+    request: SimEmployeeRequest
+  ): Promise<SimEmployeeResponse> {
+    return apiCall('/simulate/employee', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // Simulate bulk employees
+  async simulateBulk(request: SimBulkRequest): Promise<SimBulkResponse> {
+    return apiCall('/simulate/bulk', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // Get required inputs for a ruleset
+  async getRequiredInputs(
+    tenantId: string,
+    rulesetId?: string | null,
+    payDay?: string
+  ): Promise<Record<string, { name: string; label: string; type: string; defaultValue: any; options?: string[]; min?: number }>> {
+    const params = new URLSearchParams({ tenantId });
+    if (rulesetId) params.append('rulesetId', rulesetId);
+    if (payDay) params.append('payDay', payDay);
+    return apiCall(`/simulate/required-inputs?${params.toString()}`);
+  },
+};
+
+// Table Management
+export const tableApi = {
+  // List all tables for a component
+  async listTables(
+    tenantId: string,
+    component: string
+  ): Promise<{ tables: Array<{ tableName: string; description: string; columns: any[] }> }> {
+    return apiCall(`/tables/${tenantId}/${encodeURIComponent(component)}`);
+  },
+
+  // Get table definition and rows
+  async getTable(
+    tenantId: string,
+    component: string,
+    tableName: string
+  ): Promise<{
+    description: string;
+    columns: any[];
+    rows: Array<{
+      effectiveFrom: string;
+      effectiveTo: string;
+      keys: any;
+      value: string;
+    }>;
+  }> {
+    return apiCall(`/tables/${tenantId}/${encodeURIComponent(component)}/${encodeURIComponent(tableName)}`);
+  },
+
+  // Create or update table definition
+  async saveTableDef(
+    tenantId: string,
+    component: string,
+    tableName: string,
+    description: string,
+    columns: Array<{ name: string; type: string }>
+  ): Promise<{ status: string }> {
+    return apiCall(`/tables/${tenantId}/${encodeURIComponent(component)}/${encodeURIComponent(tableName)}`, {
+      method: 'POST',
+      body: JSON.stringify({ description, columns }),
+    });
+  },
+
+  // Save table rows
+  async saveTableRows(
+    tenantId: string,
+    component: string,
+    tableName: string,
+    rows: Array<{
+      effectiveFrom?: string;
+      effectiveTo?: string;
+      keys: Record<string, any>;
+      value: number | string;
+    }>
+  ): Promise<{ upserted: number }> {
+    return apiCall(`/tables/${tenantId}/${encodeURIComponent(component)}/${encodeURIComponent(tableName)}/rows`, {
+      method: 'PUT',
+      body: JSON.stringify({ rows }),
+    });
+  },
+};
+
+// Export all APIs
+export default {
+  ruleset: rulesetApi,
+  rule: ruleApi,
+  simulation: simulationApi,
+};
+

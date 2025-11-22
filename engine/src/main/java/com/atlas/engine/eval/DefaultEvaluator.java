@@ -1,21 +1,32 @@
 package com.atlas.engine.eval;
 
-import com.atlas.engine.dsl.ExpressionEvaluator;
-import com.atlas.engine.model.*;
+import com.atlas.engine.expr.Functions;
+import com.atlas.engine.expr.TableLookupServiceAdapter;
+import com.atlas.engine.model.ComponentResult;
+import com.atlas.engine.model.EvalContext;
+import com.atlas.engine.model.EvaluationResult;
+import com.atlas.engine.model.Rule;
+import com.atlas.engine.model.RuleExpression;
+import com.atlas.engine.model.RuleSet;
+import com.atlas.engine.model.Trace;
 import com.atlas.engine.spi.TableService;
 
 import java.math.BigDecimal;
-import java.util.*;
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class DefaultEvaluator implements Evaluator {
 
-    private final ExpressionEvaluator expr = new ExpressionEvaluator();
     private final DependencyResolver resolver = new DependencyResolver();
-    private final TableCallResolver tableResolver;
+    private final TableService tableService;
 
     public DefaultEvaluator(TableService tables) {
-        // If you ever want a different implementation, inject it instead
-        this.tableResolver = new RegexTableCallResolver(tables);
+        this.tableService = tables;
     }
 
     @Override
@@ -27,33 +38,70 @@ public class DefaultEvaluator implements Evaluator {
         Map<String, ComponentResult> results = new LinkedHashMap<>();
 
         final String tenantId = String.valueOf(values.getOrDefault("_tenantId", "default"));
+        final LocalDate periodDate = ctx.periodDate();
+
+        // Build set of all component names (targets of rules)
+        Set<String> componentNames = new HashSet<>(ruleIdx.keySet());
+        componentNames.addAll(ctx.inputs().keySet());
 
         for (String comp : order) {
             Rule r = ruleIdx.get(comp);
+            if (r == null) {
+                continue; // Skip if rule not found
+            }
+            
             Trace trace = new Trace(comp);
 
-            // trace variable values BEFORE table resolution
-            for (String v : expr.variables(r.getExpression())) {
-                Object val = values.getOrDefault(v, BigDecimal.ZERO);
-                trace.step(v + " = " + String.valueOf(val));
+            // Create a context that includes both inputs and calculated values
+            // EvalContext is a record, so we create a new instance with the updated values map
+            EvalContext ruleContext = new EvalContext(values, periodDate);
+
+            // Register TBL function with adapter for this rule (must be done before parsing)
+            TableLookupServiceAdapter tableAdapter = new TableLookupServiceAdapter(
+                    tableService, tenantId, comp, periodDate);
+            Functions.registerTbl(tableAdapter);
+
+            // Create RuleExpression once and reuse it
+            RuleExpression ruleExpr = new RuleExpression(r.getExpression());
+
+            // Trace variable values
+            try {
+                Set<String> deps = ruleExpr.extractDependencies(componentNames);
+                for (String v : deps) {
+                    Object val = values.getOrDefault(v, BigDecimal.ZERO);
+                    trace.step(v + " = " + String.valueOf(val));
+                }
+            } catch (Exception e) {
+                // If extraction fails, continue without tracing
+                trace.step("Warning: Could not extract dependencies: " + e.getMessage());
             }
 
-            // resolve TBL(...) calls
-            String resolvedExpr = tableResolver.resolve(
-                    r.getExpression(),
-                    values,
-                    ctx.periodDate(),
-                    tenantId,
-                    comp,
-                    trace
-            );
-
-            // evaluate arithmetic part
-            BigDecimal amount = expr.eval(resolvedExpr, values);
-            values.put(comp, amount);
-            trace.done(comp + " = " + amount.toPlainString());
-
-            results.put(comp, new ComponentResult(comp, amount, trace));
+            // Evaluate using the new expression system
+            try {
+                BigDecimal amount = ruleExpr.evaluate(ruleContext, componentNames);
+                
+                // Check for missing dependencies that evaluated to zero
+                Set<String> deps = ruleExpr.extractDependencies(componentNames);
+                for (String dep : deps) {
+                    if (!values.containsKey(dep) && !ctx.inputs().containsKey(dep)) {
+                        trace.step("WARNING: Component '" + dep + "' not found - using 0");
+                    }
+                }
+                
+                values.put(comp, amount);
+                trace.done(comp + " = " + amount.toPlainString());
+                results.put(comp, new ComponentResult(comp, amount, trace));
+            } catch (Exception e) {
+                // On error, set to zero and trace the error
+                BigDecimal amount = BigDecimal.ZERO;
+                trace.step("ERROR: " + e.getMessage());
+                if (e.getCause() != null) {
+                    trace.step("Caused by: " + e.getCause().getMessage());
+                }
+                trace.done(comp + " = " + amount.toPlainString() + " (error)");
+                values.put(comp, amount);
+                results.put(comp, new ComponentResult(comp, amount, trace));
+            }
         }
 
         BigDecimal total = results.values().stream()
