@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Play, Save, Info, User, Users, Loader2 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import SimulateBulk from "./SimulateBulk";
-import { rulesetApi, simulationApi, type EmployeeInput, type SimEmployeeResponse } from "../services/apiService";
+import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
 
 export default function SimulateSingle({ tenantId = "default" }: { tenantId?: string }) {
   // ---- states ----
@@ -35,12 +35,12 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   // Results state
   const [simulationResult, setSimulationResult] = useState<SimEmployeeResponse | null>(null);
 
-  // ---- demo employees ----
-  const employees = [
-    { id: "E001", name: "John Doe" },
-    { id: "E002", name: "Jane Smith" },
-    { id: "E003", name: "Mike Johnson" },
-  ];
+  // Saved employees state
+  const [savedEmployees, setSavedEmployees] = useState<Employee[]>([]);
+  const [savedEmployeesLoading, setSavedEmployeesLoading] = useState(false);
+  
+  // Track last auto-filled employee to avoid overwriting user edits
+  const lastAutoFilledEmployeeId = useRef<string | null>(null);
 
   // ---- fetch rulesets ----
   useEffect(() => {
@@ -108,6 +108,25 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
     };
   }, [tenantId, selectedRulesetId, payMonth]);
 
+  // ---- fetch saved employees ----
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setSavedEmployeesLoading(true);
+        const employees = await employeeApi.list(tenantId);
+        if (!cancelled) {
+          setSavedEmployees(employees);
+        }
+      } catch (e: any) {
+        console.error('Failed to load saved employees:', e);
+      } finally {
+        if (!cancelled) setSavedEmployeesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
   // ---- normalize for the Select UI ----
   const rulesetOptions = useMemo(() => {
     return rulesets.map(rs => ({
@@ -115,6 +134,50 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
       label: `${rs.name || rs.rulesetId} (${rs.count} rules)`
     }));
   }, [rulesets]);
+
+  // Helper function to populate form with employee data
+  const populateFormWithEmployee = (employee: Employee) => {
+    if (!employee.data || Object.keys(requiredInputs).length === 0) return;
+    
+    const newInputValues: Record<string, any> = {};
+    Object.entries(requiredInputs).forEach(([key, meta]) => {
+      // Use employee data if available, otherwise use default
+      newInputValues[key] = employee.data[key] !== undefined 
+        ? employee.data[key] 
+        : meta.defaultValue;
+    });
+    setInputValues(newInputValues);
+  };
+
+  // ---- auto-fill employee data when both savedEmployees and requiredInputs are ready ----
+  useEffect(() => {
+    if (savedEmployees.length === 0 || !employeeId || Object.keys(requiredInputs).length === 0 || inputsLoading) return;
+    
+    const selectedEmployee = savedEmployees.find(emp => emp.employeeId === employeeId);
+    if (selectedEmployee && selectedEmployee.data) {
+      // Only auto-fill if we haven't already auto-filled this employee, or if employeeId changed
+      const shouldAutoFill = lastAutoFilledEmployeeId.current !== employeeId;
+      
+      if (shouldAutoFill) {
+        populateFormWithEmployee(selectedEmployee);
+        lastAutoFilledEmployeeId.current = employeeId;
+      }
+    }
+  }, [savedEmployees, employeeId, requiredInputs, inputsLoading]); // Only depend on these, not inputValues to avoid loops
+
+  // ---- handle employee selection ----
+  const handleEmployeeSelect = (selectedEmployeeId: string) => {
+    setEmployeeId(selectedEmployeeId);
+    lastAutoFilledEmployeeId.current = null; // Reset so auto-fill can run
+    
+    // Find the selected employee and populate form with their data
+    const selectedEmployee = savedEmployees.find(emp => emp.employeeId === selectedEmployeeId);
+    if (selectedEmployee) {
+      // Always populate when user explicitly selects an employee
+      populateFormWithEmployee(selectedEmployee);
+      lastAutoFilledEmployeeId.current = selectedEmployeeId;
+    }
+  };
 
   // ---- handle simulation ----
   const handleRun = async () => {
@@ -288,19 +351,45 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="employee">Employee ID</Label>
-                    <Select value={employeeId} onValueChange={setEmployeeId}>
-                      <SelectTrigger id="employee" className="mt-1">
-                        <SelectValue placeholder="Select employee..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {employees.map((emp) => (
-                          <SelectItem key={emp.id} value={emp.id}>
-                            {emp.id} - {emp.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="employee">Employee</Label>
+                    {savedEmployeesLoading ? (
+                      <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Loading employees...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <Select value={employeeId} onValueChange={handleEmployeeSelect}>
+                          <SelectTrigger id="employee" className="mt-1">
+                            <SelectValue placeholder="Select employee or enter ID..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {savedEmployees.length > 0 ? (
+                              savedEmployees.map((emp) => (
+                                <SelectItem key={emp.employeeId} value={emp.employeeId}>
+                                  {emp.employeeId} - {emp.name || '(No name)'}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <SelectItem value="__none__" disabled>
+                                No saved employees. Go to Employees tab to add some.
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          value={employeeId}
+                          onChange={(e) => setEmployeeId(e.target.value)}
+                          placeholder="Or enter employee ID manually"
+                          className="mt-2"
+                        />
+                        {savedEmployees.length > 0 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Select an employee to auto-fill their data, or enter a new ID
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   {/* Dynamically render input fields based on required inputs */}

@@ -65,7 +65,12 @@ public class EmployeeController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", "Failed to create employee: " + e.getMessage()));
+            String errorMessage = e.getMessage();
+            if (e.getCause() != null) {
+                errorMessage += " (Cause: " + e.getCause().getMessage() + ")";
+            }
+            e.printStackTrace(); // Log to console for debugging
+            return ResponseEntity.internalServerError().body(Map.of("error", "Failed to create employee: " + errorMessage));
         }
     }
 

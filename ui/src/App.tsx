@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Home, PlayCircle, Settings, BarChart3, Shield } from 'lucide-react';
+import { Home, PlayCircle, Settings, BarChart3, Shield, Users } from 'lucide-react';
 import HomePage from './components/HomePage';
 import SimulateSingle from './components/SimulateSingle';
 import SimulateBulk from './components/SimulateBulk';
@@ -7,9 +7,10 @@ import RuleBuilder from './components/RuleBuilder';
 import ComponentsGraph from './components/ComponentsGraph';
 import ResultsPage from './components/ResultsPage';
 import AdminPage from './components/AdminPage';
+import EmployeeManager from './components/EmployeeManager';
 import { tenantApi } from './services/apiService';
 
-type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'components-graph' | 'results' | 'admin';
+type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'components-graph' | 'results' | 'admin' | 'employees';
 
 type Tenant = {
   tenantId: string;
@@ -52,6 +53,7 @@ export default function App() {
   const navItems = [
     { id: 'home' as Page, icon: Home, label: 'Home' },
     { id: 'simulate-single' as Page, icon: PlayCircle, label: 'Simulate' },
+    { id: 'employees' as Page, icon: Users, label: 'Employees' },
     { id: 'rule-builder' as Page, icon: Settings, label: 'Rules' },
     { id: 'results' as Page, icon: BarChart3, label: 'Results' },
     { id: 'admin' as Page, icon: Shield, label: 'Admin' },
@@ -71,6 +73,8 @@ export default function App() {
         return <ComponentsGraph />;
       case 'results':
         return <ResultsPage />;
+      case 'employees':
+        return <EmployeeManager tenantId={selectedTenantId} />;
       case 'admin':
         return <AdminPage onTenantChange={() => {
           // Reload tenants when admin makes changes

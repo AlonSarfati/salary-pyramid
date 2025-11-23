@@ -12,11 +12,10 @@ import java.util.Optional;
 @Service
 public class EmployeeService {
     private final NamedParameterJdbcTemplate jdbc;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public EmployeeService(NamedParameterJdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public EmployeeService(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
-        this.objectMapper = objectMapper;
     }
 
     /**
@@ -86,6 +85,9 @@ public class EmployeeService {
         if (employeeId == null || employeeId.isBlank()) {
             throw new IllegalArgumentException("employeeId is required");
         }
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId is required");
+        }
         if (data == null) {
             data = Map.of();
         }
@@ -93,34 +95,51 @@ public class EmployeeService {
         try {
             String dataJson = objectMapper.writeValueAsString(data);
             
+            // Use MapSqlParameterSource to handle null values properly
+            var params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                    .addValue("id", employeeId)
+                    .addValue("tenantId", tenantId)
+                    .addValue("name", name) // Can be null
+                    .addValue("data", dataJson);
+            
             String sql = """
                 INSERT INTO employee (employee_id, tenant_id, name, data_json, created_at, updated_at)
                 VALUES (:id, :tenantId, :name, CAST(:data AS jsonb), now(), now())
-                ON CONFLICT (employee_id) DO UPDATE
+                ON CONFLICT (employee_id, tenant_id) DO UPDATE
                 SET name = :name, data_json = CAST(:data AS jsonb), updated_at = now()
-                RETURNING employee_id, tenant_id, name, data_json, created_at, updated_at
+                RETURNING employee_id, tenant_id, name, data_json::text, created_at, updated_at
                 """;
             
-            Map<String, Object> result = jdbc.queryForMap(sql, Map.of(
-                "id", employeeId,
-                "tenantId", tenantId,
-                "name", name,
-                "data", dataJson
-            ));
+            List<EmployeeDto> results = jdbc.query(sql, params, (rs, rowNum) -> {
+                try {
+                    String resultDataJson = rs.getString("data_json");
+                    Map<String, Object> resultData = objectMapper.readValue(resultDataJson, Map.class);
+                    return new EmployeeDto(
+                        rs.getString("employee_id"),
+                        rs.getString("tenant_id"),
+                        rs.getString("name"),
+                        resultData,
+                        rs.getTimestamp("created_at").toInstant(),
+                        rs.getTimestamp("updated_at").toInstant()
+                    );
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to parse employee data", e);
+                }
+            });
             
-            String resultDataJson = (String) result.get("data_json");
-            Map<String, Object> resultData = objectMapper.readValue(resultDataJson, Map.class);
+            if (results.isEmpty()) {
+                throw new RuntimeException("Failed to create employee: no result returned");
+            }
             
-            return new EmployeeDto(
-                (String) result.get("employee_id"),
-                (String) result.get("tenant_id"),
-                (String) result.get("name"),
-                resultData,
-                ((java.sql.Timestamp) result.get("created_at")).toInstant(),
-                ((java.sql.Timestamp) result.get("updated_at")).toInstant()
-            );
+            return results.get(0);
+        } catch (RuntimeException e) {
+            // If it's already a RuntimeException with a message, preserve it
+            if (e.getMessage() != null && !e.getMessage().equals("Failed to create employee")) {
+                throw e;
+            }
+            throw new RuntimeException("Failed to create employee: " + e.getClass().getSimpleName() + " - " + e.getMessage(), e);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create employee", e);
+            throw new RuntimeException("Failed to create employee: " + e.getClass().getSimpleName() + " - " + e.getMessage(), e);
         }
     }
 
@@ -143,7 +162,7 @@ public class EmployeeService {
                 params.put("data", dataJson);
             }
             
-            sql.append(" WHERE tenant_id = :tenantId AND employee_id = :id RETURNING employee_id, tenant_id, name, data_json, created_at, updated_at");
+            sql.append(" WHERE tenant_id = :tenantId AND employee_id = :id RETURNING employee_id, tenant_id, name, data_json::text, created_at, updated_at");
             
             List<EmployeeDto> employees = jdbc.query(sql.toString(), params,
                 (rs, rowNum) -> {
