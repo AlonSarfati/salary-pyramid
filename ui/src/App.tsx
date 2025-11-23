@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Home, PlayCircle, Settings, BarChart3, Shield } from 'lucide-react';
 import HomePage from './components/HomePage';
 import SimulateSingle from './components/SimulateSingle';
@@ -7,12 +7,47 @@ import RuleBuilder from './components/RuleBuilder';
 import ComponentsGraph from './components/ComponentsGraph';
 import ResultsPage from './components/ResultsPage';
 import AdminPage from './components/AdminPage';
+import { tenantApi } from './services/apiService';
 
 type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'components-graph' | 'results' | 'admin';
 
+type Tenant = {
+  tenantId: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
-  const [tenant, setTenant] = useState('Acme Corp');
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('default');
+  const [tenantsLoading, setTenantsLoading] = useState(true);
+
+  // Fetch tenants on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await tenantApi.list();
+        setTenants(data);
+        // If default tenant exists, select it; otherwise select first active tenant
+        const defaultTenant = data.find(t => t.tenantId === 'default');
+        const firstActive = data.find(t => t.status === 'ACTIVE');
+        if (defaultTenant) {
+          setSelectedTenantId('default');
+        } else if (firstActive) {
+          setSelectedTenantId(firstActive.tenantId);
+        } else if (data.length > 0) {
+          setSelectedTenantId(data[0].tenantId);
+        }
+      } catch (error) {
+        console.error('Failed to load tenants:', error);
+      } finally {
+        setTenantsLoading(false);
+      }
+    })();
+  }, []);
 
   const navItems = [
     { id: 'home' as Page, icon: Home, label: 'Home' },
@@ -22,33 +57,25 @@ export default function App() {
     { id: 'admin' as Page, icon: Shield, label: 'Admin' },
   ];
 
-  // Map tenant display name to tenantId for API calls
-  const getTenantId = (tenantName: string): string => {
-    const mapping: Record<string, string> = {
-      'Acme Corp': 'default',
-      'TechStart Inc': 'techstart',
-      'Global Enterprises': 'global',
-    };
-    return mapping[tenantName] || 'default';
-  };
-
   const renderPage = () => {
-    const tenantId = getTenantId(tenant);
     switch (currentPage) {
       case 'home':
         return <HomePage onNavigate={setCurrentPage} />;
       case 'simulate-single':
-        return <SimulateSingle tenantId={tenantId} />;
+        return <SimulateSingle tenantId={selectedTenantId} />;
       case 'simulate-bulk':
-        return <SimulateBulk tenantId={tenantId} />;
+        return <SimulateBulk tenantId={selectedTenantId} />;
       case 'rule-builder':
-        return <RuleBuilder tenantId={tenantId} />;
+        return <RuleBuilder tenantId={selectedTenantId} />;
       case 'components-graph':
         return <ComponentsGraph />;
       case 'results':
         return <ResultsPage />;
       case 'admin':
-        return <AdminPage />;
+        return <AdminPage onTenantChange={() => {
+          // Reload tenants when admin makes changes
+          tenantApi.list().then(setTenants).catch(console.error);
+        }} />;
       default:
         return <HomePage onNavigate={setCurrentPage} />;
     }
@@ -85,15 +112,21 @@ export default function App() {
         <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <h2 className="text-[#1E1E1E]">Atlas Compensation Simulator</h2>
           <div className="flex items-center gap-4">
-            <select
-              value={tenant}
-              onChange={(e) => setTenant(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-[#1E1E1E]"
-            >
-              <option>Acme Corp</option>
-              <option>TechStart Inc</option>
-              <option>Global Enterprises</option>
-            </select>
+            {!tenantsLoading && tenants.length > 0 && (
+              <select
+                value={selectedTenantId}
+                onChange={(e) => setSelectedTenantId(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-[#1E1E1E] min-w-[200px]"
+              >
+                {tenants
+                  .filter(t => t.status === 'ACTIVE')
+                  .map((tenant) => (
+                    <option key={tenant.tenantId} value={tenant.tenantId}>
+                      {tenant.name}
+                    </option>
+                  ))}
+              </select>
+            )}
             <div className="w-10 h-10 rounded-full bg-[#0052CC] flex items-center justify-center text-white">
               JD
             </div>

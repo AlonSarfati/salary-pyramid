@@ -586,9 +586,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       <Tabs 
         defaultValue={localStorage.getItem(`ruleBuilder_tab_${tenantId}`) || 'guide'} 
         onValueChange={(value) => localStorage.setItem(`ruleBuilder_tab_${tenantId}`, value)}
-        className="w-full flex flex-col"
+        className="w-full"
       >
-        <TabsList className="mb-6 flex-shrink-0 sticky top-0 bg-white z-10 py-2">
+        <TabsList className="mb-6">
           <TabsTrigger value="guide" className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />
             How to Build Rules
@@ -911,7 +911,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           </div>
         </TabsContent>
 
-        <TabsContent value="guide" className="flex-1 overflow-y-auto min-h-0">
+        <TabsContent value="guide">
           <div className="p-6">
             <RuleBuilderGuide />
           </div>

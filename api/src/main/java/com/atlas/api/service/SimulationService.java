@@ -37,7 +37,16 @@ public class SimulationService {
 
         for (var emp : req.employees()) {
             var out = evaluator.evaluateAll(rs, Mappers.toEvalContext(req.payDay(), emp));
-            per.add(Map.of("employeeId", emp.id(), "total", out.total()));
+            
+            // Include component breakdown for each employee
+            Map<String, BigDecimal> employeeComponents = new LinkedHashMap<>();
+            out.components().forEach((k, v) -> employeeComponents.put(k, v.amount()));
+            
+            per.add(Map.of(
+                "employeeId", emp.id(),
+                "total", out.total(),
+                "components", employeeComponents
+            ));
             grand = grand.add(out.total());
             out.components().forEach((k,v) ->
                     totalsByComponent.merge(k, v.amount(), BigDecimal::add));

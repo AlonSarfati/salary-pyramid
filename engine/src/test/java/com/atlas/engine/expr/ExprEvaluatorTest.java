@@ -144,6 +144,37 @@ public class ExprEvaluatorTest {
         // Test TBL function
         assertEquals(new BigDecimal("100"), evaluator.evaluateAsNumber("TBL(\"testTable\", 1)", context));
     }
+    
+    @Test
+    void testTblWithArithmetic() {
+        // Create a mock TableService that returns 1500
+        TableService mockTableService = new TableService() {
+            @Override
+            public BigDecimal lookup(String tenantId, String componentTarget, String tableName,
+                                     List<Object> keys, LocalDate onDate) {
+                if ("TzhLevels".equals(tableName)) {
+                    return new BigDecimal("1500");
+                }
+                return BigDecimal.ZERO;
+            }
+        };
+
+        // Register TBL function
+        TableLookupService tableLookupService = new TableLookupServiceAdapter(
+                mockTableService, "default", "TestComponent", LocalDate.now());
+        Functions.registerTbl(tableLookupService);
+        
+        // Add RoleStipend to context
+        Map<String, Object> inputs = new java.util.HashMap<>(context.getValues());
+        inputs.put("RoleStipend", new BigDecimal("1000"));
+        EvalContext newContext = new EvalContext(inputs, java.time.LocalDate.now());
+        com.atlas.engine.expr.EvalContext exprContext = new DefaultEvalContext(newContext);
+
+        // Test the exact expression the user is trying: (TBL("TzhLevels", Role) / 100) * RoleStipend
+        // TBL returns 1500, so (1500 / 100) * 1000 = 15 * 1000 = 15000
+        BigDecimal result = evaluator.evaluate("(TBL(\"TzhLevels\", 1) / 100) * RoleStipend", exprContext).asNumber();
+        assertEquals(new BigDecimal("15000"), result);
+    }
 
     @Test
     void testUnknownComponent() {

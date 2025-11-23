@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Play, Save, Info, User, Users, Loader2 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";

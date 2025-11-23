@@ -28,7 +28,8 @@ public class ExprParser {
         ExprNode expr = parseExpression();
         skipWhitespace();
         if (pos < input.length()) {
-            throw new IllegalArgumentException("Unexpected character at position " + pos + ": " + input.charAt(pos));
+            throw new IllegalArgumentException("Unexpected character at position " + pos + ": '" + input.charAt(pos) + 
+                "'. Remaining input: '" + input.substring(pos) + "'");
         }
         return expr;
     }
@@ -215,12 +216,16 @@ public class ExprParser {
         }
         
         // Parenthesized expression
-        if (matchToken("(", false)) {
+        if (pos < input.length() && input.charAt(pos) == '(') {
+            pos++; // Consume the opening parenthesis
+            skipWhitespace();
             ExprNode expr = parseExpression();
             skipWhitespace();
-            if (!matchToken(")", false)) {
+            if (pos >= input.length() || input.charAt(pos) != ')') {
                 throw new IllegalArgumentException("Expected ')' at position " + pos);
             }
+            pos++; // Consume the closing parenthesis
+            skipWhitespace();
             return expr;
         }
         

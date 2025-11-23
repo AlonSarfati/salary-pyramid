@@ -85,7 +85,7 @@ export type SimBulkRequest = {
 };
 
 export type SimBulkResponse = {
-  results: Array<{ employeeId: string; total: number }>;
+  results: Array<{ employeeId: string; total: number; components?: Record<string, number> }>;
   totalsByComponent: Record<string, number>;
   grandTotal: number;
 };
@@ -116,7 +116,7 @@ export const rulesetApi = {
   // Get active rulesets for a tenant
   async getActive(tenantId: string = 'default'): Promise<{
     tenantId: string;
-    ruleSets: Array<{ rulesetId: string; count: number }>;
+    ruleSets: Array<{ rulesetId: string; name: string; count: number }>;
   }> {
     return apiCall(`/rulesets/${tenantId}/active`);
   },
@@ -196,6 +196,97 @@ export const ruleApi = {
 };
 
 // Simulation
+export type Employee = {
+  employeeId: string;
+  tenantId: string;
+  name: string;
+  data: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const employeeApi = {
+  // List all employees for a tenant
+  async list(tenantId: string): Promise<Employee[]> {
+    return apiCall(`/employees?tenantId=${tenantId}`);
+  },
+
+  // Get a specific employee
+  async get(tenantId: string, employeeId: string): Promise<Employee> {
+    return apiCall(`/employees/${employeeId}?tenantId=${tenantId}`);
+  },
+
+  // Create a new employee
+  async create(employee: {
+    tenantId: string;
+    employeeId: string;
+    name?: string;
+    data: Record<string, any>;
+  }): Promise<Employee> {
+    return apiCall('/employees', {
+      method: 'POST',
+      body: JSON.stringify(employee),
+    });
+  },
+
+  // Update an employee
+  async update(
+    tenantId: string,
+    employeeId: string,
+    updates: {
+      name?: string;
+      data?: Record<string, any>;
+    }
+  ): Promise<Employee> {
+    return apiCall(`/employees/${employeeId}?tenantId=${tenantId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  // Delete an employee
+  async delete(tenantId: string, employeeId: string): Promise<{ status: string; employeeId: string }> {
+    return apiCall(`/employees/${employeeId}?tenantId=${tenantId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+export const tenantApi = {
+  // List all tenants
+  async list(): Promise<Array<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }>> {
+    return apiCall('/tenants');
+  },
+
+  // Get a specific tenant
+  async get(tenantId: string): Promise<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }> {
+    return apiCall(`/tenants/${tenantId}`);
+  },
+
+  // Create a new tenant
+  async create(tenantId: string, name: string, status: string = 'ACTIVE'): Promise<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }> {
+    return apiCall('/tenants', {
+      method: 'POST',
+      body: JSON.stringify({ tenantId, name, status }),
+    });
+  },
+
+  // Update a tenant
+  async update(tenantId: string, updates: { name?: string; status?: string }): Promise<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }> {
+    return apiCall(`/tenants/${tenantId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  // Delete (deactivate) a tenant
+  async delete(tenantId: string): Promise<{ status: string; tenantId: string }> {
+    return apiCall(`/tenants/${tenantId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 export const simulationApi = {
   // Simulate single employee
   async simulateEmployee(
@@ -294,5 +385,7 @@ export default {
   ruleset: rulesetApi,
   rule: ruleApi,
   simulation: simulationApi,
+  tenant: tenantApi,
+  employee: employeeApi,
 };
 

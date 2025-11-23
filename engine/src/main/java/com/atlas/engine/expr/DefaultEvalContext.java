@@ -29,7 +29,6 @@ public class DefaultEvalContext implements com.atlas.engine.expr.EvalContext {
         Object value = modelContext.inputs().get(componentName);
         if (value != null) {
             Value converted = convertToValue(value);
-            // Update cache
             componentCache.put(componentName, converted);
             return converted;
         }

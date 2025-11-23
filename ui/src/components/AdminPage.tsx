@@ -1,18 +1,109 @@
-import { useState } from 'react';
-import { Plus, Edit, Trash2, Key, Users, Building2, History } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Edit, Trash2, Key, Users, Building2, History, Loader2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { tenantApi } from '../services/apiService';
 
-export default function AdminPage() {
+type Tenant = {
+  tenantId: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export default function AdminPage({ onTenantChange }: { onTenantChange?: () => void }) {
   const [activeTab, setActiveTab] = useState('tenants');
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
+  
+  // Dialog state
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+  const [formData, setFormData] = useState({ tenantId: '', name: '', status: 'ACTIVE' });
 
-  const tenants = [
-    { id: 1, name: 'Acme Corp', status: 'Active', users: 1247, created: '2023-01-15' },
-    { id: 2, name: 'TechStart Inc', status: 'Active', users: 89, created: '2023-06-20' },
-    { id: 3, name: 'Global Enterprises', status: 'Active', users: 3542, created: '2022-11-10' },
-    { id: 4, name: 'Innovation Labs', status: 'Inactive', users: 12, created: '2024-09-05' },
-  ];
+  // Fetch tenants
+  useEffect(() => {
+    loadTenants();
+  }, []);
+
+  const loadTenants = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = await tenantApi.list();
+      setTenants(data);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load tenants');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdd = () => {
+    setEditingTenant(null);
+    setFormData({ tenantId: '', name: '', status: 'ACTIVE' });
+    setShowDialog(true);
+  };
+
+  const handleEdit = (tenant: Tenant) => {
+    setEditingTenant(tenant);
+    setFormData({ tenantId: tenant.tenantId, name: tenant.name, status: tenant.status });
+    setShowDialog(true);
+  };
+
+  const handleDelete = async (tenantId: string) => {
+    if (!confirm(`Are you sure you want to deactivate tenant "${tenantId}"?`)) {
+      return;
+    }
+    try {
+      await tenantApi.delete(tenantId);
+      await loadTenants();
+      if (onTenantChange) onTenantChange();
+    } catch (e: any) {
+      alert('Failed to delete tenant: ' + (e.message || 'Unknown error'));
+    }
+  };
+
+  const handleSave = async () => {
+    if (!formData.tenantId || !formData.name) {
+      alert('Tenant ID and Name are required');
+      return;
+    }
+
+    try {
+      if (editingTenant) {
+        // Update existing
+        await tenantApi.update(formData.tenantId, {
+          name: formData.name,
+          status: formData.status,
+        });
+      } else {
+        // Create new
+        await tenantApi.create(formData.tenantId, formData.name, formData.status);
+      }
+      setShowDialog(false);
+      await loadTenants();
+      if (onTenantChange) onTenantChange();
+    } catch (e: any) {
+      alert('Failed to save tenant: ' + (e.message || 'Unknown error'));
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString();
+    } catch {
+      return dateString;
+    }
+  };
 
   const roles = [
     { id: 1, name: 'Admin', users: 5, permissions: 'Full Access' },
@@ -65,48 +156,77 @@ export default function AdminPage() {
           <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-[#1E1E1E]">Tenants</h3>
-              <button className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors">
+              <Button onClick={handleAdd} className="flex items-center gap-2">
                 <Plus className="w-5 h-5" />
                 Add Tenant
-              </button>
+              </Button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 text-sm text-gray-600">Name</th>
-                    <th className="text-left py-3 px-4 text-sm text-gray-600">Status</th>
-                    <th className="text-right py-3 px-4 text-sm text-gray-600">Users</th>
-                    <th className="text-left py-3 px-4 text-sm text-gray-600">Created</th>
-                    <th className="text-right py-3 px-4 text-sm text-gray-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tenants.map((tenant) => (
-                    <tr key={tenant.id} className="border-b border-gray-100 hover:bg-[#EEF2F8] transition-colors">
-                      <td className="py-3 px-4 text-sm text-[#1E1E1E]">{tenant.name}</td>
-                      <td className="py-3 px-4">
-                        <Badge className={tenant.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}>
-                          {tenant.status}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 text-sm text-gray-600 text-right">{tenant.users.toLocaleString()}</td>
-                      <td className="py-3 px-4 text-sm text-gray-600">{tenant.created}</td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button className="p-2 hover:bg-gray-200 rounded transition-colors">
-                            <Edit className="w-4 h-4 text-gray-600" />
-                          </button>
-                          <button className="p-2 hover:bg-red-100 rounded transition-colors">
-                            <Trash2 className="w-4 h-4 text-red-600" />
-                          </button>
-                        </div>
-                      </td>
+            
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-[#0052CC]" />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 text-sm text-gray-600">Tenant ID</th>
+                      <th className="text-left py-3 px-4 text-sm text-gray-600">Name</th>
+                      <th className="text-left py-3 px-4 text-sm text-gray-600">Status</th>
+                      <th className="text-left py-3 px-4 text-sm text-gray-600">Created</th>
+                      <th className="text-right py-3 px-4 text-sm text-gray-600">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {tenants.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-gray-500">
+                          No tenants found. Click "Add Tenant" to create one.
+                        </td>
+                      </tr>
+                    ) : (
+                      tenants.map((tenant) => (
+                        <tr key={tenant.tenantId} className="border-b border-gray-100 hover:bg-[#EEF2F8] transition-colors">
+                          <td className="py-3 px-4 text-sm text-[#1E1E1E] font-mono">{tenant.tenantId}</td>
+                          <td className="py-3 px-4 text-sm text-[#1E1E1E]">{tenant.name}</td>
+                          <td className="py-3 px-4">
+                            <Badge className={tenant.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}>
+                              {tenant.status}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4 text-sm text-gray-600">{formatDate(tenant.createdAt)}</td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleEdit(tenant)}
+                                className="p-2 hover:bg-gray-200 rounded transition-colors"
+                                title="Edit tenant"
+                              >
+                                <Edit className="w-4 h-4 text-gray-600" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(tenant.tenantId)}
+                                className="p-2 hover:bg-red-100 rounded transition-colors"
+                                title="Deactivate tenant"
+                              >
+                                <Trash2 className="w-4 h-4 text-red-600" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </TabsContent>
 
@@ -115,10 +235,10 @@ export default function AdminPage() {
           <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-[#1E1E1E]">Roles & Permissions</h3>
-              <button className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors">
+              <Button className="flex items-center gap-2">
                 <Plus className="w-5 h-5" />
                 Add Role
-              </button>
+              </Button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -159,10 +279,10 @@ export default function AdminPage() {
           <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-[#1E1E1E]">Integrations</h3>
-              <button className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors">
+              <Button className="flex items-center gap-2">
                 <Plus className="w-5 h-5" />
                 Add Integration
-              </button>
+              </Button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -222,6 +342,64 @@ export default function AdminPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Create/Edit Tenant Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingTenant ? 'Edit Tenant' : 'Create Tenant'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="tenantId">Tenant ID</Label>
+              <Input
+                id="tenantId"
+                value={formData.tenantId}
+                onChange={(e) => setFormData({ ...formData, tenantId: e.target.value })}
+                placeholder="e.g., acme-corp"
+                disabled={!!editingTenant}
+                className="mt-1"
+              />
+              {editingTenant && (
+                <p className="text-xs text-gray-500 mt-1">Tenant ID cannot be changed</p>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g., Acme Corporation"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="status">Status</Label>
+              <Select
+                value={formData.status}
+                onValueChange={(value) => setFormData({ ...formData, status: value })}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave}>
+              {editingTenant ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
