@@ -380,6 +380,20 @@ export const tableApi = {
   },
 };
 
+// Component Groups
+export type ComponentGroup = {
+  groupName: string;
+  displayName: string;
+  color: string;
+  displayOrder: number;
+};
+
+export const componentGroupsApi = {
+  async getAll(): Promise<ComponentGroup[]> {
+    return apiCall('/component-groups');
+  },
+};
+
 // Export all APIs
 export default {
   ruleset: rulesetApi,
@@ -387,5 +401,6 @@ export default {
   simulation: simulationApi,
   tenant: tenantApi,
   employee: employeeApi,
+  componentGroups: componentGroupsApi,
 };
 

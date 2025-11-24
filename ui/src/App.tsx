@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Home, PlayCircle, Settings, BarChart3, Shield, Users } from 'lucide-react';
+import { Home, PlayCircle, Settings, BarChart3, Shield, Users, Network, HelpCircle } from 'lucide-react';
 import HomePage from './components/HomePage';
 import SimulateSingle from './components/SimulateSingle';
 import SimulateBulk from './components/SimulateBulk';
@@ -10,7 +10,7 @@ import AdminPage from './components/AdminPage';
 import EmployeeManager from './components/EmployeeManager';
 import { tenantApi } from './services/apiService';
 
-type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'components-graph' | 'results' | 'admin' | 'employees';
+type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees';
 
 type Tenant = {
   tenantId: string;
@@ -55,6 +55,7 @@ export default function App() {
     { id: 'simulate-single' as Page, icon: PlayCircle, label: 'Simulate' },
     { id: 'employees' as Page, icon: Users, label: 'Employees' },
     { id: 'rule-builder' as Page, icon: Settings, label: 'Rules' },
+    { id: 'visual' as Page, icon: Network, label: 'Visual' },
     { id: 'results' as Page, icon: BarChart3, label: 'Results' },
     { id: 'admin' as Page, icon: Shield, label: 'Admin' },
   ];
@@ -69,8 +70,8 @@ export default function App() {
         return <SimulateBulk tenantId={selectedTenantId} />;
       case 'rule-builder':
         return <RuleBuilder tenantId={selectedTenantId} />;
-      case 'components-graph':
-        return <ComponentsGraph />;
+      case 'visual':
+        return <ComponentsGraph tenantId={selectedTenantId} />;
       case 'results':
         return <ResultsPage />;
       case 'employees':

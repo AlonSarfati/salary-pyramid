@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle } from 'lucide-react';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -9,7 +10,6 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
-import ComponentsGraph from './ComponentsGraph';
 import RuleBuilderGuide from './RuleBuilderGuide';
 import TableBuilder from './TableBuilder';
 import { rulesetApi, ruleApi, tableApi, type RuleSet, type RuleDto, type ValidateIssue } from '../services/apiService';
@@ -56,6 +56,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showAddComponent, setShowAddComponent] = useState(false);
   const [newComponentName, setNewComponentName] = useState('');
   const [newComponentGroup, setNewComponentGroup] = useState('core');
+  
+  // Help guide drawer state
+  const [showHelpGuide, setShowHelpGuide] = useState(false);
   
   // Autocomplete state
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([]);
@@ -583,33 +586,36 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         </div>
       )}
 
-      <Tabs 
-        defaultValue={localStorage.getItem(`ruleBuilder_tab_${tenantId}`) || 'guide'} 
-        onValueChange={(value) => localStorage.setItem(`ruleBuilder_tab_${tenantId}`, value)}
-        className="w-full"
-      >
-        <TabsList className="mb-6">
-          <TabsTrigger value="guide" className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4" />
-            How to Build Rules
-          </TabsTrigger>
-          <TabsTrigger value="builder" className="flex items-center gap-2">
-            <List className="w-4 h-4" />
-            Rule Builder
-          </TabsTrigger>
-          <TabsTrigger value="tables" className="flex items-center gap-2">
-            <Database className="w-4 h-4" />
-            Tables
-          </TabsTrigger>
-          <TabsTrigger value="graph" className="flex items-center gap-2">
-            <Network className="w-4 h-4" />
-            Components Graph
-          </TabsTrigger>
-        </TabsList>
+      {/* Main Content Area - Full Width */}
+      <div>
+        <Tabs 
+          defaultValue={localStorage.getItem(`ruleBuilder_tab_${tenantId}`) || 'builder'} 
+          onValueChange={(value) => localStorage.setItem(`ruleBuilder_tab_${tenantId}`, value)}
+          className="w-full"
+        >
+          <TabsList className="mb-6">
+            <TabsTrigger value="builder" className="flex items-center gap-2">
+              <List className="w-4 h-4" />
+              Rule Builder
+            </TabsTrigger>
+            <TabsTrigger value="tables" className="flex items-center gap-2">
+              <Database className="w-4 h-4" />
+              Table Builder
+            </TabsTrigger>
+          </TabsList>
 
         <TabsContent value="builder">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-[#1E1E1E]">Rule Builder</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-[#1E1E1E]">Rule Builder</h2>
+              <button
+                onClick={() => setShowHelpGuide(true)}
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+                title="How to Build Rules"
+              >
+                <HelpCircle className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={handleSave}
@@ -911,20 +917,23 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           </div>
         </TabsContent>
 
-        <TabsContent value="guide">
-          <div className="p-6">
+            <TabsContent value="tables">
+              <TableBuilder tenantId={tenantId} />
+            </TabsContent>
+          </Tabs>
+      </div>
+
+      {/* Help Guide Drawer */}
+      <Sheet open={showHelpGuide} onOpenChange={setShowHelpGuide}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>How to Build Rules</SheetTitle>
+          </SheetHeader>
+          <div className="mt-6">
             <RuleBuilderGuide />
           </div>
-        </TabsContent>
-
-        <TabsContent value="tables">
-          <TableBuilder tenantId={tenantId} />
-        </TabsContent>
-
-        <TabsContent value="graph">
-          <ComponentsGraph />
-        </TabsContent>
-      </Tabs>
+        </SheetContent>
+      </Sheet>
 
       {/* Add Component Dialog */}
       <Sheet open={showAddComponent} onOpenChange={setShowAddComponent}>
