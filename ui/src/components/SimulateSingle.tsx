@@ -85,12 +85,22 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
         const inputs = await simulationApi.getRequiredInputs(tenantId, selectedRulesetId, payDay);
         if (!cancelled) {
           setRequiredInputs(inputs);
-          // Initialize input values with defaults
-          const initialValues: Record<string, any> = {};
-          for (const [name, metadata] of Object.entries(inputs)) {
-            initialValues[name] = metadata.defaultValue;
-          }
-          setInputValues(initialValues);
+          
+          // Preserve existing input values, only set defaults for new fields
+          setInputValues(prevValues => {
+            const newValues: Record<string, any> = { ...prevValues };
+            // For each required input, preserve existing value or use default
+            for (const [name, metadata] of Object.entries(inputs)) {
+              // Only set default if this field doesn't exist in previous values
+              // or if the field structure changed (e.g., new field added)
+              if (newValues[name] === undefined) {
+                newValues[name] = metadata.defaultValue;
+              }
+              // If field was removed from required inputs, we keep it in newValues
+              // (it will just be ignored by the API)
+            }
+            return newValues;
+          });
         }
       } catch (e: any) {
         console.error("Failed to load required inputs:", e);
@@ -295,39 +305,54 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
             </button>
           </div>
 
-          {/* Ruleset Selector - Centered above simulation */}
+          {/* Macro Controls - Ruleset and Pay Month - Centered above simulation */}
           <div className="mb-6 flex items-center justify-center">
             <Card className="p-4 bg-white rounded-xl shadow-sm border-0">
-              <div className="flex items-center gap-4">
-                <Label htmlFor="ruleset-top" className="text-sm font-medium text-gray-700">Select Ruleset:</Label>
-                {rulesLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Loading...</span>
-                  </div>
-                ) : rulesetOptions.length === 0 ? (
-                  <div className="text-sm text-gray-500">No rulesets available</div>
-                ) : (
-                  <Select 
-                    value={selectedRulesetId || ''} 
-                    onValueChange={(value) => {
-                      setSelectedRulesetId(value);
-                      const selected = rulesets.find(rs => rs.rulesetId === value);
-                      setSelectedRulesetName(selected?.name || value);
-                    }}
-                  >
-                    <SelectTrigger id="ruleset-top" className="w-[300px]">
-                      <SelectValue placeholder="Select ruleset..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {rulesetOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="ruleset-top" className="text-sm font-medium text-gray-700">Ruleset:</Label>
+                  {rulesLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Loading...</span>
+                    </div>
+                  ) : rulesetOptions.length === 0 ? (
+                    <div className="text-sm text-gray-500">No rulesets available</div>
+                  ) : (
+                    <Select
+                      value={selectedRulesetId || ''}
+                      onValueChange={(value) => {
+                        setSelectedRulesetId(value);
+                        const selected = rulesets.find(rs => rs.rulesetId === value);
+                        setSelectedRulesetName(selected?.name || value);
+                      }}
+                    >
+                      <SelectTrigger id="ruleset-top" className="w-[300px]">
+                        <SelectValue placeholder="Select ruleset..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {rulesetOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                
+                <div className="h-8 w-px bg-gray-300"></div>
+                
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="payMonth-top" className="text-sm font-medium text-gray-700">Pay Month:</Label>
+                  <Input
+                    id="payMonth-top"
+                    type="month"
+                    value={payMonth}
+                    onChange={(e) => setPayMonth(e.target.value)}
+                    className="w-[180px]"
+                  />
+                </div>
               </div>
             </Card>
           </div>
@@ -475,18 +500,6 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       </div>
                     );
                   })}
-
-                  <div>
-                    <Label htmlFor="payMonth">Pay Month</Label>
-                    <Input
-                      id="payMonth"
-                      type="month"
-                      value={payMonth}
-                      onChange={(e) => setPayMonth(e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-
 
                   <button
                     onClick={handleRun}
