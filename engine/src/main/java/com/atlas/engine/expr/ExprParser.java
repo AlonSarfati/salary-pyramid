@@ -267,18 +267,30 @@ public class ExprParser {
         List<ExprNode> args = new ArrayList<>();
         skipWhitespace();
         
-        if (!matchToken(")", false)) {
+        // Check for empty argument list
+        if (matchToken(")", false)) {
+            return new FunctionCallNode(functionName, args);
+        }
+        
+        // Parse first argument
+        args.add(parseExpression());
+        skipWhitespace();
+        
+        // Parse additional arguments
+        while (pos < input.length() && input.charAt(pos) == ',') {
+            pos++; // Consume comma
+            skipWhitespace();
             args.add(parseExpression());
             skipWhitespace();
-            while (matchToken(",", false)) {
-                skipWhitespace();
-                args.add(parseExpression());
-                skipWhitespace();
-            }
-            if (!matchToken(")", false)) {
-                throw new IllegalArgumentException("Expected ')' after function arguments at position " + pos);
-            }
         }
+        
+        // Expect closing parenthesis
+        if (pos >= input.length() || input.charAt(pos) != ')') {
+            throw new IllegalArgumentException("Expected ')' after function arguments at position " + pos + 
+                ". Found: " + (pos < input.length() ? "'" + input.charAt(pos) + "'" : "EOF"));
+        }
+        pos++; // Consume closing parenthesis
+        skipWhitespace();
         
         return new FunctionCallNode(functionName, args);
     }

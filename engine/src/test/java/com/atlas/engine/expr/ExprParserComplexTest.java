@@ -36,5 +36,16 @@ public class ExprParserComplexTest {
             assertNotNull(node);
         }, "Expression should parse: " + expr);
     }
+    
+    @Test
+    void testTblWithTwoArgsAndMultiplication() {
+        // Test TBL with two arguments followed by multiplication
+        String expr = "TBL(\"RoleSeniority\",Role) * BaseSalary";
+        ExprParser parser = new ExprParser(expr, Set.of());
+        assertDoesNotThrow(() -> {
+            ExprNode node = parser.parse();
+            assertNotNull(node);
+        }, "Expression should parse: " + expr);
+    }
 }
 
