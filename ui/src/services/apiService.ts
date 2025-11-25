@@ -122,6 +122,10 @@ export const rulesetApi = {
   },
 
   // Get a specific ruleset
+  async getAllRulesets(tenantId: string): Promise<Array<{ rulesetId: string; name: string; status: string }>> {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/all`);
+  },
+
   async getRuleset(
     tenantId: string,
     rulesetId: string
@@ -394,6 +398,127 @@ export const componentGroupsApi = {
   },
 };
 
+// Scenario Management
+export type Scenario = {
+  scenarioId: string;
+  tenantId: string;
+  name: string;
+  rulesetId: string;
+  payMonth: string;
+  inputData: Record<string, any>;
+  resultData: Record<string, any>;
+  simulationType: 'single' | 'bulk';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateScenarioRequest = {
+  tenantId: string;
+  name: string;
+  rulesetId: string;
+  payMonth: string;
+  inputData: Record<string, any>;
+  resultData: Record<string, any>;
+  simulationType?: 'single' | 'bulk';
+};
+
+export const scenarioApi = {
+  async list(tenantId: string): Promise<Scenario[]> {
+    return apiCall(`/scenarios?tenantId=${encodeURIComponent(tenantId)}`);
+  },
+
+  async get(tenantId: string, scenarioId: string): Promise<Scenario> {
+    return apiCall(`/scenarios/${encodeURIComponent(scenarioId)}?tenantId=${encodeURIComponent(tenantId)}`);
+  },
+
+  async create(request: CreateScenarioRequest): Promise<Scenario> {
+    return apiCall('/scenarios', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  async update(tenantId: string, scenarioId: string, name: string, inputData: Record<string, any>, resultData: Record<string, any>): Promise<Scenario> {
+    return apiCall(`/scenarios/${encodeURIComponent(scenarioId)}?tenantId=${encodeURIComponent(tenantId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, inputData, resultData }),
+    });
+  },
+
+  async delete(tenantId: string, scenarioId: string): Promise<{ status: string; scenarioId: string }> {
+    return apiCall(`/scenarios/${encodeURIComponent(scenarioId)}?tenantId=${encodeURIComponent(tenantId)}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// Baseline Dashboard API
+export type BaselineSummary = {
+  totalPayroll: number;
+  avgPerEmployee: number;
+  employeeCount: number;
+  activeRulesetName: string;
+  activeRulesetId: string;
+  asOfDate: string;
+  calculatedAt: string;
+};
+
+export type BaselineTrendPoint = {
+  month: string;
+  totalPayroll: number;
+};
+
+export type BaselineBreakdown = {
+  categoryTotals: Record<string, number>;
+  calculatedAt: string;
+};
+
+export type FullSimulationResult = {
+  rulesetId: string;
+  rulesetName: string;
+  asOfDate: string;
+  employeeResults: Array<{
+    employeeId: string;
+    employeeName: string | null;
+    total: number;
+    components: Record<string, number>;
+  }>;
+  componentTotals: Record<string, number>;
+  grandTotal: number;
+  employeeCount: number;
+  calculatedAt: string;
+};
+
+export const baselineApi = {
+  async getSummary(tenantId: string, asOfDate?: string, rulesetId?: string): Promise<BaselineSummary> {
+    const params = new URLSearchParams({ tenantId });
+    if (asOfDate) params.append('asOfDate', asOfDate);
+    if (rulesetId) params.append('rulesetId', rulesetId);
+    return apiCall(`/baseline/summary?${params.toString()}`);
+  },
+
+  async getTrend(tenantId: string): Promise<BaselineTrendPoint[]> {
+    return apiCall(`/baseline/trend?tenantId=${encodeURIComponent(tenantId)}`);
+  },
+
+  async getBreakdown(tenantId: string, asOfDate?: string, rulesetId?: string): Promise<BaselineBreakdown> {
+    const params = new URLSearchParams({ tenantId });
+    if (asOfDate) params.append('asOfDate', asOfDate);
+    if (rulesetId) params.append('rulesetId', rulesetId);
+    return apiCall(`/baseline/breakdown?${params.toString()}`);
+  },
+
+  async getSimulationCount(tenantId: string): Promise<{ count: number }> {
+    return apiCall(`/baseline/simulations/count?tenantId=${encodeURIComponent(tenantId)}`);
+  },
+
+  async runFullSimulation(tenantId: string, rulesetId: string, asOfDate?: string): Promise<FullSimulationResult> {
+    const params = new URLSearchParams({ tenantId, rulesetId });
+    if (asOfDate) params.append('asOfDate', asOfDate);
+    return apiCall(`/baseline/full-simulation?${params.toString()}`);
+  },
+};
+
 // Export all APIs
 export default {
   ruleset: rulesetApi,
@@ -402,5 +527,7 @@ export default {
   tenant: tenantApi,
   employee: employeeApi,
   componentGroups: componentGroupsApi,
+  scenario: scenarioApi,
+  baseline: baselineApi,
 };
 

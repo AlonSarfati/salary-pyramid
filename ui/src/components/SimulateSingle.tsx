@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import SimulateBulk from "./SimulateBulk";
-import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
+import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
+import { Button } from "./ui/button";
 
 export default function SimulateSingle({ tenantId = "default" }: { tenantId?: string }) {
   // ---- states ----
@@ -42,6 +44,35 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   // Track last auto-filled employee to avoid overwriting user edits
   const lastAutoFilledEmployeeId = useRef<string | null>(null);
 
+  // Save scenario state
+  const [showSaveScenarioDialog, setShowSaveScenarioDialog] = useState(false);
+  const [scenarioName, setScenarioName] = useState("");
+  const [savingScenario, setSavingScenario] = useState(false);
+
+  // ---- check for rerun scenario data on mount ----
+  useEffect(() => {
+    const rerunData = localStorage.getItem('rerunScenario');
+    if (rerunData) {
+      try {
+        const scenario = JSON.parse(rerunData);
+        if (scenario.rulesetId) {
+          setSelectedRulesetId(scenario.rulesetId);
+        }
+        if (scenario.payMonth) {
+          setPayMonth(scenario.payMonth);
+        }
+        if (scenario.inputData) {
+          setInputValues(scenario.inputData);
+        }
+        // Clear the rerun data after loading
+        localStorage.removeItem('rerunScenario');
+      } catch (e) {
+        console.error('Failed to parse rerun scenario data:', e);
+        localStorage.removeItem('rerunScenario');
+      }
+    }
+  }, []);
+
   // ---- fetch rulesets ----
   useEffect(() => {
     let cancelled = false;
@@ -53,8 +84,17 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
         if (!cancelled) {
           setRulesets(data.ruleSets || []);
           if (data.ruleSets && data.ruleSets.length > 0) {
-            setSelectedRulesetId(data.ruleSets[0].rulesetId);
-            setSelectedRulesetName(data.ruleSets[0].name || data.ruleSets[0].rulesetId);
+            // If we have a selected ruleset from rerun, find its name
+            if (selectedRulesetId) {
+              const selected = data.ruleSets.find(rs => rs.rulesetId === selectedRulesetId);
+              if (selected) {
+                setSelectedRulesetName(selected.name || selected.rulesetId);
+              }
+            } else {
+              // Otherwise, set default to first ruleset
+              setSelectedRulesetId(data.ruleSets[0].rulesetId);
+              setSelectedRulesetName(data.ruleSets[0].name || data.ruleSets[0].rulesetId);
+            }
           }
         }
       } catch (e: any) {
@@ -189,6 +229,46 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
     }
   };
 
+  // ---- handle save scenario ----
+  const handleSaveScenario = async () => {
+    if (!scenarioName.trim()) {
+      alert("Please enter a scenario name");
+      return;
+    }
+    if (!selectedRulesetId) {
+      alert("Please select a ruleset");
+      return;
+    }
+    if (!simulationResult) {
+      alert("Please run a simulation first");
+      return;
+    }
+
+    try {
+      setSavingScenario(true);
+      await scenarioApi.create({
+        tenantId,
+        name: scenarioName.trim(),
+        rulesetId: selectedRulesetId,
+        payMonth,
+        inputData: inputValues,
+        resultData: {
+          components: simulationResult.components,
+          total: simulationResult.total.toString(),
+        },
+        simulationType: 'single',
+      });
+      setShowSaveScenarioDialog(false);
+      setScenarioName("");
+      alert("Scenario saved successfully!");
+    } catch (e: any) {
+      console.error("Failed to save scenario:", e);
+      alert("Failed to save scenario: " + (e.message || "Unknown error"));
+    } finally {
+      setSavingScenario(false);
+    }
+  };
+
   // ---- handle simulation ----
   const handleRun = async () => {
     if (!selectedRulesetId) {
@@ -299,7 +379,11 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
         <TabsContent value="single">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-[#1E1E1E]">Single Employee Simulation</h2>
-            <button className="flex items-center gap-2 px-6 py-3 bg-white text-[#0052CC] border border-[#0052CC] rounded-xl hover:bg-[#EEF2F8] transition-colors">
+            <button 
+              onClick={() => setShowSaveScenarioDialog(true)}
+              disabled={!simulationResult}
+              className="flex items-center gap-2 px-6 py-3 bg-white text-[#0052CC] border border-[#0052CC] rounded-xl hover:bg-[#EEF2F8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Save className="w-5 h-5" />
               Save Scenario
             </button>
@@ -609,6 +693,59 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
               </div>
             </SheetContent>
           </Sheet>
+
+          {/* Save Scenario Dialog */}
+          <Dialog open={showSaveScenarioDialog} onOpenChange={setShowSaveScenarioDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Save Scenario</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div>
+                  <Label htmlFor="scenario-name">Scenario Name</Label>
+                  <Input
+                    id="scenario-name"
+                    value={scenarioName}
+                    onChange={(e) => setScenarioName(e.target.value)}
+                    placeholder="e.g., Q4 2024 - Engineering"
+                    className="mt-1"
+                  />
+                </div>
+                {simulationResult && (
+                  <div className="p-4 bg-[#EEF2F8] rounded-lg">
+                    <div className="text-sm text-gray-600 mb-1">Total: ${simulationResult.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <div className="text-sm text-gray-600">Ruleset: {selectedRulesetName || selectedRulesetId}</div>
+                    <div className="text-sm text-gray-600">Pay Month: {payMonth}</div>
+                  </div>
+                )}
+              </div>
+              <DialogFooter className="mt-6">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowSaveScenarioDialog(false);
+                    setScenarioName("");
+                  }}
+                  disabled={savingScenario}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveScenario}
+                  disabled={savingScenario || !scenarioName.trim()}
+                >
+                  {savingScenario ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="bulk">

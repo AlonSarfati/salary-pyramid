@@ -7,16 +7,23 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/rulesets")
 public class RulesQueryController {
     private final RulesService rules;
     private final com.atlas.api.service.RulesServiceDb rulesDb;
-    public RulesQueryController(RulesService rules, com.atlas.api.service.RulesServiceDb rulesDb) { 
+    private final com.atlas.api.repo.RulesetJdbcRepo rulesetRepo;
+    
+    public RulesQueryController(RulesService rules, com.atlas.api.service.RulesServiceDb rulesDb,
+                                 com.atlas.api.repo.RulesetJdbcRepo rulesetRepo) { 
         this.rules = rules; 
         this.rulesDb = rulesDb;
+        this.rulesetRepo = rulesetRepo;
     }
 
     // minimal list: just return ids we know about in memory (tenant "default")
@@ -42,11 +49,28 @@ public class RulesQueryController {
         );
     }
 
-    // (optional) fetch a ruleset’s targets quickly for UI display
+    // (optional) fetch a ruleset's targets quickly for UI display
     @GetMapping("/{tenantId}/{rulesetId}/targets")
     public ResponseEntity<Map<String,Object>> targets(@PathVariable String tenantId, @PathVariable String rulesetId) {
         RuleSet rs = rules.getById(tenantId, rulesetId);
         var names = rs.getRules().stream().map(r -> r.getTarget()).toList();
         return ResponseEntity.ok(Map.of("rulesetId", rs.getId(), "targets", names));
+    }
+
+    // Get all rulesets for a tenant (not just active)
+    @GetMapping("/{tenantId}/all")
+    public ResponseEntity<List<Map<String, Object>>> getAllRulesets(@PathVariable String tenantId) {
+        var allRulesets = rulesetRepo.findAllRulesets(tenantId);
+        
+        List<Map<String, Object>> response = new ArrayList<>();
+        for (var rs : allRulesets) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("rulesetId", rs.ruleset_id());
+            map.put("name", rs.name() != null ? rs.name() : rs.ruleset_id());
+            map.put("status", rs.status());
+            response.add(map);
+        }
+        
+        return ResponseEntity.ok(response);
     }
 }

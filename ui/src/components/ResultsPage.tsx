@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { Download, Play, FileText, TrendingUp, Users, DollarSign } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, Play, FileText, TrendingUp, Users, DollarSign, Loader2, Trash2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { scenarioApi, type Scenario } from '../services/apiService';
 
 interface Simulation {
-  id: number;
+  id: string;
   name: string;
   date: string;
   period: string;
@@ -12,83 +13,140 @@ interface Simulation {
   total: string;
   employees: number;
   avgPerEmployee: string;
+  scenario: Scenario;
 }
 
-export default function ResultsPage() {
+type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees';
+
+interface ResultsPageProps {
+  tenantId?: string;
+  onNavigate?: (page: Page) => void;
+}
+
+export default function ResultsPage({ tenantId = 'default', onNavigate }: ResultsPageProps) {
   const [selectedSimulation, setSelectedSimulation] = useState<Simulation | null>(null);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const simulations: Simulation[] = [
-    {
-      id: 1,
-      name: 'Q4 2024 - Engineering',
-      date: '2024-11-08',
-      period: 'Oct - Dec 2024',
-      ruleset: '2024 Annual Rules',
-      total: '$425,000',
-      employees: 45,
-      avgPerEmployee: '$9,444',
-    },
-    {
-      id: 2,
-      name: 'November 2024 - All Staff',
-      date: '2024-11-07',
-      period: 'Nov 2024',
-      ruleset: '2024 Annual Rules',
-      total: '$1,250,000',
-      employees: 1247,
-      avgPerEmployee: '$1,002',
-    },
-    {
-      id: 3,
-      name: 'Bonus Scenario A',
-      date: '2024-11-05',
-      period: 'Dec 2024',
-      ruleset: 'Q4 2024 Bonus',
-      total: '$85,000',
-      employees: 120,
-      avgPerEmployee: '$708',
-    },
-    {
-      id: 4,
-      name: 'Q3 2024 - Sales Team',
-      date: '2024-10-30',
-      period: 'Jul - Sep 2024',
-      ruleset: '2024 Annual Rules',
-      total: '$320,000',
-      employees: 32,
-      avgPerEmployee: '$10,000',
-    },
-    {
-      id: 5,
-      name: 'Annual Review 2024',
-      date: '2024-10-28',
-      period: 'Jan - Dec 2024',
-      ruleset: '2024 Annual Rules',
-      total: '$5,200,000',
-      employees: 1247,
-      avgPerEmployee: '$4,169',
-    },
-    {
-      id: 6,
-      name: 'Q2 2024 - Operations',
-      date: '2024-10-15',
-      period: 'Apr - Jun 2024',
-      ruleset: '2024 Annual Rules',
-      total: '$280,000',
-      employees: 78,
-      avgPerEmployee: '$3,590',
-    },
-  ];
+  // Fetch scenarios on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await scenarioApi.list(tenantId);
+        if (!cancelled) {
+          setScenarios(data);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e.message || 'Failed to load scenarios');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
-  const componentBreakdown = [
-    { component: 'Base Salary', amount: 285000, percentage: 67.1 },
-    { component: 'Performance Bonus', amount: 42750, percentage: 10.1 },
-    { component: 'Pension Contribution', amount: 22800, percentage: 5.4 },
-    { component: 'Stock Options', amount: 34200, percentage: 8.0 },
-    { component: 'Health Insurance', amount: 18000, percentage: 4.2 },
-    { component: 'Overtime Pay', amount: 15000, percentage: 3.5 },
-    { component: 'Commission', amount: 7250, percentage: 1.7 },
-  ];
+  // Convert scenarios to Simulation format
+  const simulations: Simulation[] = scenarios.map(scenario => {
+    const total = typeof scenario.resultData.total === 'string' 
+      ? parseFloat(scenario.resultData.total) 
+      : (scenario.resultData.total as number) || 0;
+    const components = scenario.resultData.components || {};
+    const employeeCount = scenario.simulationType === 'bulk' 
+      ? (scenario.resultData.results?.length || 1)
+      : 1;
+    
+    // Format pay month as period
+    const [year, month] = scenario.payMonth.split('-');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const period = `${monthNames[parseInt(month) - 1]} ${year}`;
+    
+    return {
+      id: scenario.scenarioId,
+      name: scenario.name,
+      date: new Date(scenario.createdAt).toISOString().split('T')[0],
+      period,
+      ruleset: scenario.rulesetId,
+      total: `$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      employees: employeeCount,
+      avgPerEmployee: `$${(total / employeeCount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      scenario,
+    };
+  });
+
+  // Calculate KPIs from real data
+  const totalPayroll = simulations.reduce((sum, sim) => {
+    const total = typeof sim.scenario.resultData.total === 'string'
+      ? parseFloat(sim.scenario.resultData.total)
+      : (sim.scenario.resultData.total as number) || 0;
+    return sum + total;
+  }, 0);
+
+  const totalEmployees = simulations.reduce((sum, sim) => sum + sim.employees, 0);
+  const avgPerEmployee = totalEmployees > 0 ? totalPayroll / totalEmployees : 0;
+  const simulationsCount = simulations.length;
+
+  // Get component breakdown from selected simulation
+  const componentBreakdown = selectedSimulation ? (() => {
+    const components = selectedSimulation.scenario.resultData.components || {};
+    const total = typeof selectedSimulation.scenario.resultData.total === 'string'
+      ? parseFloat(selectedSimulation.scenario.resultData.total)
+      : (selectedSimulation.scenario.resultData.total as number) || 0;
+    
+    return Object.entries(components)
+      .map(([component, amount]) => {
+        const numAmount = typeof amount === 'string' ? parseFloat(amount) : (amount as number) || 0;
+        return {
+          component,
+          amount: numAmount,
+          percentage: total > 0 ? Math.round((numAmount / total) * 10000) / 100 : 0, // Round to 2 decimal places
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
+  })() : [];
+
+  const handleDeleteScenario = async (scenarioId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this scenario?')) {
+      return;
+    }
+    try {
+      await scenarioApi.delete(tenantId, scenarioId);
+      setScenarios(scenarios.filter(s => s.scenarioId !== scenarioId));
+      if (selectedSimulation?.id === scenarioId) {
+        setSelectedSimulation(null);
+      }
+    } catch (e: any) {
+      alert('Failed to delete scenario: ' + (e.message || 'Unknown error'));
+    }
+  };
+
+  const handleRerunSimulation = () => {
+    if (!selectedSimulation) return;
+    
+    // Store scenario data in localStorage so SimulateSingle can load it
+    const scenarioData = {
+      rulesetId: selectedSimulation.scenario.rulesetId,
+      payMonth: selectedSimulation.scenario.payMonth,
+      inputData: selectedSimulation.scenario.inputData,
+    };
+    localStorage.setItem('rerunScenario', JSON.stringify(scenarioData));
+    
+    // Navigate to simulate page
+    if (onNavigate) {
+      onNavigate('simulate-single');
+    } else {
+      // Fallback: use window event or direct navigation
+      window.dispatchEvent(new CustomEvent('navigate', { detail: 'simulate-single' }));
+    }
+  };
 
   const handleRowClick = (sim: Simulation) => {
     setSelectedSimulation(sim);
@@ -109,8 +167,14 @@ export default function ResultsPage() {
             </div>
             <div className="text-sm text-gray-600">Total Payroll</div>
           </div>
-          <div className="text-2xl text-[#1E1E1E]">$7.56M</div>
-          <div className="text-sm text-green-600 mt-1">+12.3% vs last month</div>
+          <div className="text-2xl text-[#1E1E1E]">
+            {loading ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : (
+              `$${(totalPayroll / 1000000).toFixed(2)}M`
+            )}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">{simulationsCount} scenarios</div>
         </Card>
 
         <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
@@ -120,8 +184,14 @@ export default function ResultsPage() {
             </div>
             <div className="text-sm text-gray-600">Avg per Employee</div>
           </div>
-          <div className="text-2xl text-[#1E1E1E]">$6,063</div>
-          <div className="text-sm text-gray-600 mt-1">Across 1,247 employees</div>
+          <div className="text-2xl text-[#1E1E1E]">
+            {loading ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : (
+              `$${avgPerEmployee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            )}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">Across {totalEmployees} employees</div>
         </Card>
 
         <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
@@ -131,8 +201,14 @@ export default function ResultsPage() {
             </div>
             <div className="text-sm text-gray-600">Simulations Run</div>
           </div>
-          <div className="text-2xl text-[#1E1E1E]">47</div>
-          <div className="text-sm text-gray-600 mt-1">This month</div>
+          <div className="text-2xl text-[#1E1E1E]">
+            {loading ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : (
+              simulationsCount
+            )}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">Total scenarios</div>
         </Card>
 
         <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
@@ -142,55 +218,87 @@ export default function ResultsPage() {
             </div>
             <div className="text-sm text-gray-600">Growth Rate</div>
           </div>
-          <div className="text-2xl text-[#1E1E1E]">8.7%</div>
-          <div className="text-sm text-gray-600 mt-1">Year over year</div>
+          <div className="text-2xl text-[#1E1E1E]">
+            {loading ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : (
+              simulationsCount > 0 ? '100%' : '0%'
+            )}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">Active scenarios</div>
         </Card>
       </div>
 
       {/* Simulations Table */}
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
         <h3 className="text-[#1E1E1E] mb-4">Simulation History</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-sm text-gray-600">Name</th>
-                <th className="text-left py-3 px-4 text-sm text-gray-600">Date</th>
-                <th className="text-left py-3 px-4 text-sm text-gray-600">Period</th>
-                <th className="text-left py-3 px-4 text-sm text-gray-600">Ruleset</th>
-                <th className="text-right py-3 px-4 text-sm text-gray-600">Total</th>
-                <th className="text-right py-3 px-4 text-sm text-gray-600">Employees</th>
-                <th className="text-right py-3 px-4 text-sm text-gray-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {simulations.map((sim) => (
-                <tr
-                  key={sim.id}
-                  onClick={() => handleRowClick(sim)}
-                  className="border-b border-gray-100 hover:bg-[#EEF2F8] cursor-pointer transition-colors"
-                >
-                  <td className="py-3 px-4 text-sm text-[#1E1E1E]">{sim.name}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600">{sim.date}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600">{sim.period}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600">{sim.ruleset}</td>
-                  <td className="py-3 px-4 text-sm text-[#0052CC] text-right">{sim.total}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600 text-right">{sim.employees}</td>
-                  <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
-                      className="p-2 hover:bg-gray-200 rounded transition-colors"
-                    >
-                      <Download className="w-4 h-4 text-gray-600" />
-                    </button>
-                  </td>
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+            {error}
+          </div>
+        )}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-[#0052CC]" />
+          </div>
+        ) : simulations.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            No scenarios saved yet. Run a simulation and save it to see it here.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-3 px-4 text-sm text-gray-600">Name</th>
+                  <th className="text-left py-3 px-4 text-sm text-gray-600">Date</th>
+                  <th className="text-left py-3 px-4 text-sm text-gray-600">Period</th>
+                  <th className="text-left py-3 px-4 text-sm text-gray-600">Ruleset</th>
+                  <th className="text-right py-3 px-4 text-sm text-gray-600">Total</th>
+                  <th className="text-right py-3 px-4 text-sm text-gray-600">Employees</th>
+                  <th className="text-right py-3 px-4 text-sm text-gray-600">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {simulations.map((sim) => (
+                  <tr
+                    key={sim.id}
+                    onClick={() => handleRowClick(sim)}
+                    className="border-b border-gray-100 hover:bg-[#EEF2F8] cursor-pointer transition-colors"
+                  >
+                    <td className="py-3 px-4 text-sm text-[#1E1E1E]">{sim.name}</td>
+                    <td className="py-3 px-4 text-sm text-gray-600">{sim.date}</td>
+                    <td className="py-3 px-4 text-sm text-gray-600">{sim.period}</td>
+                    <td className="py-3 px-4 text-sm text-gray-600">{sim.ruleset}</td>
+                    <td className="py-3 px-4 text-sm text-[#0052CC] text-right">{sim.total}</td>
+                    <td className="py-3 px-4 text-sm text-gray-600 text-right">{sim.employees}</td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={(e) => handleDeleteScenario(sim.id, e)}
+                          className="p-2 hover:bg-red-100 rounded transition-colors"
+                          title="Delete scenario"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // TODO: Implement download
+                          }}
+                          className="p-2 hover:bg-gray-200 rounded transition-colors"
+                          title="Download"
+                        >
+                          <Download className="w-4 h-4 text-gray-600" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Details Modal */}
@@ -236,7 +344,7 @@ export default function ResultsPage() {
                     </div>
                     <div className="text-right min-w-[120px]">
                       <div className="text-sm text-[#1E1E1E]">${comp.amount.toLocaleString()}</div>
-                      <div className="text-xs text-gray-600">{comp.percentage}%</div>
+                      <div className="text-xs text-gray-600">{comp.percentage.toFixed(2)}%</div>
                     </div>
                   </div>
                 ))}
@@ -249,7 +357,10 @@ export default function ResultsPage() {
                 <Download className="w-5 h-5" />
                 Download CSV
               </button>
-              <button className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors">
+              <button 
+                onClick={handleRerunSimulation}
+                className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors"
+              >
                 <Play className="w-5 h-5" />
                 Re-run Simulation
               </button>

@@ -46,6 +46,11 @@ public class RulesetJdbcRepo {
                 (rs, rowNum) -> rs.getString("ruleset_id"));
     }
 
+    public List<RulesetRow> findAllRulesets(String tenantId) {
+        var sql = "SELECT ruleset_id, tenant_id, name, status FROM ruleset WHERE tenant_id=:t ORDER BY name, ruleset_id";
+        return jdbc.query(sql, Map.of("t", tenantId), new DataClassRowMapper<>(RulesetRow.class));
+    }
+
     public List<RuleRow> listRules(String rulesetId) {
         var sql = """
       SELECT rule_id, ruleset_id, target, expression,

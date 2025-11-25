@@ -8,9 +8,10 @@ import ComponentsGraph from './components/ComponentsGraph';
 import ResultsPage from './components/ResultsPage';
 import AdminPage from './components/AdminPage';
 import EmployeeManager from './components/EmployeeManager';
+import GlobalPayrollDashboard from './components/GlobalPayrollDashboard';
 import { tenantApi } from './services/apiService';
 
-type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees';
+type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees' | 'dashboard';
 
 type Tenant = {
   tenantId: string;
@@ -52,6 +53,7 @@ export default function App() {
 
   const navItems = [
     { id: 'home' as Page, icon: Home, label: 'Home' },
+    { id: 'dashboard' as Page, icon: BarChart3, label: 'Dashboard' },
     { id: 'simulate-single' as Page, icon: PlayCircle, label: 'Simulate' },
     { id: 'employees' as Page, icon: Users, label: 'Employees' },
     { id: 'rule-builder' as Page, icon: Settings, label: 'Rules' },
@@ -73,7 +75,9 @@ export default function App() {
       case 'visual':
         return <ComponentsGraph tenantId={selectedTenantId} />;
       case 'results':
-        return <ResultsPage />;
+        return <ResultsPage tenantId={selectedTenantId} onNavigate={setCurrentPage} />;
+      case 'dashboard':
+        return <GlobalPayrollDashboard tenantId={selectedTenantId} />;
       case 'employees':
         return <EmployeeManager tenantId={selectedTenantId} />;
       case 'admin':
