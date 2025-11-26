@@ -47,8 +47,9 @@ public class TenantController {
             String tenantId = (String) body.get("tenantId");
             String name = (String) body.get("name");
             String status = (String) body.getOrDefault("status", "ACTIVE");
+            String currency = (String) body.getOrDefault("currency", "USD");
             
-            TenantService.TenantDto tenant = tenantService.createTenant(tenantId, name, status);
+            TenantService.TenantDto tenant = tenantService.createTenant(tenantId, name, status, currency);
             return ResponseEntity.ok(tenant.toMap());
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -67,8 +68,9 @@ public class TenantController {
         try {
             String name = (String) body.get("name");
             String status = (String) body.get("status");
+            String currency = (String) body.get("currency");
             
-            return tenantService.updateTenant(tenantId, name, status)
+            return tenantService.updateTenant(tenantId, name, status, currency)
                 .map(tenant -> ResponseEntity.ok(tenant.toMap()))
                 .orElse(ResponseEntity.notFound().build());
         } catch (IllegalArgumentException e) {

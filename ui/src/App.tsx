@@ -17,6 +17,7 @@ type Tenant = {
   tenantId: string;
   name: string;
   status: string;
+  currency: string;
   createdAt: string;
   updatedAt: string;
 };

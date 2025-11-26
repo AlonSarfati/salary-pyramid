@@ -6,6 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { baselineApi, rulesetApi, componentGroupsApi, type BaselineSummary, type BaselineTrendPoint, type BaselineBreakdown, type FullSimulationResult, type ComponentGroup } from '../services/apiService';
 import { ChartTooltip } from './ui/chart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { useCurrency } from '../hooks/useCurrency';
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from '../utils/currency';
 
 interface GlobalPayrollDashboardProps {
   tenantId?: string;
@@ -102,14 +104,12 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     return () => { cancelled = true; };
   }, [tenantId, selectedRulesetId]);
 
-  // Format currency
+  // Get currency for tenant
+  const currency = useCurrency(tenantId);
+  
+  // Format currency using utility
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatCurrencyUtil(amount, currency);
   };
 
   // Calculate growth rate (placeholder - would need historical data)
@@ -302,7 +302,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                   />
                   <YAxis 
                     tick={{ fontSize: 12 }}
-                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                    tickFormatter={(value) => formatCurrencyCompact(value, currency)}
                   />
                   <ChartTooltip 
                     content={({ active, payload }) => {

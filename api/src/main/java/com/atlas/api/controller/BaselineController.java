@@ -35,15 +35,21 @@ public class BaselineController {
         
         BaselineService.BaselineSummaryDto summary = baselineService.calculateBaselineSummary(tenantId, asOfDate, rulesetId);
         
-        return ResponseEntity.ok(Map.of(
-            "totalPayroll", summary.totalPayroll(),
-            "avgPerEmployee", summary.avgPerEmployee(),
-            "employeeCount", summary.employeeCount(),
-            "activeRulesetName", summary.activeRulesetName(),
-            "activeRulesetId", summary.activeRulesetId(),
-            "asOfDate", summary.asOfDate().toString(),
-            "calculatedAt", summary.calculatedAt().toString()
-        ));
+        // Format calculatedAt as ISO-8601 string for proper frontend parsing
+        String calculatedAtStr = summary.calculatedAt() != null 
+            ? summary.calculatedAt().toInstant().toString() 
+            : java.time.Instant.now().toString();
+        
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("totalPayroll", summary.totalPayroll());
+        response.put("avgPerEmployee", summary.avgPerEmployee());
+        response.put("employeeCount", summary.employeeCount());
+        response.put("activeRulesetName", summary.activeRulesetName());
+        response.put("activeRulesetId", summary.activeRulesetId());
+        response.put("asOfDate", summary.asOfDate().toString());
+        response.put("calculatedAt", calculatedAtStr);
+        
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -88,7 +94,11 @@ public class BaselineController {
         
         Map<String, Object> response = new java.util.LinkedHashMap<>();
         response.put("categoryTotals", categoryMap);
-        response.put("calculatedAt", breakdown.calculatedAt());
+        // Format calculatedAt as ISO-8601 string
+        String calculatedAtStr = breakdown.calculatedAt() != null 
+            ? breakdown.calculatedAt().toInstant().toString() 
+            : java.time.Instant.now().toString();
+        response.put("calculatedAt", calculatedAtStr);
         
         return ResponseEntity.ok(response);
     }
@@ -144,7 +154,11 @@ public class BaselineController {
         response.put("componentTotals", componentTotals);
         response.put("grandTotal", result.grandTotal());
         response.put("employeeCount", result.employeeCount());
-        response.put("calculatedAt", result.calculatedAt());
+        // Format calculatedAt as ISO-8601 string
+        String calculatedAtStr = result.calculatedAt() != null 
+            ? result.calculatedAt().toInstant().toString() 
+            : java.time.Instant.now().toString();
+        response.put("calculatedAt", calculatedAtStr);
         
         return ResponseEntity.ok(response);
     }

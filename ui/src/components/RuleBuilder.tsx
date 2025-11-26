@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle } from 'lucide-react';
+import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles } from 'lucide-react';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import RuleBuilderGuide from './RuleBuilderGuide';
 import TableBuilder from './TableBuilder';
+import AIRuleAssistant from './AIRuleAssistant';
 import { rulesetApi, ruleApi, tableApi, type RuleSet, type RuleDto, type ValidateIssue } from '../services/apiService';
 
 export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: string }) {
@@ -59,6 +60,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   
   // Help guide drawer state
   const [showHelpGuide, setShowHelpGuide] = useState(false);
+  
+  // AI Assistant panel state
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
   
   // Autocomplete state
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([]);
@@ -615,6 +619,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               >
                 <HelpCircle className="w-4 h-4 text-gray-600" />
               </button>
+              {/* AI Assistant button - temporarily disabled */}
+              <button
+                onClick={() => {}}
+                disabled={true}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl transition-colors bg-gray-100 text-gray-400 border border-gray-300 cursor-not-allowed opacity-60"
+                title="AI Rule Assistant (Temporarily disabled - billing setup in progress)"
+              >
+                <Sparkles className="w-4 h-4" />
+                AI Assistant
+              </button>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -1012,6 +1026,22 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* AI Assistant Side Panel - temporarily disabled */}
+      {false && showAIAssistant && (
+        <div className="fixed right-0 top-0 h-full w-[500px] bg-white shadow-2xl z-50 border-l border-gray-200">
+          <AIRuleAssistant
+            tenantId={tenantId}
+            rulesetId={selectedRulesetId}
+            onRuleAdded={() => {
+              if (selectedRulesetId) {
+                loadRuleset(selectedRulesetId);
+              }
+            }}
+            onClose={() => setShowAIAssistant(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

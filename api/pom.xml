@@ -63,6 +63,13 @@
                 </exclusion>
             </exclusions>
         </dependency>
+
+        <!-- OpenAI Java Client -->
+        <dependency>
+            <groupId>com.theokanning.openai-gpt3-java</groupId>
+            <artifactId>service</artifactId>
+            <version>0.18.2</version>
+        </dependency>
     </dependencies>
 
     <build>

@@ -3,6 +3,8 @@ import { Download, Play, FileText, TrendingUp, Users, DollarSign, Loader2, Trash
 import { Card } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { scenarioApi, type Scenario } from '../services/apiService';
+import { useCurrency } from '../hooks/useCurrency';
+import { formatCurrencyWithDecimals, formatCurrencyCompact } from '../utils/currency';
 
 interface Simulation {
   id: string;
@@ -24,6 +26,9 @@ interface ResultsPageProps {
 }
 
 export default function ResultsPage({ tenantId = 'default', onNavigate }: ResultsPageProps) {
+  // Get currency for tenant
+  const currency = useCurrency(tenantId);
+  
   const [selectedSimulation, setSelectedSimulation] = useState<Simulation | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,9 +79,9 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
       date: new Date(scenario.createdAt).toISOString().split('T')[0],
       period,
       ruleset: scenario.rulesetId,
-      total: `$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      total: formatCurrencyWithDecimals(total, currency, 2),
       employees: employeeCount,
-      avgPerEmployee: `$${(total / employeeCount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      avgPerEmployee: formatCurrencyWithDecimals(total / employeeCount, currency, 2),
       scenario,
     };
   });
@@ -171,7 +176,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
             {loading ? (
               <Loader2 className="w-6 h-6 animate-spin" />
             ) : (
-              `$${(totalPayroll / 1000000).toFixed(2)}M`
+              formatCurrencyCompact(totalPayroll, currency)
             )}
           </div>
           <div className="text-sm text-gray-600 mt-1">{simulationsCount} scenarios</div>
@@ -188,7 +193,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
             {loading ? (
               <Loader2 className="w-6 h-6 animate-spin" />
             ) : (
-              `$${avgPerEmployee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              formatCurrencyWithDecimals(avgPerEmployee, currency, 2)
             )}
           </div>
           <div className="text-sm text-gray-600 mt-1">Across {totalEmployees} employees</div>
@@ -343,7 +348,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
                       </div>
                     </div>
                     <div className="text-right min-w-[120px]">
-                      <div className="text-sm text-[#1E1E1E]">${comp.amount.toLocaleString()}</div>
+                      <div className="text-sm text-[#1E1E1E]">{formatCurrencyWithDecimals(comp.amount, currency, 0)}</div>
                       <div className="text-xs text-gray-600">{comp.percentage.toFixed(2)}%</div>
                     </div>
                   </div>

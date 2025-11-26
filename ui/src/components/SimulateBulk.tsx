@@ -9,6 +9,8 @@ import { Button } from './ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimBulkResponse, type Employee } from '../services/apiService';
+import { useCurrency } from '../hooks/useCurrency';
+import { formatCurrency as formatCurrencyUtil } from '../utils/currency';
 
 export default function SimulateBulk({ tenantId = "default" }: { tenantId?: string }) {
   const [hasData, setHasData] = useState(false);
@@ -279,13 +281,12 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     };
   });
 
+  // Get currency for tenant
+  const currency = useCurrency(tenantId);
+  
+  // Format currency using utility
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatCurrencyUtil(amount, currency);
   };
 
   return (

@@ -10,8 +10,13 @@ import SimulateBulk from "./SimulateBulk";
 import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Button } from "./ui/button";
+import { useCurrency } from '../hooks/useCurrency';
+import { formatCurrencyWithDecimals, getCurrencySymbol } from '../utils/currency';
 
 export default function SimulateSingle({ tenantId = "default" }: { tenantId?: string }) {
+  // Get currency for tenant
+  const currency = useCurrency(tenantId);
+  
   // ---- states ----
   const [showTrace, setShowTrace] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState<string>("");
@@ -633,7 +638,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       >
                         <div className="col-span-6 text-[#1E1E1E]">{result.component}</div>
                         <div className="col-span-3 text-right text-[#1E1E1E]">
-                          ${result.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatCurrencyWithDecimals(result.amount, currency, 2)}
                         </div>
                         <div className="col-span-2 text-right text-gray-600">
                           {result.contribution.toFixed(1)}%
@@ -656,7 +661,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       <div>
                         <div className="text-sm opacity-90">Total Compensation</div>
                         <div className="text-2xl mt-1">
-                          ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatCurrencyWithDecimals(totalAmount, currency, 2)}
                         </div>
                       </div>
                       <div className="text-right">
@@ -683,7 +688,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                   <Card className="p-4 bg-[#EEF2F8] border-0">
                     <div className="text-[#1E1E1E] mb-2">{selectedComponent}</div>
                     <div className="text-sm text-gray-600 font-mono">
-                      Amount: ${simulationResult.components[selectedComponent]?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                      Amount: {formatCurrencyWithDecimals(simulationResult.components[selectedComponent] || 0, currency, 2)}
                     </div>
                     <div className="text-[#0052CC] mt-2">
                       Component calculation details would appear here
@@ -713,7 +718,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                 </div>
                 {simulationResult && (
                   <div className="p-4 bg-[#EEF2F8] rounded-lg">
-                    <div className="text-sm text-gray-600 mb-1">Total: ${simulationResult.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <div className="text-sm text-gray-600 mb-1">Total: {formatCurrencyWithDecimals(simulationResult.total, currency, 2)}</div>
                     <div className="text-sm text-gray-600">Ruleset: {selectedRulesetName || selectedRulesetId}</div>
                     <div className="text-sm text-gray-600">Pay Month: {payMonth}</div>
                   </div>

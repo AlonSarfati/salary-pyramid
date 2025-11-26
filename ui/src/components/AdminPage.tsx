@@ -14,6 +14,7 @@ type Tenant = {
   tenantId: string;
   name: string;
   status: string;
+  currency: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -27,7 +28,7 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
-  const [formData, setFormData] = useState({ tenantId: '', name: '', status: 'ACTIVE' });
+  const [formData, setFormData] = useState({ tenantId: '', name: '', status: 'ACTIVE', currency: 'USD' });
 
   // Fetch tenants
   useEffect(() => {
@@ -49,13 +50,13 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
 
   const handleAdd = () => {
     setEditingTenant(null);
-    setFormData({ tenantId: '', name: '', status: 'ACTIVE' });
+    setFormData({ tenantId: '', name: '', status: 'ACTIVE', currency: 'USD' });
     setShowDialog(true);
   };
 
   const handleEdit = (tenant: Tenant) => {
     setEditingTenant(tenant);
-    setFormData({ tenantId: tenant.tenantId, name: tenant.name, status: tenant.status });
+    setFormData({ tenantId: tenant.tenantId, name: tenant.name, status: tenant.status, currency: tenant.currency || 'USD' });
     setShowDialog(true);
   };
 
@@ -84,10 +85,11 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
         await tenantApi.update(formData.tenantId, {
           name: formData.name,
           status: formData.status,
+          currency: formData.currency,
         });
       } else {
         // Create new
-        await tenantApi.create(formData.tenantId, formData.name, formData.status);
+        await tenantApi.create(formData.tenantId, formData.name, formData.status, formData.currency);
       }
       setShowDialog(false);
       await loadTenants();
@@ -102,6 +104,19 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
       return new Date(dateString).toLocaleDateString();
     } catch {
       return dateString;
+    }
+  };
+
+  const getCurrencyDisplay = (currency: string) => {
+    switch (currency) {
+      case 'USD':
+        return 'US Dollar ($)';
+      case 'ILS':
+        return 'Israeli Shekel (₪)';
+      case 'EUR':
+        return 'Euro (€)';
+      default:
+        return currency || 'USD';
     }
   };
 
@@ -180,6 +195,7 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
                       <th className="text-left py-3 px-4 text-sm text-gray-600">Tenant ID</th>
                       <th className="text-left py-3 px-4 text-sm text-gray-600">Name</th>
                       <th className="text-left py-3 px-4 text-sm text-gray-600">Status</th>
+                      <th className="text-left py-3 px-4 text-sm text-gray-600">Currency</th>
                       <th className="text-left py-3 px-4 text-sm text-gray-600">Created</th>
                       <th className="text-right py-3 px-4 text-sm text-gray-600">Actions</th>
                     </tr>
@@ -187,7 +203,7 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
                   <tbody>
                     {tenants.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-8 text-center text-gray-500">
+                        <td colSpan={6} className="py-8 text-center text-gray-500">
                           No tenants found. Click "Add Tenant" to create one.
                         </td>
                       </tr>
@@ -201,6 +217,7 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
                               {tenant.status}
                             </Badge>
                           </td>
+                          <td className="py-3 px-4 text-sm text-[#1E1E1E]">{getCurrencyDisplay(tenant.currency)}</td>
                           <td className="py-3 px-4 text-sm text-gray-600">{formatDate(tenant.createdAt)}</td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
@@ -386,6 +403,22 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
                 <SelectContent>
                   <SelectItem value="ACTIVE">Active</SelectItem>
                   <SelectItem value="INACTIVE">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="currency">Currency</Label>
+              <Select
+                value={formData.currency}
+                onValueChange={(value) => setFormData({ ...formData, currency: value })}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="USD">US Dollar ($)</SelectItem>
+                  <SelectItem value="ILS">Israeli Shekel (₪)</SelectItem>
+                  <SelectItem value="EUR">Euro (€)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

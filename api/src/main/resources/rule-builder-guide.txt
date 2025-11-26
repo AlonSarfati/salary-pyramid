@@ -1,0 +1,104 @@
+HOW TO BUILD SALARY RULES - GUIDE
+
+==========================================
+UNDERSTANDING RULES
+==========================================
+
+A rule defines how to calculate a salary component (like "Performance Bonus" or "Pension Contribution"). 
+Each rule has:
+- Target: The name of the component being calculated
+- Expression: The formula that calculates the value
+- Dependencies: Other components or inputs this rule depends on
+
+Example Rule:
+- Target: "Performance Bonus"
+- Expression: BaseSalary * 0.15
+- Dependencies: BaseSalary
+
+==========================================
+EXPRESSION SYNTAX
+==========================================
+
+COMPONENT REFERENCES:
+- Reference other components using CamelCase names (e.g., BaseSalary, PerformanceBonus, YearsOfService)
+- Components must be CamelCase (not snake_case, not ALL_CAPS)
+- ALL_CAPS names are reserved for functions (IF, MIN, MAX, ROUND, TBL)
+
+ARITHMETIC OPERATORS:
+- Addition: BaseSalary + Bonus
+- Subtraction: BaseSalary - Deduction
+- Multiplication: BaseSalary * 0.15
+- Division: TotalCompensation / 12
+
+COMPARISON OPERATORS:
+- Greater than: BaseSalary > 50000
+- Greater or equal: BaseSalary >= 50000
+- Less than: BaseSalary < 100000
+- Less or equal: BaseSalary <= 100000
+- Equals: BaseSalary = 50000
+- Not equals: BaseSalary != 0
+
+LOGICAL OPERATORS:
+- AND: BaseSalary > 50000 AND PerformanceRating > 80
+- OR: BaseSalary > 100000 OR YearsOfService >= 10
+- NOT: NOT IsExempt
+
+==========================================
+BUILT-IN FUNCTIONS
+==========================================
+
+IF - Conditional Logic:
+Two syntaxes are supported:
+1. Function syntax: IF(condition, trueValue, falseValue)
+   Example: IF(BaseSalary > 50000, BaseSalary * 0.15, BaseSalary * 0.10)
+2. Natural language: IF condition THEN expr ELSE expr
+   Example: IF BaseSalary > 50000 THEN BaseSalary * 0.15 ELSE BaseSalary * 0.10
+
+MIN - Minimum Value:
+Returns the smallest value from the arguments.
+Example: MIN(Base, Cap) - Returns the smaller of Base or Cap
+Example: MIN(MAX(Base * 0.20, 5000), 10000) - Clamps value between 5000 and 10000
+
+MAX - Maximum Value:
+Returns the largest value from the arguments.
+Example: MAX(BaseSalary * 0.08, 2000) - Ensures minimum of 2000
+
+ROUND - Rounding:
+Rounds numbers to specified precision.
+- ROUND(Amount) - Rounds to nearest integer
+- ROUND(Amount, 2) - Rounds to 2 decimal places
+
+TBL - Table Lookup:
+Look up values from predefined tables.
+- TBL("bonus_table", YearsOfService) - Simple lookup with one key
+- TBL("salary_bands", Grade, Level) - Lookup with multiple keys
+
+==========================================
+RULE SCHEMA
+==========================================
+
+A rule is represented as a JSON object with the following structure:
+
+{
+  "target": "string (component name, e.g., 'Base', 'ManagerBonus')",
+  "dependsOn": ["string"] (list of component names this rule depends on),
+  "expression": "string (DSL expression using CamelCase for components, ALL_CAPS for functions)",
+  "taxable": boolean (default: true),
+  "filters": {
+    "role": "string (optional, e.g., 'Manager', 'Engineer')",
+    "minYears": number (optional, minimum years of service),
+    "maxYears": number (optional, maximum years of service)
+  },
+  "effectiveFrom": "YYYY-MM-DD" (optional, start date),
+  "description": "string (optional, human-readable description)"
+}
+
+IMPORTANT RULES:
+- Components are referenced using CamelCase (e.g., BaseSalary, PerformanceBonus)
+- Functions are ALL_CAPS (e.g., IF, MIN, MAX, ROUND, TBL)
+- Operators: +, -, *, /, =, !=, >, >=, <, <=, AND, OR, NOT
+- Dates must be in YYYY-MM-DD format
+- Output ONLY valid JSON matching the schema above
+- Do NOT add explanations, comments, or extra keys outside the JSON
+- Do NOT wrap JSON in markdown code blocks
+

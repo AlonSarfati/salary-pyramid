@@ -258,25 +258,25 @@ export const employeeApi = {
 
 export const tenantApi = {
   // List all tenants
-  async list(): Promise<Array<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }>> {
+  async list(): Promise<Array<{ tenantId: string; name: string; status: string; currency: string; createdAt: string; updatedAt: string }>> {
     return apiCall('/tenants');
   },
 
   // Get a specific tenant
-  async get(tenantId: string): Promise<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }> {
+  async get(tenantId: string): Promise<{ tenantId: string; name: string; status: string; currency: string; createdAt: string; updatedAt: string }> {
     return apiCall(`/tenants/${tenantId}`);
   },
 
   // Create a new tenant
-  async create(tenantId: string, name: string, status: string = 'ACTIVE'): Promise<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }> {
+  async create(tenantId: string, name: string, status: string = 'ACTIVE', currency: string = 'USD'): Promise<{ tenantId: string; name: string; status: string; currency: string; createdAt: string; updatedAt: string }> {
     return apiCall('/tenants', {
       method: 'POST',
-      body: JSON.stringify({ tenantId, name, status }),
+      body: JSON.stringify({ tenantId, name, status, currency }),
     });
   },
 
   // Update a tenant
-  async update(tenantId: string, updates: { name?: string; status?: string }): Promise<{ tenantId: string; name: string; status: string; createdAt: string; updatedAt: string }> {
+  async update(tenantId: string, updates: { name?: string; status?: string; currency?: string }): Promise<{ tenantId: string; name: string; status: string; currency: string; createdAt: string; updatedAt: string }> {
     return apiCall(`/tenants/${tenantId}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -520,14 +520,48 @@ export const baselineApi = {
 };
 
 // Export all APIs
+// AI Rule Assistant
+export type RuleAssistantRequest = {
+  prompt: string;
+  rulesetId?: string;
+};
+
+export type ProposedRuleDto = {
+  target: string | null;
+  dependsOn: string[];
+  expression: string | null;
+  taxable: boolean | null;
+  filters: Record<string, any>;
+  effectiveFrom: string | null;
+  description: string | null;
+  error: string | null;
+};
+
+export type RuleAssistantResponse = {
+  proposedRule: ProposedRuleDto;
+  explanation: string;
+  warnings: string[];
+};
+
+export const ruleAssistantApi = {
+  async generateRule(tenantId: string, request: RuleAssistantRequest): Promise<RuleAssistantResponse> {
+    return apiCall(`/api/rules/assistant/generate?tenantId=${encodeURIComponent(tenantId)}`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+};
+
 export default {
   ruleset: rulesetApi,
   rule: ruleApi,
   simulation: simulationApi,
   tenant: tenantApi,
   employee: employeeApi,
+  table: tableApi,
   componentGroups: componentGroupsApi,
   scenario: scenarioApi,
   baseline: baselineApi,
+  ruleAssistant: ruleAssistantApi,
 };
 
