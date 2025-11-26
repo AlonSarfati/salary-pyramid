@@ -123,19 +123,22 @@ export default function App() {
           <h2 className="text-[#1E1E1E]">Atlas Compensation Simulator</h2>
           <div className="flex items-center gap-4">
             {!tenantsLoading && tenants.length > 0 && (
-              <select
-                value={selectedTenantId}
-                onChange={(e) => setSelectedTenantId(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-[#1E1E1E] min-w-[200px]"
-              >
-                {tenants
-                  .filter(t => t.status === 'ACTIVE')
-                  .map((tenant) => (
-                    <option key={tenant.tenantId} value={tenant.tenantId}>
-                      {tenant.name}
-                    </option>
-                  ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Tenant:</span>
+                <select
+                  value={selectedTenantId}
+                  onChange={(e) => setSelectedTenantId(e.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-[#1E1E1E] min-w-[200px]"
+                >
+                  {tenants
+                    .filter(t => t.status === 'ACTIVE')
+                    .map((tenant) => (
+                      <option key={tenant.tenantId} value={tenant.tenantId}>
+                        {tenant.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
             )}
             <div className="w-10 h-10 rounded-full bg-[#0052CC] flex items-center justify-center text-white">
               JD

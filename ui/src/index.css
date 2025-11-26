@@ -136,6 +136,12 @@
     line-height: inherit;
   }
 
+  /* Make all buttons visibly clickable */
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
   hr {
     height: 0;
     color: inherit;
