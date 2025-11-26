@@ -8,6 +8,7 @@ import { ChartTooltip } from './ui/chart';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from '../utils/currency';
+import { useToast } from "./ToastProvider";
 
 interface GlobalPayrollDashboardProps {
   tenantId?: string;
@@ -20,6 +21,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   const [simulationCount, setSimulationCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { showToast } = useToast();
   
   // Ruleset selection and full simulation
   const [allRulesets, setAllRulesets] = useState<Array<{ rulesetId: string; name: string; status: string }>>([]);
@@ -136,7 +138,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
 
   const handleRunFullSimulation = async () => {
     if (!selectedRulesetId) {
-      alert('Please select a ruleset first');
+      showToast("error", "No ruleset selected", "Please choose a ruleset before running a full simulation.");
       return;
     }
 

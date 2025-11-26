@@ -9,6 +9,7 @@ import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { tenantApi } from '../services/apiService';
+import { useToast } from "./ToastProvider";
 
 type Tenant = {
   tenantId: string;
@@ -20,6 +21,7 @@ type Tenant = {
 };
 
 export default function AdminPage({ onTenantChange }: { onTenantChange?: () => void }) {
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('tenants');
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,13 +71,13 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
       await loadTenants();
       if (onTenantChange) onTenantChange();
     } catch (e: any) {
-      alert('Failed to delete tenant: ' + (e.message || 'Unknown error'));
+      showToast("error", "Failed to delete tenant", e.message || "Unknown error");
     }
   };
 
   const handleSave = async () => {
     if (!formData.tenantId || !formData.name) {
-      alert('Tenant ID and Name are required');
+      showToast("error", "Missing required fields", "Tenant ID and Name are required.");
       return;
     }
 
@@ -94,8 +96,9 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
       setShowDialog(false);
       await loadTenants();
       if (onTenantChange) onTenantChange();
+      showToast("success", editingTenant ? "Tenant updated" : "Tenant created", formData.tenantId);
     } catch (e: any) {
-      alert('Failed to save tenant: ' + (e.message || 'Unknown error'));
+      showToast("error", "Failed to save tenant", e.message || "Unknown error");
     }
   };
 

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { scenarioApi, type Scenario } from '../services/apiService';
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, formatCurrencyCompact } from '../utils/currency';
+import { useToast } from "./ToastProvider";
 
 interface Simulation {
   id: string;
@@ -28,6 +29,7 @@ interface ResultsPageProps {
 export default function ResultsPage({ tenantId = 'default', onNavigate }: ResultsPageProps) {
   // Get currency for tenant
   const currency = useCurrency(tenantId);
+  const { showToast } = useToast();
   
   const [selectedSimulation, setSelectedSimulation] = useState<Simulation | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -125,7 +127,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
         setSelectedSimulation(null);
       }
     } catch (e: any) {
-      alert('Failed to delete scenario: ' + (e.message || 'Unknown error'));
+      showToast("error", "Failed to delete scenario", e.message || "Unknown error");
     }
   };
 
@@ -167,8 +169,9 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
                 await scenarioApi.clearAll(tenantId);
                 setScenarios([]);
                 setSelectedSimulation(null);
+                showToast("success", "History cleared", "All scenarios were removed for this tenant.");
               } catch (e: any) {
-                alert('Failed to clear history: ' + (e.message || 'Unknown error'));
+                showToast("error", "Failed to clear history", e.message || "Unknown error");
               }
             }}
             className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50 transition-colors"

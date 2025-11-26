@@ -14,6 +14,7 @@ import RuleBuilderGuide from './RuleBuilderGuide';
 import TableBuilder from './TableBuilder';
 import AIRuleAssistant from './AIRuleAssistant';
 import { rulesetApi, ruleApi, tableApi, type RuleSet, type RuleDto, type ValidateIssue } from '../services/apiService';
+import { useToast } from './ToastProvider';
 
 export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: string }) {
   // Load persisted state from localStorage
@@ -74,6 +75,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   
   // Table names for autocomplete
   const [tableNames, setTableNames] = useState<string[]>([]);
+
+  const { showToast } = useToast();
 
   // Load rulesets on mount
   useEffect(() => {
@@ -190,7 +193,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
       // Reload ruleset
       await loadRuleset(selectedRulesetId);
-      alert('Rule saved successfully!');
+      showToast('success', 'Rule saved', `Component "${target}" was updated.`);
     } catch (err: any) {
       setError(err.message || 'Failed to save rule');
     } finally {
@@ -238,16 +241,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       return;
     }
 
-    if (!confirm('Are you sure you want to publish this ruleset? This will make it active.')) {
-      return;
-    }
-
     try {
       setSaving(true);
       setError(null);
       
       await rulesetApi.publish(tenantId, selectedRulesetId);
-      alert('Ruleset published successfully!');
+      showToast('success', 'Ruleset published', 'The active ruleset is now updated.');
       
       // Reload rulesets
       await loadRulesets();
@@ -289,7 +288,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         setGroup('core');
       }
       
-      alert('Component deleted successfully!');
+      showToast('success', 'Component deleted', `"${componentName}" was removed from the ruleset.`);
     } catch (err: any) {
       setError(err.message || 'Failed to delete component');
     } finally {

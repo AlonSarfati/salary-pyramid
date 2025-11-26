@@ -11,6 +11,7 @@ import SimulateBulk from "./SimulateBulk";
 import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Button } from "./ui/button";
+import { useToast } from "./ToastProvider";
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, getCurrencySymbol } from '../utils/currency';
 
@@ -83,6 +84,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
       }
     }
   }, []);
+
+  const { showToast } = useToast();
 
   // ---- fetch rulesets ----
   useEffect(() => {
@@ -260,11 +263,11 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   // ---- handle save scenario ----
   const handleSaveScenario = async () => {
     if (!selectedRulesetId) {
-      alert("Please select a ruleset");
+      showToast("error", "Missing ruleset", "Please select a ruleset before saving a scenario.");
       return;
     }
     if (!simulationResult) {
-      alert("Please run a simulation first");
+      showToast("error", "No results to save", "Run a simulation before saving a scenario.");
       return;
     }
 
@@ -285,10 +288,10 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
       });
       setShowSaveScenarioDialog(false);
       setScenarioName("");
-      alert("Scenario saved successfully!");
+      showToast("success", "Scenario saved", "The scenario was saved to history.");
     } catch (e: any) {
       console.error("Failed to save scenario:", e);
-      alert("Failed to save scenario: " + (e.message || "Unknown error"));
+      showToast("error", "Failed to save scenario", e.message || "Unknown error");
     } finally {
       setSavingScenario(false);
     }
@@ -363,7 +366,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   // ---- handle baseline for comparison mode ----
   const handleSetBaseline = () => {
     if (!simulationResult) {
-      alert("Please run a simulation first to set as baseline");
+      showToast("error", "No run to set as baseline", "Run a simulation first, then set it as baseline.");
       return;
     }
     setBaselineResult(simulationResult);
@@ -495,7 +498,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       if (!baselineResult) {
                         // No baseline set yet – keep switch off and inform user
                         setComparisonMode(false);
-                        alert("Please set a baseline run first.");
+                        showToast("error", "No baseline set", "Use 'Set baseline' after a run, then enable comparison.");
                         return;
                       }
                       setComparisonMode(!!checked);

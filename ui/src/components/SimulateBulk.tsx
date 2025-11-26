@@ -9,10 +9,12 @@ import { Button } from './ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimBulkResponse, type Employee } from '../services/apiService';
+import { useToast } from "./ToastProvider";
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrency as formatCurrencyUtil } from '../utils/currency';
 
 export default function SimulateBulk({ tenantId = "default" }: { tenantId?: string }) {
+  const { showToast } = useToast();
   const [hasData, setHasData] = useState(false);
   const [comparisonMode, setComparisonMode] = useState(false);
   const [simulating, setSimulating] = useState(false);
@@ -113,7 +115,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const handleSaveEmployee = async (index: number) => {
     const emp = employees[index];
     if (!emp.id || emp.id.trim() === '') {
-      alert('Please enter an Employee ID before saving');
+      showToast("error", "Missing Employee ID", "Please enter an Employee ID before saving.");
       return;
     }
 
@@ -128,9 +130,9 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
       // Refresh saved employees list
       const updated = await employeeApi.list(tenantId);
       setSavedEmployees(updated);
-      alert('Employee saved successfully!');
+      showToast("success", "Employee saved", `Employee ${emp.id} was saved successfully.`);
     } catch (e: any) {
-      alert('Failed to save employee: ' + (e.message || 'Unknown error'));
+      showToast("error", "Failed to save employee", e.message || "Unknown error");
       console.error('Failed to save employee:', e);
     }
   };
@@ -188,7 +190,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
 
   const handleRunSimulation = async (isBaseline = false) => {
     if (employees.length === 0) {
-      alert('Please add at least one employee');
+      showToast("error", "No employees", "Please add at least one employee before running a simulation.");
       return;
     }
 
@@ -229,7 +231,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
 
   const handleSetBaseline = () => {
     if (!simulationResult) {
-      alert('Please run a simulation first to set as baseline');
+      showToast("error", "No run to set as baseline", "Run a simulation first, then set it as baseline.");
       return;
     }
     setBaselineResult(simulationResult);

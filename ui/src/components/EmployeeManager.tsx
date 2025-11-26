@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { employeeApi, rulesetApi, type Employee } from '../services/apiService';
+import { useToast } from "./ToastProvider";
 
 type InputMetadata = {
   name: string;
@@ -19,6 +20,7 @@ type InputMetadata = {
 };
 
 export default function EmployeeManager({ tenantId = "default" }: { tenantId?: string }) {
+  const { showToast } = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,9 +40,10 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
     data: {},
   });
   
-  // CSV import dialog
+  // CSV import & delete confirmation dialogs
   const [showCsvDialog, setShowCsvDialog] = useState(false);
   const [csvFormatInfo, setCsvFormatInfo] = useState(false);
+  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
   // Fetch rulesets
   useEffect(() => {
@@ -121,16 +124,20 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
     setShowDialog(true);
   };
 
-  const handleDelete = async (employeeId: string) => {
-    if (!confirm(`Are you sure you want to delete employee ${employeeId}?`)) {
-      return;
-    }
+  const handleDeleteRequest = (employee: Employee) => {
+    setEmployeeToDelete(employee);
+  };
 
+  const handleConfirmDelete = async () => {
+    if (!employeeToDelete) return;
     try {
-      await employeeApi.delete(tenantId, employeeId);
+      await employeeApi.delete(tenantId, employeeToDelete.employeeId);
       await loadEmployees();
+      showToast("success", "Employee deleted", `Employee ${employeeToDelete.employeeId} was removed.`);
     } catch (e: any) {
-      alert('Failed to delete employee: ' + (e.message || 'Unknown error'));
+      showToast("error", "Failed to delete employee", e.message || "Unknown error");
+    } finally {
+      setEmployeeToDelete(null);
     }
   };
 
@@ -141,6 +148,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
           name: formData.name || undefined,
           data: formData.data,
         });
+        showToast("success", "Employee updated", formData.employeeId);
       } else {
         await employeeApi.create({
           tenantId,
@@ -148,11 +156,12 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
           name: formData.name || undefined,
           data: formData.data,
         });
+        showToast("success", "Employee created", formData.employeeId);
       }
       setShowDialog(false);
       await loadEmployees();
     } catch (e: any) {
-      alert('Failed to save employee: ' + (e.message || 'Unknown error'));
+      showToast("error", "Failed to save employee", e.message || "Unknown error");
     }
   };
 
@@ -166,7 +175,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         const text = e.target?.result as string;
         const lines = text.split('\n').filter(line => line.trim());
         if (lines.length < 2) {
-          alert('CSV file must have at least a header row and one data row');
+          showToast("error", "Invalid CSV", "File must have at least a header row and one data row.");
           return;
         }
 
@@ -175,7 +184,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         const nameIndex = headers.indexOf('name');
 
         if (employeeIdIndex === -1) {
-          alert('CSV must have an "employeeId" column');
+          showToast("error", "Invalid CSV", 'CSV must have an "employeeId" column.');
           return;
         }
 
@@ -233,10 +242,10 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
           }
         }
 
-        alert(`Import complete: ${successCount} created, ${errorCount} failed`);
+        showToast("success", "Import complete", `${successCount} created, ${errorCount} failed.`);
         await loadEmployees();
       } catch (err: any) {
-        alert('Failed to parse CSV: ' + (err.message || 'Unknown error'));
+        showToast("error", "Failed to parse CSV", err.message || "Unknown error");
       }
     };
     reader.readAsText(file);
@@ -246,7 +255,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
 
   const handleExportCsv = () => {
     if (employees.length === 0) {
-      alert('No employees to export');
+      showToast("error", "No employees to export", "There are no employees in this tenant.");
       return;
     }
 
@@ -280,6 +289,8 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
     a.click();
     window.URL.revokeObjectURL(url);
   };
+
+  const deleteName = employeeToDelete?.name || employeeToDelete?.employeeId || "";
 
   const handleDownloadTemplate = () => {
     // Create CSV template with headers and example rows
@@ -447,7 +458,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
           </div>
         </Card>
       ) : (
-        <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
+      <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -506,7 +517,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDelete(emp.employeeId)}
+                          onClick={() => handleDeleteRequest(emp)}
                         >
                           <Trash2 className="w-4 h-4 text-red-600" />
                         </Button>
@@ -649,6 +660,36 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
             </Button>
             <Button onClick={handleSave} disabled={!formData.employeeId}>
               {editingEmployee ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!employeeToDelete} onOpenChange={(open) => !open && setEmployeeToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Employee</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to delete{" "}
+            <span className="font-semibold">
+              {deleteName}
+            </span>
+            ? This action cannot be undone.
+          </p>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setEmployeeToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+            >
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

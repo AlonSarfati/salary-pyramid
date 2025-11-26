@@ -5,6 +5,7 @@ import { Textarea } from './ui/textarea';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ruleAssistantApi, ruleApi, type ProposedRuleDto, type RuleAssistantResponse } from '../services/apiService';
+import { useToast } from "./ToastProvider";
 
 interface AIRuleAssistantProps {
   tenantId: string;
@@ -19,6 +20,7 @@ export default function AIRuleAssistant({ tenantId, rulesetId, onRuleAdded, onCl
   const [response, setResponse] = useState<RuleAssistantResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addingRule, setAddingRule] = useState(false);
+  const { showToast } = useToast();
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -72,7 +74,7 @@ export default function AIRuleAssistant({ tenantId, rulesetId, onRuleAdded, onCl
       onRuleAdded();
       setResponse(null);
       setPrompt('');
-      alert('Rule added successfully!');
+      showToast("success", "Rule added", `Component "${rule.target}" was updated.`);
     } catch (e: any) {
       setError('Failed to add rule: ' + (e.message || 'Unknown error'));
     } finally {

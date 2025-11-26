@@ -363,7 +363,8 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
   const handleUploadCSV = () => {
     // TODO: Implement CSV upload
-    alert('CSV upload feature coming soon!');
+    // Using toast would be more in line with the rest of the UI once implemented
+    setError('CSV upload feature coming soon.');
   };
 
   return (

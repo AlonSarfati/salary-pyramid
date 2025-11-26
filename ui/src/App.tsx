@@ -10,6 +10,7 @@ import AdminPage from './components/AdminPage';
 import EmployeeManager from './components/EmployeeManager';
 import GlobalPayrollDashboard from './components/GlobalPayrollDashboard';
 import { tenantApi } from './services/apiService';
+import { ToastProvider } from './components/ToastProvider';
 
 type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees' | 'dashboard';
 
@@ -92,7 +93,8 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#EEF2F8]">
+    <ToastProvider>
+      <div className="flex h-screen bg-[#EEF2F8]">
       {/* Left Sidebar */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200">
@@ -116,41 +118,42 @@ export default function App() {
         </nav>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-[#1E1E1E]">Atlas Compensation Simulator</h2>
-          <div className="flex items-center gap-4">
-            {!tenantsLoading && tenants.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Tenant:</span>
-                <select
-                  value={selectedTenantId}
-                  onChange={(e) => setSelectedTenantId(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-[#1E1E1E] min-w-[200px]"
-                >
-                  {tenants
-                    .filter(t => t.status === 'ACTIVE')
-                    .map((tenant) => (
-                      <option key={tenant.tenantId} value={tenant.tenantId}>
-                        {tenant.name}
-                      </option>
-                    ))}
-                </select>
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Top Bar */}
+          <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+            <h2 className="text-[#1E1E1E]">Atlas Compensation Simulator</h2>
+            <div className="flex items-center gap-4">
+              {!tenantsLoading && tenants.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">Tenant:</span>
+                  <select
+                    value={selectedTenantId}
+                    onChange={(e) => setSelectedTenantId(e.target.value)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-[#1E1E1E] min-w-[200px]"
+                  >
+                    {tenants
+                      .filter(t => t.status === 'ACTIVE')
+                      .map((tenant) => (
+                        <option key={tenant.tenantId} value={tenant.tenantId}>
+                          {tenant.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+              <div className="w-10 h-10 rounded-full bg-[#0052CC] flex items-center justify-center text-white">
+                JD
               </div>
-            )}
-            <div className="w-10 h-10 rounded-full bg-[#0052CC] flex items-center justify-center text-white">
-              JD
             </div>
           </div>
-        </div>
 
-        {/* Page Content */}
-        <div className="flex-1 overflow-auto">
-          {renderPage()}
+          {/* Page Content */}
+          <div className="flex-1 overflow-auto">
+            {renderPage()}
+          </div>
         </div>
       </div>
-    </div>
+    </ToastProvider>
   );
 }
