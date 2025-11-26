@@ -100,5 +100,15 @@ public class RulesServiceDb implements RulesService {
                 .orElse(rulesetId);
     }
 
+    @Override
+    public void renameRuleset(String tenantId, String rulesetId, String newName) {
+        repo.updateRulesetName(tenant(tenantId), rulesetId, newName);
+    }
+
+    @Override
+    public void deleteRuleset(String tenantId, String rulesetId) {
+        repo.deleteRuleset(tenant(tenantId), rulesetId);
+    }
+
     private static String tenant(String t) { return t != null ? t : "default"; }
 }

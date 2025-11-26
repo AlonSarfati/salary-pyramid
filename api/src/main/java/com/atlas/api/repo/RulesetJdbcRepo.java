@@ -100,4 +100,23 @@ public class RulesetJdbcRepo {
         jdbc.update(sql, Map.of("t", tenantId, "r", rulesetId));
         jdbc.update("UPDATE ruleset SET status='ACTIVE', published_at=now() WHERE ruleset_id=:r", Map.of("r", rulesetId));
     }
+
+    public void updateRulesetName(String tenantId, String rulesetId, String newName) {
+        var sql = "UPDATE ruleset SET name=:n, updated_at=now() WHERE tenant_id=:t AND ruleset_id=:r";
+        jdbc.update(sql, new MapSqlParameterSource()
+                .addValue("n", newName)
+                .addValue("t", tenantId)
+                .addValue("r", rulesetId));
+    }
+
+    public void deleteRuleset(String tenantId, String rulesetId) {
+        // Remove from active mapping if present
+        jdbc.update("DELETE FROM tenant_active_ruleset WHERE tenant_id=:t AND ruleset_id=:r",
+                Map.of("t", tenantId, "r", rulesetId));
+        // Delete all rules in this ruleset
+        jdbc.update("DELETE FROM rule WHERE ruleset_id=:r", Map.of("r", rulesetId));
+        // Finally delete the ruleset record
+        jdbc.update("DELETE FROM ruleset WHERE tenant_id=:t AND ruleset_id=:r",
+                Map.of("t", tenantId, "r", rulesetId));
+    }
 }

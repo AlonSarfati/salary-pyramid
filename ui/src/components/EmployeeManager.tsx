@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, Upload, Download, Users, Loader2, FileText, X } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
@@ -39,11 +39,12 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
     name: '',
     data: {},
   });
+  const [formError, setFormError] = useState<string | null>(null);
   
   // CSV import & delete confirmation dialogs
   const [showCsvDialog, setShowCsvDialog] = useState(false);
-  const [csvFormatInfo, setCsvFormatInfo] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Fetch rulesets
   useEffect(() => {
@@ -111,6 +112,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
   const handleAdd = () => {
     setEditingEmployee(null);
     setFormData({ employeeId: '', name: '', data: {} });
+    setFormError(null);
     setShowDialog(true);
   };
 
@@ -121,6 +123,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
       name: employee.name || '',
       data: { ...employee.data },
     });
+    setFormError(null);
     setShowDialog(true);
   };
 
@@ -158,9 +161,16 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         });
         showToast("success", "Employee created", formData.employeeId);
       }
+      setFormError(null);
       setShowDialog(false);
       await loadEmployees();
     } catch (e: any) {
+      const msg = e?.message || 'Failed to save employee';
+      if (msg.toLowerCase().includes('already exists')) {
+        setFormError('An employee with this ID already exists for this tenant.');
+      } else {
+        setFormError(msg);
+      }
       showToast("error", "Failed to save employee", e.message || "Unknown error");
     }
   };
@@ -290,83 +300,14 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
     window.URL.revokeObjectURL(url);
   };
 
-  const deleteName = employeeToDelete?.name || employeeToDelete?.employeeId || "";
-
   const handleDownloadTemplate = () => {
-    // Create CSV template with headers and example rows
+    // Create CSV template with headers based on required inputs
     const headers = ['employeeId', 'name', ...Object.keys(requiredInputs)];
-    
-    // Create example rows with default values or placeholders
-    const exampleRows: string[][] = [];
-    
-    // Row 1: Example with default values
-    const row1: string[] = [];
-    headers.forEach(header => {
-      if (header === 'employeeId') {
-        row1.push('E001');
-      } else if (header === 'name') {
-        row1.push('John Doe');
-      } else {
-        const meta = requiredInputs[header];
-        if (meta) {
-          if (meta.type === 'boolean') {
-            row1.push('true');
-          } else if (meta.type === 'number') {
-            row1.push(String(meta.defaultValue || 0));
-          } else if (meta.type === 'select' && meta.options && meta.options.length > 0) {
-            row1.push(meta.options[0] === '' ? '(Empty)' : meta.options[0]);
-          } else {
-            row1.push(String(meta.defaultValue || ''));
-          }
-        } else {
-          row1.push('');
-        }
-      }
-    });
-    exampleRows.push(row1);
-    
-    // Row 2: Another example
-    const row2: string[] = [];
-    headers.forEach(header => {
-      if (header === 'employeeId') {
-        row2.push('E002');
-      } else if (header === 'name') {
-        row2.push('Jane Smith');
-      } else {
-        const meta = requiredInputs[header];
-        if (meta) {
-          if (meta.type === 'boolean') {
-            row2.push('false');
-          } else if (meta.type === 'number') {
-            row2.push(String(meta.defaultValue || 0));
-          } else if (meta.type === 'select' && meta.options && meta.options.length > 1) {
-            row2.push(meta.options[1] === '' ? '(Empty)' : meta.options[1]);
-          } else if (meta.type === 'select' && meta.options && meta.options.length > 0) {
-            row2.push(meta.options[0] === '' ? '(Empty)' : meta.options[0]);
-          } else {
-            row2.push(String(meta.defaultValue || ''));
-          }
-        } else {
-          row2.push('');
-        }
-      }
-    });
-    exampleRows.push(row2);
-    
-    // Row 3: Empty template row
-    const row3: string[] = [];
-    headers.forEach(header => {
-      if (header === 'employeeId') {
-        row3.push('');
-      } else if (header === 'name') {
-        row3.push('');
-      } else {
-        row3.push('');
-      }
-    });
-    exampleRows.push(row3);
 
-    const csv = [headers.join(','), ...exampleRows.map(row => row.join(','))].join('\n');
+    // Empty example row
+    const emptyRow: string[] = headers.map(() => '');
+
+    const csv = [headers.join(','), emptyRow.join(',')].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -375,6 +316,9 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
     a.click();
     window.URL.revokeObjectURL(url);
   };
+
+  const deleteName = employeeToDelete?.name || employeeToDelete?.employeeId || "";
+
 
   return (
     <div className="max-w-[1600px] mx-auto p-6">
@@ -398,31 +342,34 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
               </SelectContent>
             </Select>
           )}
-          <Button variant="outline" onClick={handleDownloadTemplate} disabled={Object.keys(requiredInputs).length === 0}>
+          <Button
+            variant="outline"
+            onClick={handleDownloadTemplate}
+            disabled={Object.keys(requiredInputs).length === 0}
+          >
             <Download className="w-4 h-4 mr-2" />
             Download Template
           </Button>
-          <Button variant="outline" onClick={() => setCsvFormatInfo(true)}>
-            <FileText className="w-4 h-4 mr-2" />
-            CSV Format
-          </Button>
+
           <Button variant="outline" onClick={handleExportCsv} disabled={employees.length === 0}>
             <Download className="w-4 h-4 mr-2" />
             Export CSV
           </Button>
-          <label>
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleCsvUpload}
-              className="hidden"
-              id="csv-upload"
-            />
-            <Button variant="outline" onClick={() => document.getElementById('csv-upload')?.click()}>
-              <Upload className="w-4 h-4 mr-2" />
-              Import CSV
-            </Button>
-          </label>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleCsvUpload}
+            style={{ display: 'none' }}
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Import CSV
+          </Button>
           <Button onClick={handleAdd}>
             <Plus className="w-4 h-4 mr-2" />
             Add Employee
@@ -550,6 +497,9 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
                   disabled={!!editingEmployee}
                   className="mt-1"
                 />
+                {formError && (
+                  <p className="mt-1 text-sm text-red-600">{formError}</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="name">Name</Label>
@@ -695,57 +645,6 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         </DialogContent>
       </Dialog>
 
-      {/* CSV Format Info Dialog */}
-      <Dialog open={csvFormatInfo} onOpenChange={setCsvFormatInfo}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>CSV Import Format</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-semibold mb-2">Required Columns:</h3>
-              <ul className="list-disc list-inside space-y-1 text-sm">
-                <li><code className="bg-gray-100 px-1 rounded">employeeId</code> - Unique identifier for the employee (required)</li>
-                <li><code className="bg-gray-100 px-1 rounded">name</code> - Employee name (optional)</li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Data Columns:</h3>
-              <p className="text-sm text-gray-600 mb-2">
-                Any other columns will be stored as employee data. Examples:
-              </p>
-              <ul className="list-disc list-inside space-y-1 text-sm">
-                <li><code className="bg-gray-100 px-1 rounded">Role</code> - Employee role (e.g., "Engineer")</li>
-                <li><code className="bg-gray-100 px-1 rounded">Year</code> - Years of experience (numeric)</li>
-                <li><code className="bg-gray-100 px-1 rounded">Department</code> - Department name</li>
-                <li>Any other field your rules require</li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Example CSV:</h3>
-              <pre className="bg-gray-50 p-4 rounded-lg text-xs overflow-x-auto">
-{`employeeId,name,Role,Year,Department
-E001,John Doe,Engineer,5,Engineering
-E002,Jane Smith,Manager,10,Management
-E003,Bob Johnson,Engineer,3,Engineering`}
-              </pre>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">Notes:</h3>
-              <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
-                <li>Numeric values will be automatically parsed as numbers</li>
-                <li>Boolean values: "true"/"1" = true, "false"/"0" = false</li>
-                <li>All other values are stored as strings</li>
-                <li>Empty cells are ignored</li>
-                <li>Rows with missing employeeId will be skipped</li>
-              </ul>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setCsvFormatInfo(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

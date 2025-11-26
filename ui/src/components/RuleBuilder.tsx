@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles } from 'lucide-react';
 import { Card } from './ui/card';
+import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
@@ -35,7 +37,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(storedState.selectedRulesetId || null);
   
   // Data state
-  const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; count: number }>>([]);
+  const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; status: string }>>([]);
   const [ruleset, setRuleset] = useState<RuleSet | null>(null);
   const [components, setComponents] = useState<Array<{ id: string; name: string; group: string; status: string }>>([]);
   const [validationResults, setValidationResults] = useState<ValidateIssue[]>([]);
@@ -60,6 +62,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showAddComponent, setShowAddComponent] = useState(false);
   const [newComponentName, setNewComponentName] = useState('');
   const [newComponentGroup, setNewComponentGroup] = useState('core');
+  const [showDeleteRulesetDialog, setShowDeleteRulesetDialog] = useState(false);
+  const [showRenameRulesetDialog, setShowRenameRulesetDialog] = useState(false);
+  const [newRulesetName, setNewRulesetName] = useState('');
   
   // Help guide drawer state
   const [showHelpGuide, setShowHelpGuide] = useState(false);
@@ -132,11 +137,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const loadRulesets = async () => {
     try {
       setLoading(true);
-      const data = await rulesetApi.getActive(tenantId);
-      setRulesets(data.ruleSets || []);
-      // Only set default if no ruleset is already selected (from stored state)
-      if (!selectedRulesetId && data.ruleSets && data.ruleSets.length > 0) {
-        setSelectedRulesetId(data.ruleSets[0].rulesetId);
+      const all = await rulesetApi.getAllRulesets(tenantId);
+      setRulesets(all);
+      if (!selectedRulesetId && all.length > 0) {
+        setSelectedRulesetId(all[0].rulesetId);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load rulesets');
@@ -252,6 +256,49 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       await loadRulesets();
     } catch (err: any) {
       setError(err.message || 'Failed to publish ruleset');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRenameRuleset = async () => {
+    if (!selectedRulesetId || !newRulesetName.trim()) {
+      setError('Ruleset name is required');
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      await rulesetApi.rename(tenantId, selectedRulesetId, newRulesetName.trim());
+      showToast('success', 'Ruleset renamed', `Ruleset is now called "${newRulesetName.trim()}".`);
+      setShowRenameRulesetDialog(false);
+      setNewRulesetName('');
+      await loadRulesets();
+    } catch (err: any) {
+      setError(err.message || 'Failed to rename ruleset');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteRuleset = async () => {
+    if (!selectedRulesetId) {
+      setError('Please select a ruleset to delete');
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      await rulesetApi.delete(tenantId, selectedRulesetId);
+      showToast('success', 'Ruleset deleted', 'The ruleset and its rules were removed.');
+      setShowDeleteRulesetDialog(false);
+      // Clear current selection and reload list
+      setSelectedRulesetId(null);
+      setRuleset(null);
+      setComponents([]);
+      await loadRulesets();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete ruleset');
     } finally {
       setSaving(false);
     }
@@ -680,32 +727,57 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
           {/* Ruleset Selector */}
           <Card className="p-4 bg-white rounded-xl shadow-sm border-0 mb-6">
-            <div className="flex items-center gap-4">
-              <Label htmlFor="ruleset" className="min-w-[100px]">Active Ruleset</Label>
-              <Select
-                value={selectedRulesetId || ''}
-                onValueChange={setSelectedRulesetId}
-                disabled={loading}
-              >
-                <SelectTrigger id="ruleset" className="max-w-md">
-                  <SelectValue placeholder="Select ruleset..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {rulesets.map((rs) => (
-                    <SelectItem key={rs.rulesetId} value={rs.rulesetId}>
-                      {rs.rulesetId} ({rs.count} rules)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {lastValidationStatus === "success" && lastValidationTime && (
-                <div className="ml-4 flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
-                  <CheckCircle className="w-3 h-3" />
-                  <span>Ruleset is valid</span>
-                  <span className="text-[10px] text-green-800/70">({lastValidationTime})</span>
-                </div>
-              )}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <Label htmlFor="ruleset" className="min-w-[100px]">Ruleset</Label>
+                <Select
+                  value={selectedRulesetId || ''}
+                  onValueChange={setSelectedRulesetId}
+                  disabled={loading || rulesets.length === 0}
+                >
+                  <SelectTrigger id="ruleset" className="max-w-md">
+                    <SelectValue placeholder="Select ruleset..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rulesets.map((rs) => (
+                      <SelectItem key={rs.rulesetId} value={rs.rulesetId}>
+                        {rs.name || rs.rulesetId} {rs.status === 'ACTIVE' ? '(Active)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {lastValidationStatus === "success" && lastValidationTime && (
+                  <div className="ml-2 flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
+                    <CheckCircle className="w-3 h-3" />
+                    <span>Ruleset is valid</span>
+                    <span className="text-[10px] text-green-800/70">({lastValidationTime})</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedRulesetId}
+                  onClick={() => {
+                    const current = rulesets.find(r => r.rulesetId === selectedRulesetId);
+                    setNewRulesetName(current?.name || '');
+                    setShowRenameRulesetDialog(true);
+                  }}
+                >
+                  Rename
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedRulesetId}
+                  onClick={() => setShowDeleteRulesetDialog(true)}
+                  className="text-red-600 border-red-300 hover:bg-red-50"
+                >
+                  Delete
+                </Button>
+              </div>
             </div>
           </Card>
 
@@ -1053,6 +1125,68 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Rename Ruleset Dialog */}
+      <Dialog open={showRenameRulesetDialog} onOpenChange={setShowRenameRulesetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Ruleset</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label htmlFor="ruleset-name">New Name</Label>
+              <Input
+                id="ruleset-name"
+                value={newRulesetName}
+                onChange={(e) => setNewRulesetName(e.target.value)}
+                placeholder="Enter ruleset name"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowRenameRulesetDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRenameRuleset}
+              disabled={!newRulesetName.trim() || saving}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Ruleset Dialog */}
+      <Dialog open={showDeleteRulesetDialog} onOpenChange={setShowDeleteRulesetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Ruleset</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to delete this ruleset and all its rules? This action cannot be undone.
+          </p>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteRulesetDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteRuleset}
+              disabled={saving}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* AI Assistant Side Panel - temporarily disabled */}
       {false && showAIAssistant && (

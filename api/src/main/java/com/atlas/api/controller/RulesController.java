@@ -6,6 +6,8 @@ import com.atlas.api.service.RulesService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/rulesets")
 public class RulesController {
@@ -25,5 +27,24 @@ public class RulesController {
                                                    @PathVariable String rulesetId) {
         rulesService.publish(tenantId, rulesetId);
         return ResponseEntity.ok(new RuleSetResponse(rulesetId, "ACTIVE"));
+    }
+
+    @PutMapping("/{tenantId}/{rulesetId}")
+    public ResponseEntity<?> renameRuleset(@PathVariable String tenantId,
+                                           @PathVariable String rulesetId,
+                                           @RequestBody Map<String, Object> body) {
+        String newName = (String) body.get("name");
+        if (newName == null || newName.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "name is required"));
+        }
+        rulesService.renameRuleset(tenantId, rulesetId, newName.trim());
+        return ResponseEntity.ok(Map.of("rulesetId", rulesetId, "name", newName.trim()));
+    }
+
+    @DeleteMapping("/{tenantId}/{rulesetId}")
+    public ResponseEntity<?> deleteRuleset(@PathVariable String tenantId,
+                                           @PathVariable String rulesetId) {
+        rulesService.deleteRuleset(tenantId, rulesetId);
+        return ResponseEntity.ok(Map.of("status", "deleted", "rulesetId", rulesetId));
     }
 }

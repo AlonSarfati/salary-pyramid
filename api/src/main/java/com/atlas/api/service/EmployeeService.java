@@ -93,6 +93,12 @@ public class EmployeeService {
         }
 
         try {
+            // Prevent creating a new employee with an ID that already exists for this tenant
+            Optional<EmployeeDto> existing = getEmployee(tenantId, employeeId);
+            if (existing.isPresent()) {
+                throw new IllegalArgumentException("Employee with this ID already exists for this tenant");
+            }
+
             String dataJson = objectMapper.writeValueAsString(data);
             
             // Use MapSqlParameterSource to handle null values properly
@@ -105,8 +111,6 @@ public class EmployeeService {
             String sql = """
                 INSERT INTO employee (employee_id, tenant_id, name, data_json, created_at, updated_at)
                 VALUES (:id, :tenantId, :name, CAST(:data AS jsonb), now(), now())
-                ON CONFLICT (employee_id, tenant_id) DO UPDATE
-                SET name = :name, data_json = CAST(:data AS jsonb), updated_at = now()
                 RETURNING employee_id, tenant_id, name, data_json::text, created_at, updated_at
                 """;
             

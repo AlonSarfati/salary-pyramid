@@ -158,6 +158,28 @@ export const rulesetApi = {
       method: 'POST',
     });
   },
+
+  // Rename a ruleset (display name)
+  async rename(
+    tenantId: string,
+    rulesetId: string,
+    name: string
+  ): Promise<{ rulesetId: string; name: string }> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  // Delete a ruleset (and its rules)
+  async delete(
+    tenantId: string,
+    rulesetId: string
+  ): Promise<{ status: string; rulesetId: string }> {
+    return apiCall(`/rulesets/${tenantId}/${rulesetId}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // Rule Editing

@@ -14,4 +14,12 @@ public interface RulesService {
     RuleSet getActive(String tenantId, LocalDate onDate);
     List<RuleSet> getActiveList(String tenantId, LocalDate onDate);
     RuleSet getById(String tenantId, String id);
+
+    default void renameRuleset(String tenantId, String rulesetId, String newName) {
+        throw new UnsupportedOperationException("renameRuleset not implemented");
+    }
+
+    default void deleteRuleset(String tenantId, String rulesetId) {
+        throw new UnsupportedOperationException("deleteRuleset not implemented");
+    }
 }
