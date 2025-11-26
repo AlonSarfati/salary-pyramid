@@ -86,17 +86,13 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
     };
   });
 
-  // Calculate KPIs from real data
-  const totalPayroll = simulations.reduce((sum, sim) => {
-    const total = typeof sim.scenario.resultData.total === 'string'
-      ? parseFloat(sim.scenario.resultData.total)
-      : (sim.scenario.resultData.total as number) || 0;
-    return sum + total;
-  }, 0);
-
-  const totalEmployees = simulations.reduce((sum, sim) => sum + sim.employees, 0);
-  const avgPerEmployee = totalEmployees > 0 ? totalPayroll / totalEmployees : 0;
+  // Calculate KPIs from simulation history
   const simulationsCount = simulations.length;
+  const totalEmployeesSimulated = simulations.reduce((sum, sim) => sum + sim.employees, 0);
+  const avgEmployeesPerRun = simulationsCount > 0 ? totalEmployeesSimulated / simulationsCount : 0;
+  const bulkSimulations = simulations.filter(sim => sim.scenario.simulationType === 'bulk').length;
+  const singleSimulations = simulationsCount - bulkSimulations;
+  const distinctRulesetsUsed = new Set(simulations.map(sim => sim.ruleset)).size;
 
   // Get component breakdown from selected simulation
   const componentBreakdown = selectedSimulation ? (() => {
@@ -161,48 +157,34 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
     <div className="p-8 max-w-[1600px] mx-auto">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-[#1E1E1E]">Results – History & Details</h1>
+        {simulationsCount > 0 && (
+          <button
+            onClick={async () => {
+              if (!confirm('This will remove all saved scenarios for this tenant. Continue?')) {
+                return;
+              }
+              try {
+                await scenarioApi.clearAll(tenantId);
+                setScenarios([]);
+                setSelectedSimulation(null);
+              } catch (e: any) {
+                alert('Failed to clear history: ' + (e.message || 'Unknown error'));
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear history
+          </button>
+        )}
       </div>
 
-      {/* KPI Summary Cards */}
+      {/* KPI Summary Cards - Simulation history focused */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-[#0052CC]" />
-            </div>
-            <div className="text-sm text-gray-600">Total Payroll</div>
-          </div>
-          <div className="text-2xl text-[#1E1E1E]">
-            {loading ? (
-              <Loader2 className="w-6 h-6 animate-spin" />
-            ) : (
-              formatCurrencyCompact(totalPayroll, currency)
-            )}
-          </div>
-          <div className="text-sm text-gray-600 mt-1">{simulationsCount} scenarios</div>
-        </Card>
-
-        <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <Users className="w-5 h-5 text-green-600" />
-            </div>
-            <div className="text-sm text-gray-600">Avg per Employee</div>
-          </div>
-          <div className="text-2xl text-[#1E1E1E]">
-            {loading ? (
-              <Loader2 className="w-6 h-6 animate-spin" />
-            ) : (
-              formatCurrencyWithDecimals(avgPerEmployee, currency, 2)
-            )}
-          </div>
-          <div className="text-sm text-gray-600 mt-1">Across {totalEmployees} employees</div>
-        </Card>
-
-        <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <FileText className="w-5 h-5 text-purple-600" />
+              <FileText className="w-5 h-5 text-[#0052CC]" />
             </div>
             <div className="text-sm text-gray-600">Simulations Run</div>
           </div>
@@ -213,7 +195,43 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
               simulationsCount
             )}
           </div>
-          <div className="text-sm text-gray-600 mt-1">Total scenarios</div>
+          <div className="text-sm text-gray-600 mt-1">Saved scenarios</div>
+        </Card>
+
+        <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <Users className="w-5 h-5 text-green-600" />
+            </div>
+            <div className="text-sm text-gray-600">Employees Simulated</div>
+          </div>
+          <div className="text-2xl text-[#1E1E1E]">
+            {loading ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : (
+              totalEmployeesSimulated
+            )}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">
+            Avg {avgEmployeesPerRun.toFixed(1)} employees per run
+          </div>
+        </Card>
+
+        <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+              <FileText className="w-5 h-5 text-purple-600" />
+            </div>
+            <div className="text-sm text-gray-600">Rulesets Used</div>
+          </div>
+          <div className="text-2xl text-[#1E1E1E]">
+            {loading ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : (
+              distinctRulesetsUsed
+            )}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">Unique rulesets in history</div>
         </Card>
 
         <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
@@ -221,16 +239,18 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
             <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
               <TrendingUp className="w-5 h-5 text-orange-600" />
             </div>
-            <div className="text-sm text-gray-600">Growth Rate</div>
+            <div className="text-sm text-gray-600">Run Mix</div>
           </div>
           <div className="text-2xl text-[#1E1E1E]">
             {loading ? (
               <Loader2 className="w-6 h-6 animate-spin" />
             ) : (
-              simulationsCount > 0 ? '100%' : '0%'
+              simulationsCount > 0
+                ? `${singleSimulations} single / ${bulkSimulations} bulk`
+                : 'No runs'
             )}
           </div>
-          <div className="text-sm text-gray-600 mt-1">Active scenarios</div>
+          <div className="text-sm text-gray-600 mt-1">Simulation types over time</div>
         </Card>
       </div>
 

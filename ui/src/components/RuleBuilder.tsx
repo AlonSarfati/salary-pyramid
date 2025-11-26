@@ -52,6 +52,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastValidationStatus, setLastValidationStatus] = useState<"idle" | "success" | "error">("idle");
+  const [lastValidationTime, setLastValidationTime] = useState<string | null>(null);
   
   // Add component dialog state
   const [showAddComponent, setShowAddComponent] = useState(false);
@@ -205,15 +207,26 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     try {
       setLoading(true);
       setError(null);
-      
+      setLastValidationStatus("idle");
+
       const result = await ruleApi.validate(tenantId, selectedRulesetId);
-      setValidationResults(result.issues || []);
-      
-      if (result.valid) {
-        alert('Validation passed!');
+      const issues = result.issues || [];
+      setValidationResults(issues);
+
+      // Treat as success when there are no issues with severity 'error'
+      const hasErrors = issues.some((i) => i.severity.toLowerCase() === 'error');
+
+      if (!hasErrors) {
+        setLastValidationStatus("success");
+        setLastValidationTime(new Date().toLocaleString());
+      } else {
+        setLastValidationStatus("error");
+        setLastValidationTime(new Date().toLocaleString());
       }
     } catch (err: any) {
       setError(err.message || 'Failed to validate ruleset');
+      setLastValidationStatus("error");
+      setLastValidationTime(new Date().toLocaleString());
     } finally {
       setLoading(false);
     }
@@ -644,8 +657,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 disabled={loading}
                 className="flex items-center gap-2 px-6 py-3 bg-white text-[#0052CC] border border-[#0052CC] rounded-xl hover:bg-[#EEF2F8] transition-colors disabled:opacity-50"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
-                Validate
+                {loading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : lastValidationStatus === "success" ? (
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                ) : lastValidationStatus === "error" ? (
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                ) : (
+                  <CheckCircle className="w-5 h-5" />
+                )}
+                {lastValidationStatus === "success" ? "Validated" : "Validate"}
               </button>
               <button
                 onClick={handlePublish}
@@ -679,6 +700,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 </SelectContent>
               </Select>
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {lastValidationStatus === "success" && lastValidationTime && (
+                <div className="ml-4 flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
+                  <CheckCircle className="w-3 h-3" />
+                  <span>Ruleset is valid</span>
+                  <span className="text-[10px] text-green-800/70">({lastValidationTime})</span>
+                </div>
+              )}
             </div>
           </Card>
 

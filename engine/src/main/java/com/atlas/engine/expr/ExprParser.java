@@ -395,23 +395,29 @@ public class ExprParser {
         if (pos + token.length() > input.length()) {
             return false;
         }
-        
+
         String substr = input.substring(pos, pos + token.length());
         boolean matches = caseSensitive ? substr.equals(token) : substr.equalsIgnoreCase(token);
-        
-        if (matches) {
-            // Check that it's not part of a longer identifier
-            if (pos + token.length() < input.length()) {
-                char next = input.charAt(pos + token.length());
-                if (Character.isLetterOrDigit(next) || next == '_') {
-                    return false;
-                }
-            }
-            pos += token.length();
-            return true;
+
+        if (!matches) {
+            return false;
         }
-        
-        return false;
+
+        // For word-like tokens (identifiers/keywords such as IF, THEN, AND, OR, TRUE, FALSE)
+        // we must ensure we don't match inside a longer identifier, e.g. matching IF in "IFX".
+        // For symbolic operators (+, -, *, /, >, >=, etc.) this check must NOT run,
+        // otherwise expressions like "100/5" would fail because '5' is a digit.
+        boolean isWordToken = token.chars().allMatch(ch -> Character.isLetter(ch));
+
+        if (isWordToken && pos + token.length() < input.length()) {
+            char next = input.charAt(pos + token.length());
+            if (Character.isLetterOrDigit(next) || next == '_') {
+                return false;
+            }
+        }
+
+        pos += token.length();
+        return true;
     }
 
     private void skipWhitespace() {

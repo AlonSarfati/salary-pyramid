@@ -450,6 +450,12 @@ export const scenarioApi = {
       method: 'DELETE',
     });
   },
+
+  async clearAll(tenantId: string): Promise<{ status: string; deletedCount: number }> {
+    return apiCall(`/scenarios?tenantId=${encodeURIComponent(tenantId)}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // Baseline Dashboard API

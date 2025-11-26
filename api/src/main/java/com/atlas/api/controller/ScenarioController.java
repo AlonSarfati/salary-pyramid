@@ -48,7 +48,7 @@ public class ScenarioController {
     public ResponseEntity<?> createScenario(@RequestBody Map<String, Object> body) {
         try {
             String tenantId = (String) body.get("tenantId");
-            String name = (String) body.get("name");
+            String name = (String) body.get("name"); // optional - will get default if missing/blank
             String rulesetId = (String) body.get("rulesetId");
             String payMonth = (String) body.get("payMonth");
             @SuppressWarnings("unchecked")
@@ -59,9 +59,6 @@ public class ScenarioController {
             
             if (tenantId == null || tenantId.isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "tenantId is required"));
-            }
-            if (name == null || name.isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "name is required"));
             }
             if (rulesetId == null || rulesetId.isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "rulesetId is required"));
@@ -124,6 +121,15 @@ public class ScenarioController {
         }
         
         return ResponseEntity.ok(Map.of("status", "deleted", "scenarioId", scenarioId));
+    }
+
+    /**
+     * Delete ALL scenarios for a tenant (clear history)
+     */
+    @DeleteMapping
+    public ResponseEntity<Map<String, Object>> deleteAllScenarios(@RequestParam String tenantId) {
+        int deleted = scenarioService.deleteAllScenarios(tenantId);
+        return ResponseEntity.ok(Map.of("status", "cleared", "deletedCount", deleted));
     }
 }
 

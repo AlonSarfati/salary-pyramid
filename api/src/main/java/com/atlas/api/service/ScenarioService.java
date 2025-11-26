@@ -109,6 +109,15 @@ public class ScenarioService {
         try {
             String inputJson = objectMapper.writeValueAsString(inputData);
             String resultJson = objectMapper.writeValueAsString(resultData);
+
+            // If no name provided, generate a default one based on scenario ID
+            String finalName;
+            if (name == null || name.isBlank()) {
+                String shortId = scenarioId.substring(0, 8);
+                finalName = "Scenario " + shortId;
+            } else {
+                finalName = name;
+            }
             
             String sql = """
                 INSERT INTO scenario (scenario_id, tenant_id, name, ruleset_id, pay_month, 
@@ -120,7 +129,7 @@ public class ScenarioService {
             jdbc.update(sql, Map.of(
                 "scenarioId", scenarioId,
                 "tenantId", tenantId,
-                "name", name,
+                "name", finalName,
                 "rulesetId", rulesetId,
                 "payMonth", payMonth,
                 "inputData", inputJson,
@@ -182,6 +191,17 @@ public class ScenarioService {
         
         int deleted = jdbc.update(sql, Map.of("tenantId", tenantId, "scenarioId", scenarioId));
         return deleted > 0;
+    }
+
+    /**
+     * Delete ALL scenarios for a tenant (clear history)
+     */
+    public int deleteAllScenarios(String tenantId) {
+        String sql = """
+            DELETE FROM scenario
+            WHERE tenant_id = :tenantId
+            """;
+        return jdbc.update(sql, Map.of("tenantId", tenantId));
     }
 
     /**

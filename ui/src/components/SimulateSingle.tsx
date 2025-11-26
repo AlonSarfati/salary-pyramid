@@ -6,6 +6,7 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Switch } from "./ui/switch";
 import SimulateBulk from "./SimulateBulk";
 import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
@@ -32,6 +33,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
   // Form state
   const [employeeId, setEmployeeId] = useState("E001");
+  const [employeeSearch, setEmployeeSearch] = useState("");
   const [payMonth, setPayMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM format
   
   // Dynamic input state - will be populated from required inputs API
@@ -41,6 +43,10 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
   // Results state
   const [simulationResult, setSimulationResult] = useState<SimEmployeeResponse | null>(null);
+  const [baselineResult, setBaselineResult] = useState<SimEmployeeResponse | null>(null);
+  const [comparisonMode, setComparisonMode] = useState(false);
+  const [baselineRulesetId, setBaselineRulesetId] = useState<string | null>(null);
+  const [baselinePayMonth, setBaselinePayMonth] = useState<string>("");
 
   // Saved employees state
   const [savedEmployees, setSavedEmployees] = useState<Employee[]>([]);
@@ -220,6 +226,23 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
     }
   }, [savedEmployees, employeeId, requiredInputs, inputsLoading]); // Only depend on these, not inputValues to avoid loops
 
+  // ---- keep search box in sync with selected employee ----
+  useEffect(() => {
+    if (!employeeId) {
+      setEmployeeSearch("");
+      return;
+    }
+    const selected = savedEmployees.find(emp => emp.employeeId === employeeId);
+    if (selected) {
+      // Keep the input showing a single line label: "ID - Name"
+      const label = `${selected.employeeId} - ${selected.name || "(No name)"}`;
+      setEmployeeSearch(label);
+    } else {
+      // For new / unsaved employees, just show the raw ID
+      setEmployeeSearch(employeeId);
+    }
+  }, [employeeId, savedEmployees]);
+
   // ---- handle employee selection ----
   const handleEmployeeSelect = (selectedEmployeeId: string) => {
     setEmployeeId(selectedEmployeeId);
@@ -236,10 +259,6 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
   // ---- handle save scenario ----
   const handleSaveScenario = async () => {
-    if (!scenarioName.trim()) {
-      alert("Please enter a scenario name");
-      return;
-    }
     if (!selectedRulesetId) {
       alert("Please select a ruleset");
       return;
@@ -253,7 +272,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
       setSavingScenario(true);
       await scenarioApi.create({
         tenantId,
-        name: scenarioName.trim(),
+        // Name is optional - backend will generate a default if empty
+        name: scenarioName.trim() || "",
         rulesetId: selectedRulesetId,
         payMonth,
         inputData: inputValues,
@@ -300,8 +320,11 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
         Status: "status",
       };
       
+      // Use either the selected employeeId or the current search text as the ID
+      const effectiveEmployeeId = (employeeId || employeeSearch.trim() || "E001");
+
       const employeeInput: any = {
-        id: employeeId,
+        id: effectiveEmployeeId,
       };
       
       const extra: Record<string, any> = {};
@@ -334,6 +357,21 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
       setSimulationResult(null);
     } finally {
       setSimulating(false);
+    }
+  };
+
+  // ---- handle baseline for comparison mode ----
+  const handleSetBaseline = () => {
+    if (!simulationResult) {
+      alert("Please run a simulation first to set as baseline");
+      return;
+    }
+    setBaselineResult(simulationResult);
+    setBaselineRulesetId(selectedRulesetId);
+    setBaselinePayMonth(payMonth);
+    // Auto-enable comparison mode on first baseline set
+    if (!comparisonMode) {
+      setComparisonMode(true);
     }
   };
 
@@ -394,7 +432,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
             </button>
           </div>
 
-          {/* Macro Controls - Ruleset and Pay Month - Centered above simulation */}
+          {/* Macro Controls - Ruleset, Pay Month, Comparison Mode - Centered above simulation */}
           <div className="mb-6 flex items-center justify-center">
             <Card className="p-4 bg-white rounded-xl shadow-sm border-0">
               <div className="flex items-center gap-6">
@@ -442,6 +480,47 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                     className="w-[180px]"
                   />
                 </div>
+
+                <div className="h-8 w-px bg-gray-300"></div>
+
+                <div className="flex items-center gap-3">
+                  <Label htmlFor="single-comparison" className="text-sm font-medium text-gray-700">
+                    Comparison Mode
+                  </Label>
+                  <Switch
+                    id="single-comparison"
+                    checked={comparisonMode}
+                    onCheckedChange={(checked) => {
+                      // Only toggle comparison mode; baseline is chosen explicitly via the button
+                      if (!baselineResult) {
+                        // No baseline set yet – keep switch off and inform user
+                        setComparisonMode(false);
+                        alert("Please set a baseline run first.");
+                        return;
+                      }
+                      setComparisonMode(!!checked);
+                    }}
+                    disabled={!baselineResult}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSetBaseline}
+                    disabled={!simulationResult}
+                  >
+                    Set baseline
+                  </Button>
+                  {baselineResult && (
+                    <span className="text-xs text-gray-500">
+                      Baseline:{" "}
+                      {baselineRulesetId
+                        ? (rulesets.find((r) => r.rulesetId === baselineRulesetId)?.name || baselineRulesetId)
+                        : "N/A"}{" "}
+                      ({baselinePayMonth})
+                    </span>
+                  )}
+                </div>
               </div>
             </Card>
           </div>
@@ -473,34 +552,73 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       </div>
                     ) : (
                       <>
-                        <Select value={employeeId} onValueChange={handleEmployeeSelect}>
-                          <SelectTrigger id="employee" className="mt-1">
-                            <SelectValue placeholder="Select employee or enter ID..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {savedEmployees.length > 0 ? (
-                              savedEmployees.map((emp) => (
-                                <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                                  {emp.employeeId} - {emp.name || '(No name)'}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <SelectItem value="__none__" disabled>
-                                No saved employees. Go to Employees tab to add some.
-                              </SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
                         <Input
-                          value={employeeId}
-                          onChange={(e) => setEmployeeId(e.target.value)}
-                          placeholder="Or enter employee ID manually"
-                          className="mt-2"
+                          id="employee"
+                          value={employeeSearch}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setEmployeeSearch(value);
+                            // Do NOT update employeeId on each keystroke to avoid loops when editing
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const query = employeeSearch.trim().toLowerCase();
+                              if (!query) return;
+
+                              // Find the first matching employee by ID or name
+                              const matches = savedEmployees.filter((emp) => {
+                                const idMatch = emp.employeeId.toLowerCase().includes(query);
+                                const nameMatch = (emp.name || "").toLowerCase().includes(query);
+                                return idMatch || nameMatch;
+                              });
+
+                              if (matches.length > 0) {
+                                const first = matches[0];
+                                handleEmployeeSelect(first.employeeId);
+                                const label = `${first.employeeId} - ${first.name || "(No name)"}`;
+                                setEmployeeSearch(label);
+                              } else {
+                                // Treat as a new (unsaved) employee ID
+                                setEmployeeId(employeeSearch.trim());
+                                lastAutoFilledEmployeeId.current = null;
+                              }
+                            }
+                          }}
+                          placeholder="Search by employee ID or name"
+                          className="mt-1"
                         />
                         {savedEmployees.length > 0 && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Select an employee to auto-fill their data, or enter a new ID
-                          </p>
+                          <div className="mt-2 border border-gray-200 rounded-lg max-h-40 overflow-y-auto bg-white">
+                            {savedEmployees
+                              .filter((emp) => {
+                                const q = employeeSearch.trim().toLowerCase();
+                                if (!q) return true;
+                                const idMatch = emp.employeeId.toLowerCase().includes(q);
+                                const nameMatch = (emp.name || "").toLowerCase().includes(q);
+                                return idMatch || nameMatch;
+                              })
+                              .slice(0, 10)
+                              .map((emp) => {
+                                const label = `${emp.employeeId} - ${emp.name || "(No name)"}`;
+                                return (
+                                  <button
+                                    key={emp.employeeId}
+                                    type="button"
+                                    onClick={() => {
+                                      handleEmployeeSelect(emp.employeeId);
+                                      // Show the combined label in the single input box
+                                      setEmployeeSearch(label);
+                                    }}
+                                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[#EEF2F8] ${
+                                      emp.employeeId === employeeId ? "bg-[#EEF2F8]" : ""
+                                    }`}
+                                  >
+                                    <span className="text-[#1E1E1E]">{label}</span>
+                                  </button>
+                                );
+                              })}
+                          </div>
                         )}
                       </>
                     )}
@@ -622,24 +740,41 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
               ) : (
                 <>
                   <div className="space-y-2 mb-6">
-                    {/* Table Header */}
-                    <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-[#EEF2F8] rounded-lg text-sm text-gray-600">
-                      <div className="col-span-6">Component</div>
-                      <div className="col-span-3 text-right">Amount</div>
-                      <div className="col-span-2 text-right">Contrib %</div>
-                      <div className="col-span-1"></div>
-                    </div>
+                  {/* Table Header */}
+                  <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-[#EEF2F8] rounded-lg text-sm text-gray-600">
+                    <div className="col-span-5">Component</div>
+                    <div className="col-span-3 text-right">Amount</div>
+                    {comparisonMode && baselineResult && (
+                      <div className="col-span-2 text-right">Δ vs Baseline</div>
+                    )}
+                    <div className="col-span-2 text-right">Contrib %</div>
+                    <div className="col-span-1"></div>
+                  </div>
 
                     {/* Table Rows */}
-                    {results.map((result, idx) => (
+                    {results.map((result, idx) => {
+                      const baselineAmount =
+                        comparisonMode && baselineResult
+                          ? baselineResult.components[result.component] ?? 0
+                          : 0;
+                      const delta = result.amount - baselineAmount;
+                      return (
                       <div
                         key={idx}
                         className="grid grid-cols-12 gap-4 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                       >
-                        <div className="col-span-6 text-[#1E1E1E]">{result.component}</div>
+                        <div className="col-span-5 text-[#1E1E1E]">{result.component}</div>
                         <div className="col-span-3 text-right text-[#1E1E1E]">
                           {formatCurrencyWithDecimals(result.amount, currency, 2)}
                         </div>
+                        {comparisonMode && baselineResult && (
+                          <div className={`col-span-2 text-right text-sm ${
+                            delta >= 0 ? "text-green-600" : "text-red-600"
+                          }`}>
+                            {delta >= 0 ? "+" : ""}
+                            {formatCurrencyWithDecimals(delta, currency, 2)}
+                          </div>
+                        )}
                         <div className="col-span-2 text-right text-gray-600">
                           {result.contribution.toFixed(1)}%
                         </div>
@@ -652,7 +787,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                           </button>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
 
                   {/* Total Card */}
@@ -663,11 +798,31 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                         <div className="text-2xl mt-1">
                           {formatCurrencyWithDecimals(totalAmount, currency, 2)}
                         </div>
+                        {comparisonMode && baselineResult && (
+                          <div className="mt-2 text-sm">
+                            <div className="opacity-80">
+                              Baseline: {formatCurrencyWithDecimals(baselineResult.total, currency, 2)}
+                            </div>
+                            <div
+                              className={`font-semibold ${
+                                totalAmount - baselineResult.total >= 0 ? "text-green-300" : "text-red-300"
+                              }`}
+                            >
+                              {totalAmount - baselineResult.total >= 0 ? "+" : ""}
+                              {formatCurrencyWithDecimals(totalAmount - baselineResult.total, currency, 2)}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className="text-sm opacity-90">Pay Month</div>
                         <div className="mt-1">
-                          {payMonth ? new Date(payMonth + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'long' }) : 'N/A'}
+                          {payMonth
+                            ? new Date(payMonth + "-01").toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "long",
+                              })
+                            : "N/A"}
                         </div>
                       </div>
                     </div>
@@ -737,7 +892,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                 </Button>
                 <Button
                   onClick={handleSaveScenario}
-                  disabled={savingScenario || !scenarioName.trim()}
+                  disabled={savingScenario}
                 >
                   {savingScenario ? (
                     <>
