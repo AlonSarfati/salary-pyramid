@@ -779,14 +779,21 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                 <>
                   <div className="space-y-2 mb-6">
                     {/* Table Header */}
-                    <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-[#EEF2F8] rounded-lg text-sm text-gray-600">
-                      <div className="col-span-4">Component</div>
-                      <div className="col-span-3 text-right">Amount</div>
-                      {comparisonMode && baselineResult && (
-                        <div className="col-span-3 text-right">Δ vs Baseline</div>
-                      )}
-                      <div className="col-span-2 text-right">Contrib %</div>
-                    </div>
+                    {comparisonMode && baselineResult ? (
+                      <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-[#EEF2F8] rounded-lg text-sm text-gray-600">
+                        <div className="col-span-4">Component</div>
+                        <div className="col-span-2 text-right">Baseline</div>
+                        <div className="col-span-2 text-right">Current</div>
+                        <div className="col-span-2 text-right">Δ</div>
+                        <div className="col-span-2 text-right">Contrib %</div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-[#EEF2F8] rounded-lg text-sm text-gray-600">
+                        <div className="col-span-4">Component</div>
+                        <div className="col-span-3 text-right">Amount</div>
+                        <div className="col-span-2 text-right">Contrib %</div>
+                      </div>
+                    )}
 
                     {/* Table Rows */}
                     {results.map((result, idx) => {
@@ -795,6 +802,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                           ? baselineResult.components[result.component] ?? 0
                           : 0;
                       const delta = result.amount - baselineAmount;
+                      const isComparison = comparisonMode && !!baselineResult;
+
                       return (
                         <div
                           key={idx}
@@ -809,22 +818,37 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                               <Info className="w-4 h-4 text-[#0052CC]" />
                             </button>
                           </div>
-                          <div className="col-span-3 text-right text-[#1E1E1E]">
-                            {formatCurrencyWithDecimals(result.amount, currency, 2)}
-                          </div>
-                          {comparisonMode && baselineResult && (
-                            <div
-                              className={`col-span-3 text-right text-sm ${
-                                delta >= 0 ? "text-green-600" : "text-red-600"
-                              }`}
-                            >
-                              {delta >= 0 ? "+" : ""}
-                              {formatCurrencyWithDecimals(delta, currency, 2)}
-                            </div>
+
+                          {isComparison ? (
+                            <>
+                              <div className="col-span-2 text-right text-gray-600">
+                                {formatCurrencyWithDecimals(baselineAmount, currency, 2)}
+                              </div>
+                              <div className="col-span-2 text-right text-[#1E1E1E]">
+                                {formatCurrencyWithDecimals(result.amount, currency, 2)}
+                              </div>
+                              <div
+                                className={`col-span-2 text-right text-sm ${
+                                  delta >= 0 ? "text-green-600" : "text-red-600"
+                                }`}
+                              >
+                                {delta >= 0 ? "+" : ""}
+                                {formatCurrencyWithDecimals(delta, currency, 2)}
+                              </div>
+                              <div className="col-span-2 text-right text-gray-600">
+                                {result.contribution.toFixed(1)}%
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="col-span-3 text-right text-[#1E1E1E]">
+                                {formatCurrencyWithDecimals(result.amount, currency, 2)}
+                              </div>
+                              <div className="col-span-2 text-right text-gray-600">
+                                {result.contribution.toFixed(1)}%
+                              </div>
+                            </>
                           )}
-                          <div className="col-span-2 text-right text-gray-600">
-                            {result.contribution.toFixed(1)}%
-                          </div>
                         </div>
                       );
                     })}
