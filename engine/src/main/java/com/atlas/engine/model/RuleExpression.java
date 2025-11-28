@@ -6,6 +6,7 @@ import com.atlas.engine.expr.Value;
 import com.atlas.engine.expr.DefaultEvalContext;
 import com.atlas.engine.expr.ExprNode;
 import com.atlas.engine.expr.ComponentRefNode;
+import com.atlas.engine.expr.TracingExprEvaluator;
 
 import java.math.BigDecimal;
 import java.util.Set;
@@ -153,6 +154,37 @@ public class RuleExpression {
         com.atlas.engine.expr.EvalContext exprContext = new DefaultEvalContext(context);
         Value result = evaluator.evaluate(expression, exprContext);
         return result.asNumber();
+    }
+    
+    /**
+     * Evaluate the expression with detailed tracing of intermediate steps.
+     * @param context The model EvalContext
+     * @param componentNames Set of available component names
+     * @return A result containing both the value and the trace steps
+     */
+    public EvaluationTraceResult evaluateWithTrace(EvalContext context, Set<String> componentNames) {
+        com.atlas.engine.expr.EvalContext exprContext = new DefaultEvalContext(context);
+        TracingExprEvaluator tracingEvaluator = new TracingExprEvaluator();
+        Value result = tracingEvaluator.evaluate(expression, exprContext);
+        return new EvaluationTraceResult(result.asNumber(), tracingEvaluator.getTraceSteps());
+    }
+    
+    public static class EvaluationTraceResult {
+        private final BigDecimal value;
+        private final java.util.List<String> traceSteps;
+        
+        public EvaluationTraceResult(BigDecimal value, java.util.List<String> traceSteps) {
+            this.value = value;
+            this.traceSteps = traceSteps;
+        }
+        
+        public BigDecimal getValue() {
+            return value;
+        }
+        
+        public java.util.List<String> getTraceSteps() {
+            return traceSteps;
+        }
     }
 
     public static class ValidationResult {

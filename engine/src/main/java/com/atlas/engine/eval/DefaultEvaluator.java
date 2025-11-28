@@ -98,10 +98,17 @@ public class DefaultEvaluator implements Evaluator {
                 trace.step("Warning: Could not extract dependencies: " + e.getMessage());
             }
 
-            // Evaluate using the new expression system
+            // Evaluate using the new expression system with tracing
             try {
-                BigDecimal amount = ruleExpr.evaluate(ruleContext, componentNames);
+                RuleExpression.EvaluationTraceResult traceResult = ruleExpr.evaluateWithTrace(ruleContext, componentNames);
+                BigDecimal amount = traceResult.getValue();
                 BigDecimal finalAmount = amount;
+                
+                // Add detailed calculation steps to trace
+                trace.step("Calculation steps:");
+                for (String step : traceResult.getTraceSteps()) {
+                    trace.step("  " + step);
+                }
 
                 // Apply WorkPercent scaling if meta flag is set
                 if (r.getMeta() != null) {
