@@ -30,6 +30,9 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   const [runningSimulation, setRunningSimulation] = useState(false);
   const [showFullSimulation, setShowFullSimulation] = useState(false);
   
+  // Global ruleset persistence key
+  const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+  
   // Component groups for colors
   const [componentGroups, setComponentGroups] = useState<ComponentGroup[]>([]);
 
@@ -57,12 +60,29 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
         const rulesets = await rulesetApi.getAllRulesets(tenantId);
         if (!cancelled) {
           setAllRulesets(rulesets);
-          // Set default to active ruleset if available
-          const activeRuleset = rulesets.find(r => r.status === 'ACTIVE');
-          if (activeRuleset) {
-            setSelectedRulesetId(activeRuleset.rulesetId);
-          } else if (rulesets.length > 0) {
-            setSelectedRulesetId(rulesets[0].rulesetId);
+          if (rulesets.length > 0) {
+            let initialRulesetId: string | null = null;
+            
+            // Try to restore from global storage
+            const storedGlobalRuleset = localStorage.getItem(GLOBAL_RULESET_KEY);
+            if (storedGlobalRuleset) {
+              try {
+                const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
+                if (rulesets.some(r => r.rulesetId === storedId)) {
+                  initialRulesetId = storedId;
+                }
+              } catch (e) {
+                console.warn('Failed to parse global ruleset from localStorage:', e);
+              }
+            }
+            
+            // Fallback to active ruleset or first one
+            if (!initialRulesetId) {
+              const activeRuleset = rulesets.find(r => r.status === 'ACTIVE');
+              initialRulesetId = activeRuleset ? activeRuleset.rulesetId : rulesets[0].rulesetId;
+            }
+            
+            setSelectedRulesetId(initialRulesetId);
           }
         }
       } catch (e: any) {
@@ -188,6 +208,9 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                 setSelectedRulesetId(value);
                 setShowFullSimulation(false);
                 setFullSimulationResult(null);
+                const selected = allRulesets.find(rs => rs.rulesetId === value);
+                const name = selected?.name || value;
+                localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({ rulesetId: value, name }));
               }}
             >
               <SelectTrigger id="ruleset-select" className="w-[300px]">

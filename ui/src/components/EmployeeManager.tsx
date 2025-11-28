@@ -31,6 +31,9 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
   const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(null);
   const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; count: number }>>([]);
   
+  // Global ruleset persistence key
+  const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+  
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -55,7 +58,22 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         if (!cancelled) {
           setRulesets(data.ruleSets || []);
           if (data.ruleSets && data.ruleSets.length > 0) {
-            setSelectedRulesetId(data.ruleSets[0].rulesetId);
+            let initialRulesetId = data.ruleSets[0].rulesetId;
+            
+            // Try to restore from global storage
+            const storedGlobalRuleset = localStorage.getItem(GLOBAL_RULESET_KEY);
+            if (storedGlobalRuleset) {
+              try {
+                const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
+                if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
+                  initialRulesetId = storedId;
+                }
+              } catch (e) {
+                console.warn('Failed to parse global ruleset from localStorage:', e);
+              }
+            }
+            
+            setSelectedRulesetId(initialRulesetId);
           }
         }
       } catch (e: any) {
@@ -328,7 +346,12 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
           {rulesets.length > 0 && (
             <Select
               value={selectedRulesetId || ''}
-              onValueChange={(value) => setSelectedRulesetId(value || null)}
+              onValueChange={(value) => {
+                setSelectedRulesetId(value || null);
+                const selected = rulesets.find(rs => rs.rulesetId === value);
+                const name = selected?.name || value;
+                localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({ rulesetId: value, name }));
+              }}
             >
               <SelectTrigger className="w-[250px]">
                 <SelectValue placeholder="Select ruleset..." />

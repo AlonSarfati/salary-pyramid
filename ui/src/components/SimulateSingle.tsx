@@ -87,6 +87,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
   const { showToast } = useToast();
 
+  const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+
   // ---- fetch rulesets ----
   useEffect(() => {
     let cancelled = false;
@@ -98,16 +100,44 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
         if (!cancelled) {
           setRulesets(data.ruleSets || []);
           if (data.ruleSets && data.ruleSets.length > 0) {
-            // If we have a selected ruleset from rerun, find its name
-            if (selectedRulesetId) {
-              const selected = data.ruleSets.find(rs => rs.rulesetId === selectedRulesetId);
-              if (selected) {
-                setSelectedRulesetName(selected.name || selected.rulesetId);
+            // Try to restore global ruleset selection
+            let initialId: string | null = null;
+            let initialName = "";
+            try {
+              const stored = localStorage.getItem(GLOBAL_RULESET_KEY);
+              if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed.rulesetId && data.ruleSets.some(rs => rs.rulesetId === parsed.rulesetId)) {
+                  initialId = parsed.rulesetId;
+                  const found = data.ruleSets.find(rs => rs.rulesetId === parsed.rulesetId);
+                  initialName = parsed.name || found?.name || parsed.rulesetId;
+                }
               }
+            } catch {
+              // ignore parse errors
+            }
+
+            // If we have a selected ruleset from rerun and it's valid, prefer it
+            if (selectedRulesetId && data.ruleSets.some(rs => rs.rulesetId === selectedRulesetId)) {
+              const selected = data.ruleSets.find(rs => rs.rulesetId === selectedRulesetId)!;
+              setSelectedRulesetId(selected.rulesetId);
+              setSelectedRulesetName(selected.name || selected.rulesetId);
+              localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
+                rulesetId: selected.rulesetId,
+                name: selected.name || selected.rulesetId,
+              }));
+            } else if (initialId) {
+              setSelectedRulesetId(initialId);
+              setSelectedRulesetName(initialName);
             } else {
               // Otherwise, set default to first ruleset
-              setSelectedRulesetId(data.ruleSets[0].rulesetId);
-              setSelectedRulesetName(data.ruleSets[0].name || data.ruleSets[0].rulesetId);
+              const first = data.ruleSets[0];
+              setSelectedRulesetId(first.rulesetId);
+              setSelectedRulesetName(first.name || first.rulesetId);
+              localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
+                rulesetId: first.rulesetId,
+                name: first.name || first.rulesetId,
+              }));
             }
           }
         }
@@ -454,7 +484,12 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       onValueChange={(value) => {
                         setSelectedRulesetId(value);
                         const selected = rulesets.find(rs => rs.rulesetId === value);
-                        setSelectedRulesetName(selected?.name || value);
+                        const name = selected?.name || value;
+                        setSelectedRulesetName(name);
+                        localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
+                          rulesetId: value,
+                          name,
+                        }));
                       }}
                     >
                       <SelectTrigger id="ruleset-top" className="w-[300px]">

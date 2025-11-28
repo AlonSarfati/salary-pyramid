@@ -32,6 +32,9 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Global ruleset persistence key
+  const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+  
   // Component groups state
   const [groups, setGroups] = useState<ComponentGroup[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
@@ -75,7 +78,22 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
         if (!cancelled) {
           setRulesets(data.ruleSets || []);
           if (data.ruleSets && data.ruleSets.length > 0) {
-            setSelectedRulesetId(data.ruleSets[0].rulesetId);
+            let initialRulesetId = data.ruleSets[0].rulesetId;
+            
+            // Try to restore from global storage
+            const storedGlobalRuleset = localStorage.getItem(GLOBAL_RULESET_KEY);
+            if (storedGlobalRuleset) {
+              try {
+                const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
+                if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
+                  initialRulesetId = storedId;
+                }
+              } catch (e) {
+                console.warn('Failed to parse global ruleset from localStorage:', e);
+              }
+            }
+            
+            setSelectedRulesetId(initialRulesetId);
           }
         }
       } catch (e: any) {
@@ -295,7 +313,12 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
           ) : (
             <Select
               value={selectedRulesetId || ''}
-              onValueChange={(value) => setSelectedRulesetId(value)}
+              onValueChange={(value) => {
+                setSelectedRulesetId(value);
+                const selected = rulesets.find(rs => rs.rulesetId === value);
+                const name = selected?.name || value;
+                localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({ rulesetId: value, name }));
+              }}
             >
             <SelectTrigger id="ruleset" className="max-w-md">
                 <SelectValue placeholder="Select ruleset..." />

@@ -29,6 +29,8 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
   
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
+  const [showDeleteTenantDialog, setShowDeleteTenantDialog] = useState(false);
+  const [tenantIdToDelete, setTenantIdToDelete] = useState<string | null>(null);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [formData, setFormData] = useState({ tenantId: '', name: '', status: 'ACTIVE', currency: 'USD' });
 
@@ -63,13 +65,11 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
   };
 
   const handleDelete = async (tenantId: string) => {
-    if (!confirm(`Are you sure you want to deactivate tenant "${tenantId}"?`)) {
-      return;
-    }
     try {
       await tenantApi.delete(tenantId);
       await loadTenants();
       if (onTenantChange) onTenantChange();
+      showToast("success", "Tenant deactivated", tenantId);
     } catch (e: any) {
       showToast("error", "Failed to delete tenant", e.message || "Unknown error");
     }
@@ -232,7 +232,10 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
                                 <Edit className="w-4 h-4 text-gray-600" />
                               </button>
                               <button
-                                onClick={() => handleDelete(tenant.tenantId)}
+                                onClick={() => {
+                                  setTenantIdToDelete(tenant.tenantId);
+                                  setShowDeleteTenantDialog(true);
+                                }}
                                 className="p-2 hover:bg-red-100 rounded transition-colors"
                                 title="Deactivate tenant"
                               >
@@ -432,6 +435,37 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
             </Button>
             <Button onClick={handleSave}>
               {editingTenant ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deactivate Tenant Dialog */}
+      <Dialog open={showDeleteTenantDialog} onOpenChange={setShowDeleteTenantDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deactivate Tenant</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to deactivate tenant "{tenantIdToDelete}"? This will remove it from active usage.
+          </p>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteTenantDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!tenantIdToDelete) return;
+                await handleDelete(tenantIdToDelete);
+                setShowDeleteTenantDialog(false);
+                setTenantIdToDelete(null);
+              }}
+            >
+              Deactivate
             </Button>
           </DialogFooter>
         </DialogContent>

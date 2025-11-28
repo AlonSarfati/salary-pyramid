@@ -24,6 +24,9 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; count: number }>>([]);
   const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(null);
   const [rulesLoading, setRulesLoading] = useState(false);
+  
+  // Global ruleset persistence key
+  const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
 
   // Form state
   const [payMonth, setPayMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM format
@@ -55,7 +58,22 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
         if (!cancelled) {
           setRulesets(data.ruleSets || []);
           if (data.ruleSets && data.ruleSets.length > 0) {
-            setSelectedRulesetId(data.ruleSets[0].rulesetId);
+            let initialRulesetId = data.ruleSets[0].rulesetId;
+            
+            // Try to restore from global storage
+            const storedGlobalRuleset = localStorage.getItem(GLOBAL_RULESET_KEY);
+            if (storedGlobalRuleset) {
+              try {
+                const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
+                if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
+                  initialRulesetId = storedId;
+                }
+              } catch (e) {
+                console.warn('Failed to parse global ruleset from localStorage:', e);
+              }
+            }
+            
+            setSelectedRulesetId(initialRulesetId);
           }
         }
       } catch (e: any) {
@@ -331,7 +349,12 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
             <Label htmlFor="ruleset">Ruleset</Label>
             <Select
               value={selectedRulesetId || ''}
-              onValueChange={(value) => setSelectedRulesetId(value || null)}
+              onValueChange={(value) => {
+                setSelectedRulesetId(value || null);
+                const selected = rulesets.find(rs => rs.rulesetId === value);
+                const name = selected?.name || value;
+                localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({ rulesetId: value, name }));
+              }}
               disabled={rulesLoading}
             >
               <SelectTrigger id="ruleset" className="mt-1">

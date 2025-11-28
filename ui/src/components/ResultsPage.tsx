@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Download, Play, FileText, TrendingUp, Users, DollarSign, Loader2, Trash2 } from 'lucide-react';
 import { Card } from './ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { scenarioApi, type Scenario } from '../services/apiService';
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, formatCurrencyCompact } from '../utils/currency';
@@ -35,6 +35,9 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteScenarioDialog, setShowDeleteScenarioDialog] = useState(false);
+  const [scenarioIdToDelete, setScenarioIdToDelete] = useState<string | null>(null);
+  const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
 
   // Fetch scenarios on mount
   useEffect(() => {
@@ -115,17 +118,14 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
       .sort((a, b) => b.amount - a.amount);
   })() : [];
 
-  const handleDeleteScenario = async (scenarioId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this scenario?')) {
-      return;
-    }
+  const handleDeleteScenario = async (scenarioId: string) => {
     try {
       await scenarioApi.delete(tenantId, scenarioId);
       setScenarios(scenarios.filter(s => s.scenarioId !== scenarioId));
       if (selectedSimulation?.id === scenarioId) {
         setSelectedSimulation(null);
       }
+      showToast("success", "Scenario deleted", "The scenario was removed from history.");
     } catch (e: any) {
       showToast("error", "Failed to delete scenario", e.message || "Unknown error");
     }
@@ -161,19 +161,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
         <h1 className="text-[#1E1E1E]">Results – History & Details</h1>
         {simulationsCount > 0 && (
           <button
-            onClick={async () => {
-              if (!confirm('This will remove all saved scenarios for this tenant. Continue?')) {
-                return;
-              }
-              try {
-                await scenarioApi.clearAll(tenantId);
-                setScenarios([]);
-                setSelectedSimulation(null);
-                showToast("success", "History cleared", "All scenarios were removed for this tenant.");
-              } catch (e: any) {
-                showToast("error", "Failed to clear history", e.message || "Unknown error");
-              }
-            }}
+            onClick={() => setShowClearHistoryDialog(true)}
             className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50 transition-colors"
           >
             <Trash2 className="w-4 h-4" />
@@ -303,7 +291,11 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={(e) => handleDeleteScenario(sim.id, e)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setScenarioIdToDelete(sim.id);
+                            setShowDeleteScenarioDialog(true);
+                          }}
                           className="p-2 hover:bg-red-100 rounded transition-colors"
                           title="Delete scenario"
                         >
@@ -380,7 +372,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 pt-4 border-t border-gray-200">
+            <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
               <button className="flex items-center gap-2 px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors">
                 <Download className="w-5 h-5" />
                 Download CSV
@@ -396,6 +388,75 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Scenario Dialog */}
+      <Dialog open={showDeleteScenarioDialog} onOpenChange={setShowDeleteScenarioDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Scenario</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to delete this scenario from the history?
+          </p>
+          <DialogFooter className="mt-4">
+            <button
+              className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+              onClick={() => setShowDeleteScenarioDialog(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              onClick={async () => {
+                if (!scenarioIdToDelete) return;
+                await handleDeleteScenario(scenarioIdToDelete);
+                setScenarioIdToDelete(null);
+                setShowDeleteScenarioDialog(false);
+              }}
+            >
+              Delete
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear History Dialog */}
+      <Dialog open={showClearHistoryDialog} onOpenChange={setShowClearHistoryDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear History</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            This will remove all saved scenarios for this tenant. Do you want to continue?
+          </p>
+          <DialogFooter className="mt-4">
+            <button
+              className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+              onClick={() => setShowClearHistoryDialog(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              onClick={async () => {
+                try {
+                  await scenarioApi.clearAll(tenantId);
+                  setScenarios([]);
+                  setSelectedSimulation(null);
+                  showToast("success", "History cleared", "All scenarios were removed for this tenant.");
+                } catch (e: any) {
+                  showToast("error", "Failed to clear history", e.message || "Unknown error");
+                } finally {
+                  setShowClearHistoryDialog(false);
+                }
+              }}
+            >
+              Clear history
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

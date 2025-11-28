@@ -29,17 +29,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     } catch (e) {
       console.warn('Failed to load stored state:', e);
     }
-    return { selectedRulesetId: null, selectedComponent: null };
+    return { selectedComponent: null };
   };
 
   const storedState = getStoredState();
   const [selectedComponent, setSelectedComponent] = useState<string | null>(storedState.selectedComponent || null);
-  const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(storedState.selectedRulesetId || null);
+  const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(null);
   
   // Data state
   const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; status: string }>>([]);
   const [ruleset, setRuleset] = useState<RuleSet | null>(null);
   const [components, setComponents] = useState<Array<{ id: string; name: string; group: string; status: string }>>([]);
+  const [draftComponents, setDraftComponents] = useState<Record<string, boolean>>({});
   const [validationResults, setValidationResults] = useState<ValidateIssue[]>([]);
   
   // Form state
@@ -141,13 +142,28 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
+  const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+
   const loadRulesets = async () => {
     try {
       setLoading(true);
       const all = await rulesetApi.getAllRulesets(tenantId);
       setRulesets(all);
       if (!selectedRulesetId && all.length > 0) {
-        setSelectedRulesetId(all[0].rulesetId);
+        // Try to restore global ruleset selection
+        let initialId: string | null = null;
+        try {
+          const stored = localStorage.getItem(GLOBAL_RULESET_KEY);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed.rulesetId && all.some(rs => rs.rulesetId === parsed.rulesetId)) {
+              initialId = parsed.rulesetId;
+            }
+          }
+        } catch {
+          // ignore
+        }
+        setSelectedRulesetId(initialId || all[0].rulesetId);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load rulesets');
@@ -220,6 +236,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
       // Reload ruleset
       await loadRuleset(selectedRulesetId);
+      // Mark this component as draft (has unpublished changes)
+      setDraftComponents(prev => ({ ...prev, [target]: true }));
       showToast('success', 'Rule saved', `Component "${target}" was updated.`);
     } catch (err: any) {
       setError(err.message || 'Failed to save rule');
@@ -277,6 +295,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       
       // Reload rulesets
       await loadRulesets();
+      // Clear all draft markers after publish
+      setDraftComponents({});
     } catch (err: any) {
       setError(err.message || 'Failed to publish ruleset');
     } finally {
@@ -783,7 +803,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 <Label htmlFor="ruleset" className="min-w-[100px]">Ruleset</Label>
                 <Select
                   value={selectedRulesetId || ''}
-                  onValueChange={setSelectedRulesetId}
+                  onValueChange={(value) => {
+                    setSelectedRulesetId(value);
+                    try {
+                      const found = rulesets.find(rs => rs.rulesetId === value);
+                      localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
+                        rulesetId: value,
+                        name: found?.name || value,
+                      }));
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }}
                   disabled={loading || rulesets.length === 0}
                 >
                   <SelectTrigger id="ruleset" className="max-w-md">
@@ -876,7 +907,37 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                           {component.name}
                         </div>
                         <div className="flex items-center gap-2">
+                          {draftComponents[component.id] && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                              selectedComponent === component.id
+                                ? 'bg-yellow-300 text-[#1E1E1E]'
+                                : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              Draft
+                            </span>
+                          )}
                           {getStatusIcon(component.status)}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Only safe to save when this component is the current target
+                              if (component.name === target) {
+                                handleSave();
+                              } else {
+                                setSelectedComponent(component.id);
+                                loadRuleData(component.id);
+                              }
+                            }}
+                            className={`p-1 rounded hover:bg-opacity-20 transition-colors ${
+                              selectedComponent === component.id
+                                ? 'hover:bg-white text-white'
+                                : 'hover:bg-green-100 text-green-600'
+                            }`}
+                            title="Save component as draft"
+                            disabled={saving}
+                          >
+                            <Save className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();

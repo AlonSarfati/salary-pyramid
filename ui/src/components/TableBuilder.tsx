@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import { tableApi, rulesetApi } from '../services/apiService';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 
 interface TableColumn {
   name: string;
@@ -52,6 +53,8 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showDeleteRowDialog, setShowDeleteRowDialog] = useState(false);
+  const [rowIndexToDelete, setRowIndexToDelete] = useState<number | null>(null);
 
   // Save state to localStorage whenever it changes
   useEffect(() => {
@@ -262,9 +265,8 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
   };
 
   const handleRemoveRow = (index: number) => {
-    if (window.confirm('Are you sure you want to delete this row? You will need to save the table to apply the change.')) {
-      setRows(rows.filter((_, i) => i !== index));
-    }
+    setRowIndexToDelete(index);
+    setShowDeleteRowDialog(true);
   };
 
   const handleRowChange = (rowIndex: number, field: string, value: any) => {
@@ -302,6 +304,13 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       return val === null || val === undefined ? '' : String(val);
     }
     return '';
+  };
+
+  const confirmDeleteRow = () => {
+    if (rowIndexToDelete === null) return;
+    setRows(rows.filter((_, i) => i !== rowIndexToDelete));
+    setRowIndexToDelete(null);
+    setShowDeleteRowDialog(false);
   };
 
   const handleSaveTableDef = async () => {
@@ -757,6 +766,32 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
           </div>
         )}
       </Card>
+
+      {/* Delete Row Dialog */}
+      <Dialog open={showDeleteRowDialog} onOpenChange={setShowDeleteRowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Row</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to delete this row? You will need to save the table to apply the change.
+          </p>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteRowDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteRow}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
