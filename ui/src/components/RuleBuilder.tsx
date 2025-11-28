@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles } from 'lucide-react';
 import { Card } from './ui/card';
@@ -55,6 +55,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [workPension, setWorkPension] = useState(false);
   const [expensesPension, setExpensesPension] = useState(false);
   const [educationFund, setEducationFund] = useState(false);
+  const [workPercentFlag, setWorkPercentFlag] = useState(false);
   
   // Loading/Error state
   const [loading, setLoading] = useState(false);
@@ -187,6 +188,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setWorkPension(rule.meta?.workPension === 'true');
       setExpensesPension(rule.meta?.expensesPension === 'true');
       setEducationFund(rule.meta?.educationFund === 'true');
+      setWorkPercentFlag(rule.meta?.workPercent === 'true');
     }
   };
 
@@ -212,6 +214,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         workPension,
         expensesPension,
         educationFund,
+        workPercent: workPercentFlag,
       });
 
       // Reload ruleset
@@ -350,8 +353,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         setDependsOn([]);
         setEffectiveFrom('');
         setEffectiveTo('');
-        setTaxable(true);
         setGroup('core');
+        setIncomeTax(false);
+        setSocialSecurity(false);
+        setPensionFlag(false);
+        setWorkPension(false);
+        setExpensesPension(false);
+        setEducationFund(false);
+        setWorkPercentFlag(false);
       }
       
       showToast('success', 'Component deleted', `"${componentName}" was removed from the ruleset.`);
@@ -974,6 +983,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                           id="socialSecurity"
                           checked={socialSecurity}
                           onCheckedChange={setSocialSecurity}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="workPercentFlag">Apply Work %</Label>
+                        <Switch
+                          id="workPercentFlag"
+                          checked={workPercentFlag}
+                          onCheckedChange={setWorkPercentFlag}
                         />
                       </div>
                     </div>

@@ -13,5 +13,6 @@ public record RuleUpdateRequest(
         Boolean pension,
         Boolean workPension,
         Boolean expensesPension,
-        Boolean educationFund
+        Boolean educationFund,
+        Boolean workPercent          // apply WorkPercent flag
 ) {}

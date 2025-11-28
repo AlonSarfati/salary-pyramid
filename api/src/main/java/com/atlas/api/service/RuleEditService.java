@@ -116,6 +116,9 @@ public class RuleEditService {
         if (req.educationFund() != null) {
             meta.put("educationFund", String.valueOf(req.educationFund()));
         }
+        if (req.workPercent() != null) {
+            meta.put("workPercent", String.valueOf(req.workPercent()));
+        }
         r.setMeta(meta);
         return r;
     }

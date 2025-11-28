@@ -44,6 +44,20 @@ public class DefaultEvaluator implements Evaluator {
         Set<String> componentNames = new HashSet<>(ruleIdx.keySet());
         componentNames.addAll(ctx.inputs().keySet());
 
+        // Read WorkPercent input (0-100). If missing or invalid, default to 100%.
+        BigDecimal workPercent = BigDecimal.ONE;
+        Object wpRaw = values.get("WorkPercent");
+        if (wpRaw instanceof Number) {
+            workPercent = BigDecimal.valueOf(((Number) wpRaw).doubleValue())
+                    .divide(BigDecimal.valueOf(100));
+        } else if (wpRaw instanceof String s && !s.isBlank()) {
+            try {
+                workPercent = new BigDecimal(s).divide(BigDecimal.valueOf(100));
+            } catch (NumberFormatException ignored) {
+                workPercent = BigDecimal.ONE;
+            }
+        }
+
         for (String comp : order) {
             Rule r = ruleIdx.get(comp);
             if (r == null) {
@@ -79,6 +93,14 @@ public class DefaultEvaluator implements Evaluator {
             // Evaluate using the new expression system
             try {
                 BigDecimal amount = ruleExpr.evaluate(ruleContext, componentNames);
+
+                // Apply WorkPercent scaling if meta flag is set
+                if (r.getMeta() != null) {
+                    String workPercentFlag = r.getMeta().get("workPercent");
+                    if ("true".equalsIgnoreCase(workPercentFlag)) {
+                        amount = amount.multiply(workPercent);
+                    }
+                }
                 
                 // Check for missing dependencies that evaluated to zero
                 Set<String> deps = ruleExpr.extractDependencies(componentNames);

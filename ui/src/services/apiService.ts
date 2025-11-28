@@ -38,6 +38,7 @@ export type RuleUpdateRequest = {
   workPension?: boolean | null;
   expensesPension?: boolean | null;
   educationFund?: boolean | null;
+  workPercent?: boolean | null;
 };
 
 export type ValidateRequest = {

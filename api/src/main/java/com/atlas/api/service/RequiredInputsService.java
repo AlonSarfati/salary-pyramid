@@ -115,6 +115,8 @@ public class RequiredInputsService {
      */
     public Map<String, InputMetadata> getRequiredInputsWithMetadata(RuleSet ruleset, LocalDate onDate, String tenantId) {
         Set<String> inputs = getRequiredInputs(ruleset, onDate);
+        // Always require WorkPercent as a numeric input (0-100)
+        inputs.add("WorkPercent");
         Map<String, Rule> activeRules = ruleset.activeRuleIndex(onDate);
         Map<String, InputMetadata> result = new LinkedHashMap<>();
         
@@ -145,6 +147,18 @@ public class RequiredInputsService {
         int tblParamIndex = -1;
         String tblComponentTarget = null;
         
+        // Special handling for WorkPercent (always numeric 0-100)
+        if ("WorkPercent".equals(inputName)) {
+            return new InputMetadata(
+                    "WorkPercent",
+                    "Work %",
+                    "number",
+                    100,
+                    null,
+                    0
+            );
+        }
+
         // Collect ALL TBL usages to get values from all tables
         List<TblUsageInfo> tblUsages = new ArrayList<>();
         

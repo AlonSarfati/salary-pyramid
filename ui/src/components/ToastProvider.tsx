@@ -55,11 +55,22 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const renderIcon = (type: ToastType) => {
     switch (type) {
       case "success":
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
+        return <CheckCircle className="w-4 h-4 text-green-600" />;
       case "error":
-        return <AlertCircle className="w-4 h-4 text-red-500" />;
+        return <AlertCircle className="w-4 h-4 text-red-600" />;
       default:
-        return <Info className="w-4 h-4 text-blue-500" />;
+        return <Info className="w-4 h-4 text-blue-600" />;
+    }
+  };
+
+  const getToastClasses = (type: ToastType) => {
+    switch (type) {
+      case "success":
+        return "bg-green-50 border-green-200";
+      case "error":
+        return "bg-red-50 border-red-200";
+      default:
+        return "bg-white border-gray-200";
     }
   };
 
@@ -70,13 +81,17 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="toast-enter flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg bg-white border border-gray-200 min-w-[260px] max-w-sm"
+            className={`toast-enter flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg min-w-[260px] max-w-sm ${getToastClasses(
+              toast.type
+            )}`}
           >
             <div className="mt-0.5">{renderIcon(toast.type)}</div>
             <div className="flex-1">
               <div className="text-sm font-semibold text-[#1E1E1E]">{toast.title}</div>
               {toast.message && (
-                <div className="text-xs text-gray-600 mt-0.5 whitespace-pre-line">{toast.message}</div>
+                <div className="text-xs text-gray-700 mt-0.5 whitespace-pre-line">
+                  {toast.message}
+                </div>
               )}
             </div>
             <button

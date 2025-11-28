@@ -93,9 +93,16 @@ public class EmployeeService {
         }
 
         try {
-            // Prevent creating a new employee with an ID that already exists for this tenant
-            Optional<EmployeeDto> existing = getEmployee(tenantId, employeeId);
-            if (existing.isPresent()) {
+            // Prevent creating a new employee with an ID that already exists for this tenant (case-insensitive)
+            String existsSql = """
+                SELECT employee_id
+                FROM employee
+                WHERE tenant_id = :tenantId
+                  AND LOWER(employee_id) = LOWER(:id)
+                """;
+            var existsParams = Map.of("tenantId", tenantId, "id", employeeId);
+            var existingIds = jdbc.queryForList(existsSql, existsParams, String.class);
+            if (!existingIds.isEmpty()) {
                 throw new IllegalArgumentException("Employee with this ID already exists for this tenant");
             }
 
