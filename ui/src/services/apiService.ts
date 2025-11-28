@@ -186,6 +186,18 @@ export const rulesetApi = {
       method: 'DELETE',
     });
   },
+
+  // Copy a ruleset (clone + optional rename)
+  async copy(
+    tenantId: string,
+    sourceRulesetId: string,
+    name?: string
+  ): Promise<{ rulesetId: string; name: string; status: string }> {
+    return apiCall(`/rulesets/${tenantId}/${sourceRulesetId}/copy`, {
+      method: 'POST',
+      body: JSON.stringify(name ? { name } : {}),
+    });
+  },
 };
 
 // Rule Editing

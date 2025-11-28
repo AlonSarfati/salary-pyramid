@@ -110,5 +110,38 @@ public class RulesServiceDb implements RulesService {
         repo.deleteRuleset(tenant(tenantId), rulesetId);
     }
 
+    @Override
+    public String copyRuleset(String tenantId, String sourceRulesetId, String newRulesetId, String newName) {
+        // Load source ruleset
+        RuleSet source = getById(tenantId, sourceRulesetId);
+
+        // Determine new ID and name
+        String id = (newRulesetId != null && !newRulesetId.isBlank())
+                ? newRulesetId
+                : java.util.UUID.randomUUID().toString();
+        String displayName = (newName != null && !newName.isBlank()) ? newName : id;
+
+        String tenant = tenant(tenantId);
+
+        // Create ruleset row as DRAFT
+        repo.upsertRuleset(id, tenant, displayName, "DRAFT");
+
+        // Copy rules
+        var rows = new java.util.ArrayList<java.util.Map<String, Object>>();
+        for (Rule r : source.getRules()) {
+            var m = new java.util.LinkedHashMap<String, Object>();
+            m.put("target", r.getTarget());
+            m.put("expression", r.getExpression());
+            m.put("depends_on", Jsons.toJsonArray(r.getDependsOn()));
+            m.put("meta", Jsons.toJsonObject(r.getMeta() == null ? java.util.Map.of() : r.getMeta()));
+            m.put("effective_from", r.getEffectiveFrom());
+            m.put("effective_to", r.getEffectiveTo());
+            rows.add(m);
+        }
+        repo.replaceRules(id, rows);
+
+        return id;
+    }
+
     private static String tenant(String t) { return t != null ? t : "default"; }
 }

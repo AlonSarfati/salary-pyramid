@@ -47,4 +47,20 @@ public class RulesController {
         rulesService.deleteRuleset(tenantId, rulesetId);
         return ResponseEntity.ok(Map.of("status", "deleted", "rulesetId", rulesetId));
     }
+
+    @PostMapping("/{tenantId}/{rulesetId}/copy")
+    public ResponseEntity<?> copyRuleset(@PathVariable String tenantId,
+                                         @PathVariable String rulesetId,
+                                         @RequestBody(required = false) Map<String, Object> body) {
+        String newId = body != null ? (String) body.get("rulesetId") : null;
+        String newName = body != null ? (String) body.get("name") : null;
+
+        String createdId = rulesService.copyRuleset(tenantId, rulesetId, newId, newName);
+
+        return ResponseEntity.ok(Map.of(
+                "rulesetId", createdId,
+                "name", newName != null && !newName.isBlank() ? newName : createdId,
+                "status", "DRAFT"
+        ));
+    }
 }

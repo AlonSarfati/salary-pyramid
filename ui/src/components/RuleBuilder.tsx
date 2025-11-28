@@ -70,6 +70,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [newComponentGroup, setNewComponentGroup] = useState('core');
   const [showDeleteRulesetDialog, setShowDeleteRulesetDialog] = useState(false);
   const [showRenameRulesetDialog, setShowRenameRulesetDialog] = useState(false);
+  const [showCopyRulesetDialog, setShowCopyRulesetDialog] = useState(false);
   const [newRulesetName, setNewRulesetName] = useState('');
   
   // Help guide drawer state
@@ -298,6 +299,28 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       await loadRulesets();
     } catch (err: any) {
       setError(err.message || 'Failed to rename ruleset');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCopyRuleset = async () => {
+    if (!selectedRulesetId || !newRulesetName.trim()) {
+      setError('Ruleset name is required');
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      const res = await rulesetApi.copy(tenantId, selectedRulesetId, newRulesetName.trim());
+      showToast('success', 'Ruleset copied', `New ruleset "${res.name}" was created.`);
+      setShowCopyRulesetDialog(false);
+      setNewRulesetName('');
+      // Reload list and select the new ruleset
+      await loadRulesets();
+      setSelectedRulesetId(res.rulesetId);
+    } catch (err: any) {
+      setError(err.message || 'Failed to copy ruleset');
     } finally {
       setSaving(false);
     }
@@ -800,6 +823,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                   variant="outline"
                   size="sm"
                   disabled={!selectedRulesetId}
+                  onClick={() => {
+                    const current = rulesets.find(r => r.rulesetId === selectedRulesetId);
+                    setNewRulesetName(current?.name ? `${current.name} Copy` : '');
+                    setShowCopyRulesetDialog(true);
+                  }}
+                >
+                  Copy &amp; Rename
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedRulesetId}
                   onClick={() => setShowDeleteRulesetDialog(true)}
                   className="text-red-600 border-red-300 hover:bg-red-50"
                 >
@@ -1240,6 +1275,44 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               disabled={!newRulesetName.trim() || saving}
             >
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Copy & Rename Ruleset Dialog */}
+      <Dialog open={showCopyRulesetDialog} onOpenChange={setShowCopyRulesetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Copy &amp; Rename Ruleset</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label htmlFor="copy-ruleset-name">New Ruleset Name</Label>
+              <Input
+                id="copy-ruleset-name"
+                value={newRulesetName}
+                onChange={(e) => setNewRulesetName(e.target.value)}
+                placeholder="Enter name for the new ruleset"
+                className="mt-1"
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              A new draft ruleset will be created with all components copied from the current one.
+            </p>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowCopyRulesetDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCopyRuleset}
+              disabled={!newRulesetName.trim() || saving}
+            >
+              Create Copy
             </Button>
           </DialogFooter>
         </DialogContent>

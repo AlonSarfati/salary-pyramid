@@ -22,4 +22,8 @@ public interface RulesService {
     default void deleteRuleset(String tenantId, String rulesetId) {
         throw new UnsupportedOperationException("deleteRuleset not implemented");
     }
+
+    default String copyRuleset(String tenantId, String sourceRulesetId, String newRulesetId, String newName) {
+        throw new UnsupportedOperationException("copyRuleset not implemented");
+    }
 }
