@@ -66,8 +66,8 @@ export default function AIRuleAssistant({ tenantId, rulesetId, onRuleAdded, onCl
         dependsOn: rule.dependsOn || [],
         effectiveFrom: rule.effectiveFrom || null,
         effectiveTo: null,
-        taxable: rule.taxable ?? true,
         group: null, // Could extract from filters or let user set later
+        incomeTax: rule.taxable ?? true, // map legacy taxable -> incomeTax
       });
 
       // Success - notify parent and reset
@@ -174,15 +174,7 @@ export default function AIRuleAssistant({ tenantId, rulesetId, onRuleAdded, onCl
               ) : (
                 <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                   <pre className="text-xs overflow-x-auto font-mono">
-                    {formatJson({
-                      target: response.proposedRule.target,
-                      dependsOn: response.proposedRule.dependsOn,
-                      expression: response.proposedRule.expression,
-                      taxable: response.proposedRule.taxable,
-                      filters: response.proposedRule.filters,
-                      effectiveFrom: response.proposedRule.effectiveFrom,
-                      description: response.proposedRule.description,
-                    })}
+                    {formatJson(response.proposedRule)}
                   </pre>
                 </div>
               )}

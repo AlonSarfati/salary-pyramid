@@ -70,7 +70,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg bg-white border border-gray-200 min-w-[260px] max-w-sm"
+            className="toast-enter flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg bg-white border border-gray-200 min-w-[260px] max-w-sm"
           >
             <div className="mt-0.5">{renderIcon(toast.type)}</div>
             <div className="flex-1">

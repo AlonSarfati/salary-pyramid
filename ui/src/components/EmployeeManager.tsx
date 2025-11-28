@@ -165,13 +165,13 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
       setShowDialog(false);
       await loadEmployees();
     } catch (e: any) {
-      const msg = e?.message || 'Failed to save employee';
-      if (msg.toLowerCase().includes('already exists')) {
-        setFormError('An employee with this ID already exists for this tenant.');
-      } else {
-        setFormError(msg);
+      const raw = e?.message || 'Failed to save employee';
+      let friendly = raw;
+      if (raw.toLowerCase().includes('already exists')) {
+        friendly = 'An employee with this ID already exists for this tenant.';
       }
-      showToast("error", "Failed to save employee", e.message || "Unknown error");
+      setFormError(friendly);
+      showToast("error", "Failed to save employee", friendly);
     }
   };
 

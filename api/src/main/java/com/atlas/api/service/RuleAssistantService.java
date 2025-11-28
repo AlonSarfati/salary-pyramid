@@ -102,7 +102,7 @@ public class RuleAssistantService {
         prompt.append("  \"target\": \"string (component name, e.g., 'Base', 'ManagerBonus')\",\n");
         prompt.append("  \"dependsOn\": [\"string\"] (list of component names this rule depends on),\n");
         prompt.append("  \"expression\": \"string (DSL expression using CamelCase for components, ALL_CAPS for functions)\",\n");
-        prompt.append("  \"taxable\": boolean (default: true),\n");
+        prompt.append("  \"incomeTax\": boolean (optional, true if this component is subject to income tax),\n");
         prompt.append("  \"filters\": {\n");
         prompt.append("    \"role\": \"string (optional, e.g., 'Manager', 'Engineer')\",\n");
         prompt.append("    \"minYears\": number (optional, minimum years of service),\n");
@@ -113,13 +113,13 @@ public class RuleAssistantService {
         prompt.append("}\n\n");
         prompt.append("EXAMPLES:\n\n");
         prompt.append("Example 1:\n");
-        prompt.append("User: \"From Jan 2027, give employees with more than 15 years 4% raise on Base, taxable.\"\n");
+        prompt.append("User: \"From Jan 2027, give employees with more than 15 years 4% raise on Base, income tax applies.\"\n");
         prompt.append("Output:\n");
-        prompt.append("{\"target\":\"Base\",\"dependsOn\":[\"Base\"],\"expression\":\"Base * 1.04\",\"taxable\":true,\"filters\":{\"minYears\":15},\"effectiveFrom\":\"2027-01-01\",\"description\":\"4% raise for employees with 15+ years of service\"}\n\n");
+        prompt.append("{\"target\":\"Base\",\"dependsOn\":[\"Base\"],\"expression\":\"Base * 1.04\",\"incomeTax\":true,\"filters\":{\"minYears\":15},\"effectiveFrom\":\"2027-01-01\",\"description\":\"4% raise for employees with 15+ years of service\"}\n\n");
         prompt.append("Example 2:\n");
         prompt.append("User: \"Give all managers 7% raise on Base capped at 2000 starting Jan 2026\"\n");
         prompt.append("Output:\n");
-        prompt.append("{\"target\":\"Base\",\"dependsOn\":[\"Base\"],\"expression\":\"MIN(Base * 1.07, Base + 2000)\",\"taxable\":true,\"filters\":{\"role\":\"Manager\"},\"effectiveFrom\":\"2026-01-01\",\"description\":\"7% raise on Base for managers, capped at 2000\"}\n\n");
+        prompt.append("{\"target\":\"Base\",\"dependsOn\":[\"Base\"],\"expression\":\"MIN(Base * 1.07, Base + 2000)\",\"incomeTax\":true,\"filters\":{\"role\":\"Manager\"},\"effectiveFrom\":\"2026-01-01\",\"description\":\"7% raise on Base for managers, capped at 2000\"}\n\n");
         prompt.append("Only output valid JSON. If you are unsure, make your best guess but keep the JSON valid.\n");
         
         // Add context about existing components if rulesetId is provided
@@ -156,7 +156,13 @@ public class RuleAssistantService {
         
         String expression = jsonNode.has("expression") ? jsonNode.get("expression").asText() : null;
         
-        Boolean taxable = jsonNode.has("taxable") ? jsonNode.get("taxable").asBoolean() : true;
+        // Backwards compatibility: accept either "incomeTax" or legacy "taxable"
+        Boolean incomeTax = null;
+        if (jsonNode.has("incomeTax")) {
+            incomeTax = jsonNode.get("incomeTax").asBoolean();
+        } else if (jsonNode.has("taxable")) {
+            incomeTax = jsonNode.get("taxable").asBoolean();
+        }
         
         Map<String, Object> filters = new HashMap<>();
         if (jsonNode.has("filters") && jsonNode.get("filters").isObject()) {
@@ -179,7 +185,7 @@ public class RuleAssistantService {
         
         String description = jsonNode.has("description") ? jsonNode.get("description").asText() : null;
         
-        return new ProposedRuleDto(target, dependsOn, expression, taxable, filters, effectiveFrom, description, null);
+        return new ProposedRuleDto(target, dependsOn, expression, incomeTax, filters, effectiveFrom, description, null);
     }
     
     private List<String> validateProposedRule(String tenantId, ProposedRuleDto rule, String rulesetId) {

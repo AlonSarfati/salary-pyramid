@@ -7,6 +7,11 @@ public record RuleUpdateRequest(
         List<String> dependsOn,       // may be null -> infer from vars
         String effectiveFrom,         // yyyy-MM-dd or null
         String effectiveTo,           // yyyy-MM-dd or null
-        Boolean taxable,              // optional (if you store it on Rule/meta)
-        String group                  // optional
+        String group,                 // component group
+        Boolean incomeTax,            // income tax flag
+        Boolean socialSecurity,
+        Boolean pension,
+        Boolean workPension,
+        Boolean expensesPension,
+        Boolean educationFund
 ) {}

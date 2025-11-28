@@ -94,16 +94,29 @@ public class RuleEditService {
         
         if (req.effectiveFrom() != null) r.setEffectiveFrom(parseDateOrNull(req.effectiveFrom()));
         if (req.effectiveTo() != null) r.setEffectiveTo(parseDateOrNull(req.effectiveTo()));
-        if (req.taxable() != null) {
-            Map<String, String> meta = r.getMeta() == null ? new HashMap<>() : new HashMap<>(r.getMeta());
-            meta.put("taxable", String.valueOf(req.taxable()));
-            r.setMeta(meta);
-        }
+        Map<String, String> meta = r.getMeta() == null ? new HashMap<>() : new HashMap<>(r.getMeta());
         if (req.group() != null) {
-            Map<String, String> meta = r.getMeta() == null ? new HashMap<>() : new HashMap<>(r.getMeta());
             meta.put("group", req.group());
-            r.setMeta(meta);
         }
+        if (req.incomeTax() != null) {
+            meta.put("incomeTax", String.valueOf(req.incomeTax()));
+        }
+        if (req.socialSecurity() != null) {
+            meta.put("socialSecurity", String.valueOf(req.socialSecurity()));
+        }
+        if (req.pension() != null) {
+            meta.put("pensionFlag", String.valueOf(req.pension()));
+        }
+        if (req.workPension() != null) {
+            meta.put("workPension", String.valueOf(req.workPension()));
+        }
+        if (req.expensesPension() != null) {
+            meta.put("expensesPension", String.valueOf(req.expensesPension()));
+        }
+        if (req.educationFund() != null) {
+            meta.put("educationFund", String.valueOf(req.educationFund()));
+        }
+        r.setMeta(meta);
         return r;
     }
 

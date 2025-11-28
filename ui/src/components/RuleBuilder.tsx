@@ -48,8 +48,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [effectiveTo, setEffectiveTo] = useState('');
-  const [taxable, setTaxable] = useState(true);
   const [group, setGroup] = useState('core');
+  const [incomeTax, setIncomeTax] = useState(false);
+  const [socialSecurity, setSocialSecurity] = useState(false);
+  const [pensionFlag, setPensionFlag] = useState(false);
+  const [workPension, setWorkPension] = useState(false);
+  const [expensesPension, setExpensesPension] = useState(false);
+  const [educationFund, setEducationFund] = useState(false);
   
   // Loading/Error state
   const [loading, setLoading] = useState(false);
@@ -171,8 +176,17 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setDependsOn(rule.dependsOn || []);
       setEffectiveFrom(rule.effectiveFrom || '');
       setEffectiveTo(rule.effectiveTo || '');
-      setTaxable(rule.meta?.taxable === 'true');
       setGroup(rule.meta?.group || 'core');
+      // Backwards compatibility: map legacy flags to incomeTax
+      const legacyTaxable = rule.meta?.taxable === 'true';
+      const legacyTax = rule.meta?.tax === 'true';
+      const incomeTaxMeta = rule.meta?.incomeTax === 'true';
+      setIncomeTax(incomeTaxMeta || legacyTax || legacyTaxable);
+      setSocialSecurity(rule.meta?.socialSecurity === 'true');
+      setPensionFlag(rule.meta?.pensionFlag === 'true');
+      setWorkPension(rule.meta?.workPension === 'true');
+      setExpensesPension(rule.meta?.expensesPension === 'true');
+      setEducationFund(rule.meta?.educationFund === 'true');
     }
   };
 
@@ -191,8 +205,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         dependsOn: dependsOn.length > 0 ? dependsOn : null,
         effectiveFrom: effectiveFrom || null,
         effectiveTo: effectiveTo || null,
-        taxable,
         group: group || null,
+        incomeTax,
+        socialSecurity,
+        pension: pensionFlag,
+        workPension,
+        expensesPension,
+        educationFund,
       });
 
       // Reload ruleset
@@ -590,8 +609,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         dependsOn: null,
         effectiveFrom: null,
         effectiveTo: null,
-        taxable: false,
         group: newComponentGroup || null,
+        incomeTax: false,
       });
 
       // Reload ruleset to get the new component
@@ -944,10 +963,58 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
                   {/* Toggles */}
                   <div className="grid grid-cols-2 gap-6">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="taxable">Taxable</Label>
-                      <Switch id="taxable" checked={taxable} onCheckedChange={setTaxable} />
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="incomeTax">Income Tax</Label>
+                        <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="socialSecurity">Social Security</Label>
+                        <Switch
+                          id="socialSecurity"
+                          checked={socialSecurity}
+                          onCheckedChange={setSocialSecurity}
+                        />
+                      </div>
                     </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="pensionFlag">Pension</Label>
+                        <Switch
+                          id="pensionFlag"
+                          checked={pensionFlag}
+                          onCheckedChange={setPensionFlag}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="workPension">Work Pension</Label>
+                        <Switch
+                          id="workPension"
+                          checked={workPension}
+                          onCheckedChange={setWorkPension}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="expensesPension">Expenses Pension</Label>
+                        <Switch
+                          id="expensesPension"
+                          checked={expensesPension}
+                          onCheckedChange={setExpensesPension}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="educationFund">Education Fund</Label>
+                        <Switch
+                          id="educationFund"
+                          checked={educationFund}
+                          onCheckedChange={setEducationFund}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Group */}
+                  <div className="mt-4">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="group">Group</Label>
                       <Select value={group} onValueChange={setGroup}>

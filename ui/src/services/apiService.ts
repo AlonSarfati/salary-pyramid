@@ -31,8 +31,13 @@ export type RuleUpdateRequest = {
   dependsOn?: string[] | null;
   effectiveFrom?: string | null;
   effectiveTo?: string | null;
-  taxable?: boolean | null;
   group?: string | null;
+  incomeTax?: boolean | null;
+  socialSecurity?: boolean | null;
+  pension?: boolean | null;
+  workPension?: boolean | null;
+  expensesPension?: boolean | null;
+  educationFund?: boolean | null;
 };
 
 export type ValidateRequest = {
