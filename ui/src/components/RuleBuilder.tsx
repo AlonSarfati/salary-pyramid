@@ -72,6 +72,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showDeleteRulesetDialog, setShowDeleteRulesetDialog] = useState(false);
   const [showRenameRulesetDialog, setShowRenameRulesetDialog] = useState(false);
   const [showCopyRulesetDialog, setShowCopyRulesetDialog] = useState(false);
+  const [showDeleteComponentDialog, setShowDeleteComponentDialog] = useState(false);
+  const [componentToDelete, setComponentToDelete] = useState<string | null>(null);
   const [newRulesetName, setNewRulesetName] = useState('');
   
   // Help guide drawer state
@@ -372,10 +374,6 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const handleDeleteComponent = async (componentName: string) => {
     if (!selectedRulesetId) {
       setError('Please select a ruleset');
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to delete the component "${componentName}"? This action cannot be undone.`)) {
       return;
     }
 
@@ -941,7 +939,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteComponent(component.name);
+                              setComponentToDelete(component.name);
+                              setShowDeleteComponentDialog(true);
                             }}
                             className={`p-1 rounded hover:bg-opacity-20 transition-colors ${
                               selectedComponent === component.id
@@ -1398,6 +1397,41 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             <Button
               variant="destructive"
               onClick={handleDeleteRuleset}
+              disabled={saving}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Component Dialog */}
+      <Dialog open={showDeleteComponentDialog} onOpenChange={setShowDeleteComponentDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Component</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to delete component "{componentToDelete}"? This action cannot be undone.
+          </p>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteComponentDialog(false);
+                setComponentToDelete(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!componentToDelete) return;
+                await handleDeleteComponent(componentToDelete);
+                setShowDeleteComponentDialog(false);
+                setComponentToDelete(null);
+              }}
               disabled={saving}
             >
               Delete
