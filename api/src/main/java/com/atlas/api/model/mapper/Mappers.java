@@ -63,8 +63,21 @@ public class Mappers {
 
     public static SimEmployeeResponse toResponse(EvaluationResult r) {
         Map<String, BigDecimal> components = new LinkedHashMap<>();
-        r.components().forEach((k,v) -> components.put(k, v.amount()));
-        return new SimEmployeeResponse(components, r.total());
+        Map<String, SimEmployeeResponse.ComponentTrace> traces = new LinkedHashMap<>();
+        
+        r.components().forEach((k, v) -> {
+            components.put(k, v.amount());
+            Trace trace = v.trace();
+            if (trace != null) {
+                traces.put(k, new SimEmployeeResponse.ComponentTrace(
+                    trace.component(),
+                    trace.steps(),
+                    trace.finalLine()
+                ));
+            }
+        });
+        
+        return new SimEmployeeResponse(components, r.total(), traces);
     }
 
     /**

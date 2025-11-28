@@ -4,7 +4,7 @@ import { Card } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Switch } from "./ui/switch";
 import SimulateBulk from "./SimulateBulk";
@@ -901,18 +901,47 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
             <SheetContent className="w-[400px] sm:w-[540px]">
               <SheetHeader>
                 <SheetTitle>Calculation Trace: {selectedComponent}</SheetTitle>
+                <SheetDescription>
+                  Step-by-step calculation details for {selectedComponent}
+                </SheetDescription>
               </SheetHeader>
               <div className="mt-6 space-y-4">
                 {simulationResult && (
-                  <Card className="p-4 bg-[#EEF2F8] border-0">
-                    <div className="text-[#1E1E1E] mb-2">{selectedComponent}</div>
-                    <div className="text-sm text-gray-600 font-mono">
-                      Amount: {formatCurrencyWithDecimals(simulationResult.components[selectedComponent] || 0, currency, 2)}
-                    </div>
-                    <div className="text-[#0052CC] mt-2">
-                      Component calculation details would appear here
-                    </div>
-                  </Card>
+                  <>
+                    <Card className="p-4 bg-[#EEF2F8] border-0">
+                      <div className="text-[#1E1E1E] font-semibold mb-2">{selectedComponent}</div>
+                      <div className="text-sm text-gray-600">
+                        Final Amount: <span className="font-mono font-semibold text-[#0052CC]">
+                          {formatCurrencyWithDecimals(simulationResult.components[selectedComponent] || 0, currency, 2)}
+                        </span>
+                      </div>
+                    </Card>
+                    
+                    {simulationResult.traces && simulationResult.traces[selectedComponent] ? (
+                      <Card className="p-4 bg-white border border-gray-200">
+                        <div className="space-y-3">
+                          {simulationResult.traces[selectedComponent].steps.map((step, idx) => (
+                            <div key={idx} className="text-sm font-mono text-gray-700 border-l-2 border-[#0052CC] pl-3 py-1">
+                              {step}
+                            </div>
+                          ))}
+                          {simulationResult.traces[selectedComponent].finalLine && (
+                            <div className="mt-4 pt-3 border-t border-gray-300">
+                              <div className="text-sm font-mono font-semibold text-[#0052CC]">
+                                {simulationResult.traces[selectedComponent].finalLine}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    ) : (
+                      <Card className="p-4 bg-gray-50 border border-gray-200">
+                        <div className="text-sm text-gray-500 italic">
+                          Trace information not available for this component.
+                        </div>
+                      </Card>
+                    )}
+                  </>
                 )}
               </div>
             </SheetContent>

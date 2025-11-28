@@ -81,6 +81,13 @@ export type SimEmployeeRequest = {
 export type SimEmployeeResponse = {
   components: Record<string, number>;
   total: number;
+  traces?: Record<string, ComponentTrace>;
+};
+
+export type ComponentTrace = {
+  component: string;
+  steps: string[];
+  finalLine: string | null;
 };
 
 export type SimBulkRequest = {

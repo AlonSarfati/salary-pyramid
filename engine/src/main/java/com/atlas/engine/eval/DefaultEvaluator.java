@@ -77,13 +77,21 @@ public class DefaultEvaluator implements Evaluator {
 
             // Create RuleExpression once and reuse it
             RuleExpression ruleExpr = new RuleExpression(r.getExpression());
+            
+            // Trace the expression being evaluated
+            trace.step("Expression: " + r.getExpression());
 
             // Trace variable values
             try {
                 Set<String> deps = ruleExpr.extractDependencies(componentNames);
-                for (String v : deps) {
-                    Object val = values.getOrDefault(v, BigDecimal.ZERO);
-                    trace.step(v + " = " + String.valueOf(val));
+                if (!deps.isEmpty()) {
+                    trace.step("Dependencies:");
+                    for (String v : deps) {
+                        Object val = values.getOrDefault(v, BigDecimal.ZERO);
+                        trace.step("  " + v + " = " + formatValue(val));
+                    }
+                } else {
+                    trace.step("No dependencies (constant or input-only expression)");
                 }
             } catch (Exception e) {
                 // If extraction fails, continue without tracing
@@ -93,12 +101,15 @@ public class DefaultEvaluator implements Evaluator {
             // Evaluate using the new expression system
             try {
                 BigDecimal amount = ruleExpr.evaluate(ruleContext, componentNames);
+                BigDecimal finalAmount = amount;
 
                 // Apply WorkPercent scaling if meta flag is set
                 if (r.getMeta() != null) {
                     String workPercentFlag = r.getMeta().get("workPercent");
                     if ("true".equalsIgnoreCase(workPercentFlag)) {
-                        amount = amount.multiply(workPercent);
+                        trace.step("Applying WorkPercent scaling: " + amount.toPlainString() + " × " + workPercent.toPlainString());
+                        finalAmount = amount.multiply(workPercent);
+                        trace.step("After WorkPercent: " + finalAmount.toPlainString());
                     }
                 }
                 
@@ -110,9 +121,9 @@ public class DefaultEvaluator implements Evaluator {
                     }
                 }
                 
-                values.put(comp, amount);
-                trace.done(comp + " = " + amount.toPlainString());
-                results.put(comp, new ComponentResult(comp, amount, trace));
+                values.put(comp, finalAmount);
+                trace.done("Result: " + finalAmount.toPlainString());
+                results.put(comp, new ComponentResult(comp, finalAmount, trace));
             } catch (Exception e) {
                 // On error, set to zero and trace the error
                 BigDecimal amount = BigDecimal.ZERO;
@@ -131,5 +142,13 @@ public class DefaultEvaluator implements Evaluator {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return new EvaluationResult(results, total);
+    }
+    
+    private String formatValue(Object val) {
+        if (val == null) return "0";
+        if (val instanceof BigDecimal) {
+            return ((BigDecimal) val).toPlainString();
+        }
+        return String.valueOf(val);
     }
 }
