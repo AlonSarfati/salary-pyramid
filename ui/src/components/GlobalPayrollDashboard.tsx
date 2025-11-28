@@ -440,14 +440,15 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
 
           {/* Component Totals */}
           <div className="mb-6">
+            Nicely distributed by column.
             <h3 className="text-[#1E1E1E] mb-4">Component Totals</h3>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full table-fixed">
                 <thead>
                   <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 text-sm text-gray-600">Component</th>
-                    <th className="text-right py-3 px-4 text-sm text-gray-600">Total</th>
-                    <th className="text-right py-3 px-4 text-sm text-gray-600">Percentage</th>
+                    <th className="w-1/2 text-left py-3 px-4 text-sm text-gray-600">Component</th>
+                    <th className="w-1/4 text-right py-3 px-4 text-sm text-gray-600">Total</th>
+                    <th className="w-1/4 text-right py-3 px-4 text-sm text-gray-600">Percentage</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -457,11 +458,11 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                       const percentage = (total / fullSimulationResult.grandTotal) * 100;
                       return (
                         <tr key={component} className="border-b border-gray-100">
-                          <td className="py-3 px-4 text-sm text-[#1E1E1E]">{component}</td>
-                          <td className="py-3 px-4 text-sm text-[#0052CC] text-right">
+                          <td className="w-1/2 py-3 px-4 text-sm text-[#1E1E1E]">{component}</td>
+                          <td className="w-1/4 py-3 px-4 text-sm text-[#0052CC] text-right">
                             {formatCurrency(total)}
                           </td>
-                          <td className="py-3 px-4 text-sm text-gray-600 text-right">
+                          <td className="w-1/4 py-3 px-4 text-sm text-gray-600 text-right">
                             {percentage.toFixed(2)}%
                           </td>
                         </tr>

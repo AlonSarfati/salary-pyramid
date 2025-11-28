@@ -743,16 +743,15 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
               ) : (
                 <>
                   <div className="space-y-2 mb-6">
-                  {/* Table Header */}
-                  <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-[#EEF2F8] rounded-lg text-sm text-gray-600">
-                    <div className="col-span-5">Component</div>
-                    <div className="col-span-3 text-right">Amount</div>
-                    {comparisonMode && baselineResult && (
-                      <div className="col-span-2 text-right">Δ vs Baseline</div>
-                    )}
-                    <div className="col-span-2 text-right">Contrib %</div>
-                    <div className="col-span-1"></div>
-                  </div>
+                    {/* Table Header */}
+                    <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-[#EEF2F8] rounded-lg text-sm text-gray-600">
+                      <div className="col-span-4">Component</div>
+                      <div className="col-span-3 text-right">Amount</div>
+                      {comparisonMode && baselineResult && (
+                        <div className="col-span-3 text-right">Δ vs Baseline</div>
+                      )}
+                      <div className="col-span-2 text-right">Contrib %</div>
+                    </div>
 
                     {/* Table Rows */}
                     {results.map((result, idx) => {
@@ -762,35 +761,38 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                           : 0;
                       const delta = result.amount - baselineAmount;
                       return (
-                      <div
-                        key={idx}
-                        className="grid grid-cols-12 gap-4 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
-                        <div className="col-span-5 text-[#1E1E1E]">{result.component}</div>
-                        <div className="col-span-3 text-right text-[#1E1E1E]">
-                          {formatCurrencyWithDecimals(result.amount, currency, 2)}
-                        </div>
-                        {comparisonMode && baselineResult && (
-                          <div className={`col-span-2 text-right text-sm ${
-                            delta >= 0 ? "text-green-600" : "text-red-600"
-                          }`}>
-                            {delta >= 0 ? "+" : ""}
-                            {formatCurrencyWithDecimals(delta, currency, 2)}
+                        <div
+                          key={idx}
+                          className="grid grid-cols-12 gap-4 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="col-span-4 flex items-center justify-between text-[#1E1E1E]">
+                            <span className="truncate">{result.component}</span>
+                            <button
+                              onClick={() => handleShowTrace(result.component)}
+                              className="p-1 ml-2 hover:bg-gray-200 rounded"
+                            >
+                              <Info className="w-4 h-4 text-[#0052CC]" />
+                            </button>
                           </div>
-                        )}
-                        <div className="col-span-2 text-right text-gray-600">
-                          {result.contribution.toFixed(1)}%
+                          <div className="col-span-3 text-right text-[#1E1E1E]">
+                            {formatCurrencyWithDecimals(result.amount, currency, 2)}
+                          </div>
+                          {comparisonMode && baselineResult && (
+                            <div
+                              className={`col-span-3 text-right text-sm ${
+                                delta >= 0 ? "text-green-600" : "text-red-600"
+                              }`}
+                            >
+                              {delta >= 0 ? "+" : ""}
+                              {formatCurrencyWithDecimals(delta, currency, 2)}
+                            </div>
+                          )}
+                          <div className="col-span-2 text-right text-gray-600">
+                            {result.contribution.toFixed(1)}%
+                          </div>
                         </div>
-                        <div className="col-span-1 flex justify-end">
-                          <button
-                            onClick={() => handleShowTrace(result.component)}
-                            className="p-1 hover:bg-gray-200 rounded"
-                          >
-                            <Info className="w-4 h-4 text-[#0052CC]" />
-                          </button>
-                        </div>
-                      </div>
-                    )})}
+                      );
+                    })}
                   </div>
 
                   {/* Total Card */}
