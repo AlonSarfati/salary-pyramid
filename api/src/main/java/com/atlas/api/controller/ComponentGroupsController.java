@@ -24,5 +24,67 @@ public class ComponentGroupsController {
             .toList();
         return ResponseEntity.ok(response);
     }
+
+    @PutMapping("/{groupName}")
+    public ResponseEntity<Map<String, Object>> updateGroup(
+            @PathVariable String groupName,
+            @RequestBody Map<String, Object> request) {
+        try {
+            // Spring automatically URL-decodes path variables, but handle spaces that might be encoded
+            // Replace %20 with space, and handle other common encodings
+            String normalizedGroupName = groupName.replace("%20", " ").replace("+", " ");
+            
+            String displayName = (String) request.get("displayName");
+            String color = (String) request.get("color");
+            Integer displayOrder = request.get("displayOrder") instanceof Number 
+                ? ((Number) request.get("displayOrder")).intValue() 
+                : null;
+
+            if (displayName == null || color == null || displayOrder == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            ComponentGroupsService.GroupDto updated = groupsService.updateGroup(
+                normalizedGroupName, displayName, color, displayOrder);
+            return ResponseEntity.ok(updated.toMap());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @DeleteMapping("/{groupName}")
+    public ResponseEntity<Void> deleteGroup(@PathVariable String groupName) {
+        try {
+            // Spring automatically URL-decodes path variables, but handle spaces that might be encoded
+            // Replace %20 with space, and handle other common encodings
+            String normalizedGroupName = groupName.replace("%20", " ").replace("+", " ");
+            groupsService.deleteGroup(normalizedGroupName);
+            return ResponseEntity.noContent().build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping
+    public ResponseEntity<Map<String, Object>> createGroup(@RequestBody Map<String, Object> request) {
+        String groupName = (String) request.get("groupName");
+        String displayName = (String) request.get("displayName");
+        String color = (String) request.get("color");
+        Integer displayOrder = request.get("displayOrder") instanceof Number 
+            ? ((Number) request.get("displayOrder")).intValue() 
+            : null;
+
+        if (groupName == null || displayName == null || color == null || displayOrder == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        ComponentGroupsService.GroupDto created = groupsService.createGroup(
+            groupName, displayName, color, displayOrder);
+        return ResponseEntity.ok(created.toMap());
+    }
 }
 

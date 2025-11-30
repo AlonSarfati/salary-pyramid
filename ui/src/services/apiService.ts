@@ -443,6 +443,23 @@ export const componentGroupsApi = {
   async getAll(): Promise<ComponentGroup[]> {
     return apiCall('/component-groups');
   },
+  async update(groupName: string, displayName: string, color: string, displayOrder: number): Promise<ComponentGroup> {
+    return apiCall(`/component-groups/${encodeURIComponent(groupName)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ displayName, color, displayOrder }),
+    });
+  },
+  async delete(groupName: string): Promise<void> {
+    return apiCall(`/component-groups/${encodeURIComponent(groupName)}`, {
+      method: 'DELETE',
+    });
+  },
+  async create(groupName: string, displayName: string, color: string, displayOrder: number): Promise<ComponentGroup> {
+    return apiCall('/component-groups', {
+      method: 'POST',
+      body: JSON.stringify({ groupName, displayName, color, displayOrder }),
+    });
+  },
 };
 
 // Scenario Management
