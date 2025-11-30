@@ -207,14 +207,15 @@ public class RuleValidationService {
                 continue; // Component has no group, skip validation
             }
             
-            // Extract group references from expression
+            // Extract dependencies from expression
             try {
                 RuleExpression ruleExpr = new RuleExpression(rule.getExpression());
                 Set<String> dependencies = ruleExpr.extractDependencies(allComponentNames);
                 
                 for (String dep : dependencies) {
-                    // Check if this is a group reference (group1, group2, etc.)
                     String depLower = dep.toLowerCase();
+                    
+                    // Check if this is a group reference (group1, group2, etc.)
                     if (depLower.startsWith("group") && depLower.length() > 5) {
                         try {
                             int referencedGroupNumber = Integer.parseInt(depLower.substring(5));
@@ -258,6 +259,34 @@ public class RuleValidationService {
                                 ));
                             }
                         }
+                    } else {
+                        // Check if this is a component reference (not a group name, not a function, not a literal)
+                        // If the dependency is a component name that exists in our ruleset
+                        if (byTarget.containsKey(dep)) {
+                            // Get the group of the referenced component
+                            String referencedComponentGroup = componentToGroup.get(dep);
+                            if (referencedComponentGroup != null) {
+                                Integer referencedComponentGroupNumber = groupToNumber.get(referencedComponentGroup);
+                                if (referencedComponentGroupNumber != null) {
+                                    // Check if the referenced component is in a later group or the same group
+                                    if (referencedComponentGroupNumber > componentGroupNumber) {
+                                        issues.add(new ValidateResponse.Issue(
+                                            componentName,
+                                            "error",
+                                            "Component '" + componentName + "' in " + componentGroup +
+                                            " (group" + componentGroupNumber + ") cannot reference component '" + dep +
+                                            "' which is in " + referencedComponentGroup + " (group" + referencedComponentGroupNumber +
+                                            "). Components can only reference components from earlier groups."
+                                        ));
+                                    } else if (referencedComponentGroupNumber.equals(componentGroupNumber)) {
+                                        // Same group is allowed (components can reference each other within the same group)
+                                        // This is fine as long as there's no circular dependency, which is checked elsewhere
+                                    }
+                                }
+                            }
+                        }
+                        // If it's not in byTarget, it might be an input parameter (which is fine) or a function (which is fine)
+                        // We don't need to validate those here
                     }
                 }
             } catch (Exception e) {
