@@ -19,10 +19,16 @@ public class TracingExprEvaluator {
      */
     public Value evaluate(String expression, EvalContext context) {
         traceSteps.clear();
-        Set<String> componentNames = context.getComponentNames();
-        ExprParser parser = new ExprParser(expression, componentNames);
-        ExprNode node = parser.parse();
-        return evaluateWithTrace(node, context);
+        try {
+            Set<String> componentNames = context.getComponentNames();
+            ExprParser parser = new ExprParser(expression, componentNames);
+            ExprNode node = parser.parse();
+            return evaluateWithTrace(node, context);
+        } catch (Exception e) {
+            // If evaluation fails, add error to trace and rethrow
+            traceSteps.add("ERROR during evaluation: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+            throw e;
+        }
     }
     
     /**

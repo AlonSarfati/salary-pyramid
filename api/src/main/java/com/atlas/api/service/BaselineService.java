@@ -4,6 +4,7 @@ import com.atlas.api.model.dto.*;
 import com.atlas.api.model.mapper.Mappers;
 import com.atlas.api.repo.RulesetJdbcRepo;
 import com.atlas.engine.eval.Evaluator;
+import com.atlas.engine.model.EvalContext;
 import com.atlas.engine.model.EvaluationResult;
 import com.atlas.engine.model.RuleSet;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -45,6 +46,9 @@ public class BaselineService {
         RuleSet ruleset = rulesetId != null ? rules.getById(tenantId, rulesetId) : rules.getActive(tenantId, asOfDate);
         List<EmployeeService.EmployeeDto> employees = employeeService.listEmployees(tenantId);
         
+        // Get group ordering once for all employees
+        Map<String, Integer> groupOrdering = getGroupOrdering();
+        
         BigDecimal totalPayroll = BigDecimal.ZERO;
         Map<String, BigDecimal> componentTotals = new LinkedHashMap<>();
         int employeeCount = employees.size();
@@ -56,10 +60,8 @@ public class BaselineService {
                 EmployeeInput empInput = Mappers.toEmployeeInput(emp.employeeId(), emp.data());
                 
                 // Evaluate using selected ruleset
-                EvaluationResult result = evaluator.evaluateAll(
-                    ruleset, 
-                    Mappers.toEvalContext(asOfDate, empInput)
-                );
+                EvalContext ctx = addGroupOrdering(Mappers.toEvalContext(asOfDate, empInput), groupOrdering);
+                EvaluationResult result = evaluator.evaluateAll(ruleset, ctx);
                 
                 totalPayroll = totalPayroll.add(result.total());
                 
@@ -114,9 +116,11 @@ public class BaselineService {
         List<ComponentGroupsService.GroupDto> groups = componentGroupsService.getAllGroups();
         Map<String, String> groupNameToDisplayName = new LinkedHashMap<>();
         Map<String, Integer> groupDisplayOrder = new LinkedHashMap<>();
+        Map<String, Integer> groupOrdering = new HashMap<>(); // For evaluator (lowercase keys)
         for (ComponentGroupsService.GroupDto group : groups) {
             groupNameToDisplayName.put(group.groupName(), group.displayName());
             groupDisplayOrder.put(group.groupName(), group.displayOrder());
+            groupOrdering.put(group.groupName().toLowerCase(), group.displayOrder());
         }
         
         // Build component name -> group name mapping from ruleset rules
@@ -145,10 +149,8 @@ public class BaselineService {
         for (EmployeeService.EmployeeDto emp : employees) {
             try {
                 EmployeeInput empInput = Mappers.toEmployeeInput(emp.employeeId(), emp.data());
-                EvaluationResult result = evaluator.evaluateAll(
-                    ruleset,
-                    Mappers.toEvalContext(asOfDate, empInput)
-                );
+                EvalContext ctx = addGroupOrdering(Mappers.toEvalContext(asOfDate, empInput), groupOrdering);
+                EvaluationResult result = evaluator.evaluateAll(ruleset, ctx);
                 
                 // Group components by their actual component groups
                 result.components().forEach((component, value) -> {
@@ -203,14 +205,15 @@ public class BaselineService {
         Map<String, BigDecimal> componentTotals = new LinkedHashMap<>();
         BigDecimal grandTotal = BigDecimal.ZERO;
         
+        // Get group ordering once for all employees
+        Map<String, Integer> groupOrdering = getGroupOrdering();
+        
         // Calculate for each employee
         for (EmployeeService.EmployeeDto emp : employees) {
             try {
                 EmployeeInput empInput = Mappers.toEmployeeInput(emp.employeeId(), emp.data());
-                EvaluationResult result = evaluator.evaluateAll(
-                    ruleset,
-                    Mappers.toEvalContext(asOfDate, empInput)
-                );
+                EvalContext ctx = addGroupOrdering(Mappers.toEvalContext(asOfDate, empInput), groupOrdering);
+                EvaluationResult result = evaluator.evaluateAll(ruleset, ctx);
                 
                 // Build component map
                 Map<String, BigDecimal> components = new LinkedHashMap<>();
@@ -254,6 +257,20 @@ public class BaselineService {
             employees.size(),
             new Date()
         );
+    }
+    
+    private Map<String, Integer> getGroupOrdering() {
+        Map<String, Integer> ordering = new HashMap<>();
+        for (ComponentGroupsService.GroupDto group : componentGroupsService.getAllGroups()) {
+            ordering.put(group.groupName().toLowerCase(), group.displayOrder());
+        }
+        return ordering;
+    }
+    
+    private EvalContext addGroupOrdering(EvalContext ctx, Map<String, Integer> groupOrdering) {
+        Map<String, Object> inputs = new HashMap<>(ctx.inputs());
+        inputs.put("_groupOrdering", groupOrdering);
+        return new EvalContext(inputs, ctx.periodDate());
     }
 
     // DTOs

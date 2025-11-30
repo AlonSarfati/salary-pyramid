@@ -169,6 +169,18 @@ public class RuleExpression {
         return new EvaluationTraceResult(result.asNumber(), tracingEvaluator.getTraceSteps());
     }
     
+    /**
+     * Evaluate the expression with detailed tracing using a custom expression context.
+     * @param exprContext The expression EvalContext (can be GroupAwareEvalContext)
+     * @param componentNames Set of available component names
+     * @return A result containing both the value and the trace steps
+     */
+    public EvaluationTraceResult evaluateWithTrace(com.atlas.engine.expr.EvalContext exprContext, Set<String> componentNames) {
+        TracingExprEvaluator tracingEvaluator = new TracingExprEvaluator();
+        Value result = tracingEvaluator.evaluate(expression, exprContext);
+        return new EvaluationTraceResult(result.asNumber(), tracingEvaluator.getTraceSteps());
+    }
+    
     public static class EvaluationTraceResult {
         private final BigDecimal value;
         private final java.util.List<String> traceSteps;

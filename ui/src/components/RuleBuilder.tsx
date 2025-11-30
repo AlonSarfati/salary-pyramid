@@ -15,7 +15,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import RuleBuilderGuide from './RuleBuilderGuide';
 import TableBuilder from './TableBuilder';
 import AIRuleAssistant from './AIRuleAssistant';
-import { rulesetApi, ruleApi, tableApi, type RuleSet, type RuleDto, type ValidateIssue } from '../services/apiService';
+import { rulesetApi, ruleApi, tableApi, componentGroupsApi, type RuleSet, type RuleDto, type ValidateIssue, type ComponentGroup } from '../services/apiService';
 import { useToast } from './ToastProvider';
 
 export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: string }) {
@@ -42,6 +42,26 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [components, setComponents] = useState<Array<{ id: string; name: string; group: string; status: string }>>([]);
   const [draftComponents, setDraftComponents] = useState<Record<string, boolean>>({});
   const [validationResults, setValidationResults] = useState<ValidateIssue[]>([]);
+  const [componentGroups, setComponentGroups] = useState<ComponentGroup[]>([]);
+  
+  // Group mapping: group name -> group number (group1, group2, etc.)
+  const groupNameToNumber = React.useMemo(() => {
+    const sorted = [...componentGroups].sort((a, b) => a.displayOrder - b.displayOrder);
+    const mapping: Record<string, string> = {};
+    sorted.forEach((group, index) => {
+      mapping[group.groupName] = `group${index + 1}`;
+    });
+    return mapping;
+  }, [componentGroups]);
+  
+  // Reverse mapping: group number -> group name
+  const groupNumberToName = React.useMemo(() => {
+    const mapping: Record<string, string> = {};
+    Object.entries(groupNameToNumber).forEach(([name, number]) => {
+      mapping[number] = name;
+    });
+    return mapping;
+  }, [groupNameToNumber]);
   
   // Form state
   const [target, setTarget] = useState('');
@@ -49,7 +69,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [effectiveTo, setEffectiveTo] = useState('');
-  const [group, setGroup] = useState('core');
+  const [group, setGroup] = useState('group1');
   const [incomeTax, setIncomeTax] = useState(false);
   const [socialSecurity, setSocialSecurity] = useState(false);
   const [pensionFlag, setPensionFlag] = useState(false);
@@ -68,7 +88,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   // Add component dialog state
   const [showAddComponent, setShowAddComponent] = useState(false);
   const [newComponentName, setNewComponentName] = useState('');
-  const [newComponentGroup, setNewComponentGroup] = useState('core');
+  const [newComponentGroup, setNewComponentGroup] = useState('group1');
   const [showDeleteRulesetDialog, setShowDeleteRulesetDialog] = useState(false);
   const [showRenameRulesetDialog, setShowRenameRulesetDialog] = useState(false);
   const [showCopyRulesetDialog, setShowCopyRulesetDialog] = useState(false);
@@ -93,6 +113,22 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const { showToast } = useToast();
 
+  // Load component groups on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const groups = await componentGroupsApi.getAll();
+        if (!cancelled) {
+          setComponentGroups(groups);
+        }
+      } catch (e: any) {
+        console.error('Failed to load component groups:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Load rulesets on mount
   useEffect(() => {
     loadRulesets();
@@ -108,12 +144,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   // Update components when ruleset changes
   useEffect(() => {
     if (ruleset) {
-      const comps = ruleset.rules.map(rule => ({
-        id: rule.target,
-        name: rule.target,
-        group: rule.meta?.group || 'core',
-        status: 'valid', // TODO: determine from validation
-      }));
+      const comps = ruleset.rules.map(rule => {
+        const actualGroupName = rule.meta?.group || 'core';
+        const groupNumber = groupNameToNumber[actualGroupName] || 'group1';
+        return {
+          id: rule.target,
+          name: rule.target,
+          group: groupNumber, // Display group number
+          status: 'valid', // TODO: determine from validation
+        };
+      });
       setComponents(comps);
       
       // Select first component if none selected
@@ -122,7 +162,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         loadRuleData(comps[0].id);
       }
     }
-  }, [ruleset]);
+  }, [ruleset, groupNameToNumber]);
 
   // Load rule data when component selected
   useEffect(() => {
@@ -196,7 +236,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setDependsOn(rule.dependsOn || []);
       setEffectiveFrom(rule.effectiveFrom || '');
       setEffectiveTo(rule.effectiveTo || '');
-      setGroup(rule.meta?.group || 'core');
+      // Convert group name to group number for display
+      const actualGroupName = rule.meta?.group || 'core';
+      const groupNumber = groupNameToNumber[actualGroupName] || 'group1';
+      setGroup(groupNumber);
       // Backwards compatibility: map legacy flags to incomeTax
       const legacyTaxable = rule.meta?.taxable === 'true';
       const legacyTax = rule.meta?.tax === 'true';
@@ -221,12 +264,25 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setSaving(true);
       setError(null);
       
+      // Convert group number back to group name for saving
+      let actualGroupName: string | null = null;
+      if (group) {
+        actualGroupName = groupNumberToName[group];
+        // If mapping doesn't exist (groups not loaded yet), default to first group or 'core'
+        if (!actualGroupName && componentGroups.length > 0) {
+          const sorted = [...componentGroups].sort((a, b) => a.displayOrder - b.displayOrder);
+          actualGroupName = sorted[0]?.groupName || 'core';
+        } else if (!actualGroupName) {
+          actualGroupName = 'core'; // Fallback if no groups loaded
+        }
+      }
+      
       await ruleApi.updateRule(tenantId, selectedRulesetId, target, {
         expression,
         dependsOn: dependsOn.length > 0 ? dependsOn : null,
         effectiveFrom: effectiveFrom || null,
         effectiveTo: effectiveTo || null,
-        group: group || null,
+        group: actualGroupName,
         incomeTax,
         socialSecurity,
         pension: pensionFlag,
@@ -394,7 +450,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         setDependsOn([]);
         setEffectiveFrom('');
         setEffectiveTo('');
-        setGroup('core');
+        setGroup('group1');
         setIncomeTax(false);
         setSocialSecurity(false);
         setPensionFlag(false);
@@ -654,12 +710,25 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       // Start with a simple default expression (e.g., 0 or BaseSalary)
       const defaultExpression = '0';
       
+      // Convert group number back to group name for saving
+      let actualGroupName: string | null = null;
+      if (newComponentGroup) {
+        actualGroupName = groupNumberToName[newComponentGroup];
+        // If mapping doesn't exist (groups not loaded yet), default to first group or 'core'
+        if (!actualGroupName && componentGroups.length > 0) {
+          const sorted = [...componentGroups].sort((a, b) => a.displayOrder - b.displayOrder);
+          actualGroupName = sorted[0]?.groupName || 'core';
+        } else if (!actualGroupName) {
+          actualGroupName = 'core'; // Fallback if no groups loaded
+        }
+      }
+      
       await ruleApi.updateRule(tenantId, selectedRulesetId, newComponentName.trim(), {
         expression: defaultExpression,
         dependsOn: null,
         effectiveFrom: null,
         effectiveTo: null,
-        group: newComponentGroup || null,
+        group: actualGroupName,
         incomeTax: false,
       });
 
@@ -671,7 +740,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       
       // Reset form and close dialog
       setNewComponentName('');
-      setNewComponentGroup('core');
+      setNewComponentGroup('group1');
       setShowAddComponent(false);
       
       // Load the new rule data
@@ -683,13 +752,27 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
-  const groupColors: Record<string, string> = {
-    core: 'bg-blue-100 text-blue-800',
-    bonus: 'bg-green-100 text-green-800',
-    pension: 'bg-purple-100 text-purple-800',
-    benefits: 'bg-orange-100 text-orange-800',
-    equity: 'bg-pink-100 text-pink-800',
-  };
+  // Map group numbers to colors from componentGroups
+  const groupColors: Record<string, string> = React.useMemo(() => {
+    const colors: Record<string, string> = {};
+    componentGroups
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+      .forEach((group, index) => {
+        const groupNumber = `group${index + 1}`;
+        // Convert hex color to Tailwind classes (simplified mapping)
+        // For now, use a default set of colors based on index
+        const colorClasses = [
+          'bg-blue-100 text-blue-800',
+          'bg-green-100 text-green-800',
+          'bg-yellow-100 text-yellow-800',
+          'bg-purple-100 text-purple-800',
+          'bg-orange-100 text-orange-800',
+          'bg-pink-100 text-pink-800',
+        ];
+        colors[groupNumber] = colorClasses[index % colorClasses.length];
+      });
+    return colors;
+  }, [componentGroups]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -1134,11 +1217,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="core">core</SelectItem>
-                          <SelectItem value="bonus">bonus</SelectItem>
-                          <SelectItem value="pension">pension</SelectItem>
-                          <SelectItem value="benefits">benefits</SelectItem>
-                          <SelectItem value="equity">equity</SelectItem>
+                          {componentGroups
+                            .sort((a, b) => a.displayOrder - b.displayOrder)
+                            .map((group, index) => {
+                              const groupNumber = `group${index + 1}`;
+                              return (
+                                <SelectItem key={group.groupName} value={groupNumber}>
+                                  {groupNumber}
+                                </SelectItem>
+                              );
+                            })}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1259,11 +1347,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="core">Core</SelectItem>
-                  <SelectItem value="bonus">Bonus</SelectItem>
-                  <SelectItem value="pension">Pension</SelectItem>
-                  <SelectItem value="benefits">Benefits</SelectItem>
-                  <SelectItem value="equity">Equity</SelectItem>
+                  {componentGroups
+                    .sort((a, b) => a.displayOrder - b.displayOrder)
+                    .map((group, index) => {
+                      const groupNumber = `group${index + 1}`;
+                      return (
+                        <SelectItem key={group.groupName} value={groupNumber}>
+                          {groupNumber}
+                        </SelectItem>
+                      );
+                    })}
                 </SelectContent>
               </Select>
             </div>

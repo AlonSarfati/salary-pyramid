@@ -172,25 +172,14 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
         }
       }
       
-      // Normalize group name to match standard groups
-      const rawGroup = rule.meta?.group || 'core';
+      // Use the actual group from meta, normalized to lowercase
+      const rawGroup = rule.meta?.group || '';
       const normalizedGroup = rawGroup.toLowerCase();
-      // Map to standard groups, default to 'core' if not recognized
-      let group = 'core';
-      if (normalizedGroup === 'core' || normalizedGroup === 'bonus' || 
-          normalizedGroup === 'extra hours' || normalizedGroup === 'expenses') {
-        group = normalizedGroup;
-      } else if (normalizedGroup.includes('bonus')) {
-        group = 'bonus';
-      } else if (normalizedGroup.includes('hour') || normalizedGroup.includes('overtime')) {
-        group = 'extra hours';
-      } else if (normalizedGroup.includes('expense') || normalizedGroup.includes('cost')) {
-        group = 'expenses';
-      }
+      
       nodeMap.set(rule.target, {
         id: rule.target,
         name: rule.target,
-        group: group,
+        group: normalizedGroup || 'ungrouped',
         x: 0, // Will be calculated by layout algorithm
         y: 0, // Will be calculated by layout algorithm
         dependencies: Array.from(dependencies),
@@ -200,61 +189,78 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
       });
     });
 
-    // Calculate layout positions (simple layered layout)
+    // Calculate layout positions (pyramid layout by groups)
     const nodesArray = Array.from(nodeMap.values());
     if (nodesArray.length === 0) return [];
 
-    // Separate into layers based on dependencies
-    const layers: Node[][] = [];
-    const processed = new Set<string>();
-    const remaining = new Set(nodesArray.map(n => n.id));
+    // Build group-to-number mapping using display_order from groups
+    const groupToNumber = new Map<string, number>();
+    const sortedGroups = [...groups].sort((a, b) => a.displayOrder - b.displayOrder);
+    sortedGroups.forEach((group, index) => {
+      groupToNumber.set(group.groupName.toLowerCase(), index + 1);
+    });
 
-    while (remaining.size > 0) {
-      const currentLayer: Node[] = [];
-      
-      for (const node of nodesArray) {
-        if (!remaining.has(node.id)) continue;
-        
-        // Check if all dependencies are already processed
-        const allDepsProcessed = node.dependencies.every(dep => processed.has(dep));
-        if (allDepsProcessed) {
-          currentLayer.push(node);
-          remaining.delete(node.id);
-          processed.add(node.id);
+    // Separate nodes into layers by group number (pyramid structure)
+    // Group 1 at bottom, group 2 above, etc.
+    const layersByGroup = new Map<number, Node[]>();
+    const ungroupedNodes: Node[] = [];
+
+    nodesArray.forEach(node => {
+      const groupNum = groupToNumber.get(node.group);
+      if (groupNum !== undefined) {
+        if (!layersByGroup.has(groupNum)) {
+          layersByGroup.set(groupNum, []);
         }
+        layersByGroup.get(groupNum)!.push(node);
+      } else {
+        ungroupedNodes.push(node);
       }
-      
-      if (currentLayer.length === 0) {
-        // Circular dependency or no dependencies - add remaining nodes
-        remaining.forEach(id => {
-          const node = nodesArray.find(n => n.id === id);
-          if (node) {
-            currentLayer.push(node);
-            processed.add(id);
-          }
-        });
-        remaining.clear();
-      }
-      
-      layers.push(currentLayer);
-    }
+    });
 
-    // Position nodes in layers
+    // Sort layers by group number (ascending - group1 first, at bottom)
+    const sortedGroupNumbers = Array.from(layersByGroup.keys()).sort((a, b) => a - b);
+
+    // Position nodes in pyramid layers
     const nodeWidth = 140;
     const nodeHeight = 50;
-    const layerSpacing = 150;
-    const nodeSpacing = 20;
-    
-    layers.forEach((layer, layerIndex) => {
-      const layerY = 50 + layerIndex * layerSpacing;
-      const totalWidth = layer.length * (nodeWidth + nodeSpacing) - nodeSpacing;
-      const startX = 400 - totalWidth / 2; // Center the layer
+    const layerSpacing = 120; // Vertical spacing between layers
+    const nodeSpacing = 20; // Horizontal spacing between nodes in same layer
+    const baseY = 50; // Starting Y position (bottom layer)
+    const centerX = 600; // Center X position for the pyramid
+
+    // Calculate positions for each layer (from bottom to top)
+    sortedGroupNumbers.forEach((groupNum, groupIndex) => {
+      const layerNodes = layersByGroup.get(groupNum)!;
+      // Sort nodes within layer alphabetically for consistent layout
+      layerNodes.sort((a, b) => a.name.localeCompare(b.name));
       
-      layer.forEach((node, nodeIndex) => {
+      // Calculate Y position (group1 at bottom, higher groups above)
+      // Reverse so group1 is at the bottom
+      const layerY = baseY + (sortedGroupNumbers.length - 1 - groupIndex) * layerSpacing;
+      
+      // Calculate total width needed for this layer
+      const totalWidth = layerNodes.length * (nodeWidth + nodeSpacing) - nodeSpacing;
+      const startX = centerX - totalWidth / 2;
+      
+      // Position each node in the layer
+      layerNodes.forEach((node, nodeIndex) => {
         node.x = startX + nodeIndex * (nodeWidth + nodeSpacing) + nodeWidth / 2;
         node.y = layerY;
       });
     });
+
+    // Position ungrouped nodes at the top
+    if (ungroupedNodes.length > 0) {
+      ungroupedNodes.sort((a, b) => a.name.localeCompare(b.name));
+      const topY = baseY + sortedGroupNumbers.length * layerSpacing;
+      const totalWidth = ungroupedNodes.length * (nodeWidth + nodeSpacing) - nodeSpacing;
+      const startX = centerX - totalWidth / 2;
+      
+      ungroupedNodes.forEach((node, nodeIndex) => {
+        node.x = startX + nodeIndex * (nodeWidth + nodeSpacing) + nodeWidth / 2;
+        node.y = topY;
+      });
+    }
 
     return nodesArray;
   }, [ruleset]);
@@ -265,13 +271,54 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
     groups.forEach(group => {
       colors[group.groupName.toLowerCase()] = group.color;
     });
+    // Default color for ungrouped components
+    colors['ungrouped'] = '#9CA3AF';
     return colors;
   }, [groups]);
 
   const getNodeColor = (group: string) => {
     const normalized = group.toLowerCase();
-    return groupColors[normalized] || (groups.length > 0 ? groups[0].color : '#0052CC');
+    return groupColors[normalized] || '#9CA3AF'; // Gray for unknown groups
   };
+
+  // Calculate layer information for labels
+  const layerInfo = useMemo(() => {
+    if (!ruleset || !ruleset.rules || groups.length === 0) return [];
+    
+    const groupToNumber = new Map<string, number>();
+    const sortedGroups = [...groups].sort((a, b) => a.displayOrder - b.displayOrder);
+    sortedGroups.forEach((group, index) => {
+      groupToNumber.set(group.groupName.toLowerCase(), index + 1);
+    });
+    
+    const layersByGroup = new Map<number, Node[]>();
+    nodes.forEach(node => {
+      const groupNum = groupToNumber.get(node.group);
+      if (groupNum !== undefined) {
+        if (!layersByGroup.has(groupNum)) {
+          layersByGroup.set(groupNum, []);
+        }
+        layersByGroup.get(groupNum)!.push(node);
+      }
+    });
+    
+    const sortedGroupNumbers = Array.from(layersByGroup.keys()).sort((a, b) => a - b);
+    const layerSpacing = 120;
+    const baseY = 50;
+    
+    return sortedGroupNumbers.map((groupNum) => {
+      const layerNodes = layersByGroup.get(groupNum)!;
+      if (layerNodes.length === 0) return null;
+      
+      const groupIndex = sortedGroupNumbers.indexOf(groupNum);
+      const layerY = baseY + (sortedGroupNumbers.length - 1 - groupIndex) * layerSpacing;
+      const groupInfo = sortedGroups.find(g => groupToNumber.get(g.groupName.toLowerCase()) === groupNum);
+      const groupName = groupInfo?.displayName || `Group ${groupNum}`;
+      const maxX = Math.max(...layerNodes.map(n => n.x));
+      
+      return { groupNum, layerY, groupName, maxX };
+    }).filter(Boolean) as Array<{ groupNum: number; layerY: number; groupName: string; maxX: number }>;
+  }, [nodes, groups, ruleset]);
 
   const handleNodeClick = (nodeId: string) => {
     setSelectedNode(nodeId);
@@ -373,11 +420,37 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
             </div>
           ) : (
             <svg
-              width={Math.max(800, nodes.length > 0 ? Math.max(...nodes.map(n => n.x)) + 200 : 800)}
-              height={Math.max(550, nodes.length > 0 ? Math.max(...nodes.map(n => n.y)) + 100 : 550)}
+              width={Math.max(1200, nodes.length > 0 ? Math.max(...nodes.map(n => n.x)) + 300 : 1200)}
+              height={Math.max(600, nodes.length > 0 ? Math.max(...nodes.map(n => n.y)) + 150 : 600)}
             style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
             className="mx-auto"
           >
+            {/* Draw group layer labels */}
+            {layerInfo.map(({ groupNum, layerY, groupName, maxX }) => (
+              <g key={`label-${groupNum}`}>
+                <text
+                  x={50}
+                  y={layerY}
+                  textAnchor="start"
+                  dominantBaseline="middle"
+                  fill="#6B7280"
+                  fontSize="12"
+                  fontWeight="600"
+                >
+                  {groupName} (group{groupNum})
+                </text>
+                <line
+                  x1={180}
+                  y1={layerY}
+                  x2={maxX + 80}
+                  y2={layerY}
+                  stroke="#E5E7EB"
+                  strokeWidth="1"
+                  strokeDasharray="4,4"
+                />
+              </g>
+            ))}
+
             {/* Draw edges first */}
             {nodes.map(node =>
               node.dependencies.map(depId => {

@@ -44,6 +44,19 @@ public class RequiredInputsService {
             calculatedComponentsNormalizedMap.put(normalizeComponentName(comp), comp);
         }
         
+        // Extract group names from ruleset (groups are not required inputs)
+        Set<String> groupNames = new HashSet<>();
+        for (Rule rule : activeRules.values()) {
+            Map<String, String> meta = rule.getMeta();
+            if (meta != null) {
+                String groupName = meta.get("group");
+                if (groupName != null && !groupName.isEmpty()) {
+                    // Store in lowercase for case-insensitive matching
+                    groupNames.add(groupName.toLowerCase());
+                }
+            }
+        }
+        
         // Collect all referenced variables from all expressions
         Set<String> allReferenced = new HashSet<>();
         
@@ -54,17 +67,32 @@ public class RequiredInputsService {
             allReferenced.addAll(refs);
         }
         
-        // Required inputs = referenced variables that are NOT calculated by any rule
+        // Required inputs = referenced variables that are NOT calculated by any rule AND NOT group names
         Set<String> requiredInputs = new HashSet<>();
         for (String ref : allReferenced) {
+            // Check if this is a group number reference (group1, group2, etc.)
+            String refLower = ref.toLowerCase();
+            if (refLower.startsWith("group") && refLower.length() > 5) {
+                try {
+                    Integer.parseInt(refLower.substring(5)); // Try to parse the number
+                    continue; // Skip - it's a group number reference, not a required input
+                } catch (NumberFormatException e) {
+                    // Not a valid group number, continue checking
+                }
+            }
+            
+            // Check if this is a group name (case-insensitive)
+            if (groupNames.contains(refLower)) {
+                continue; // Skip - it's a group name, not a required input
+            }
+            
             // Check if this component is calculated by any rule
             // Try exact match first
             if (calculatedComponents.contains(ref)) {
                 continue; // Skip - it's calculated
             }
             
-            // Try case-insensitive match
-            String refLower = ref.toLowerCase();
+            // Try case-insensitive match (refLower already defined above)
             if (calculatedComponentsLowerMap.containsKey(refLower)) {
                 continue; // Skip - it's calculated (case variation)
             }

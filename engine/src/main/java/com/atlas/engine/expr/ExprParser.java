@@ -194,14 +194,17 @@ public class ExprParser {
                 throw new IllegalArgumentException("Unknown function: " + name + ". Functions must be called with parentheses.");
             }
             
-            // Must be a component reference (CamelCase)
-            if (!isCamelCase(name)) {
-                throw new IllegalArgumentException("Component names must be CamelCase. Found: " + name);
+            // Check if it's a lowercase identifier (could be a group name)
+            boolean isLowercase = name.chars().allMatch(c -> !Character.isUpperCase(c));
+            
+            // Must be a component reference (CamelCase) or group name (lowercase)
+            if (!isCamelCase(name) && !isLowercase) {
+                throw new IllegalArgumentException("Component names must be CamelCase or lowercase (for groups). Found: " + name);
             }
             
-            // Allow component references even if not in componentNames set
+            // Allow component/group references even if not in componentNames set
             // They will evaluate to zero if not found during evaluation
-            // This allows forward references and components that might be calculated later
+            // This allows forward references and components/groups that might be calculated later
             return new ComponentRefNode(name);
         }
         
