@@ -483,7 +483,7 @@ export type CreateScenarioRequest = {
   payMonth: string;
   inputData: Record<string, any>;
   resultData: Record<string, any>;
-  simulationType?: 'single' | 'bulk';
+  simulationType?: 'single' | 'bulk' | 'optimization';
 };
 
 export const scenarioApi = {
@@ -622,6 +622,52 @@ export const ruleAssistantApi = {
   },
 };
 
+// Optimizer API
+export type OptimizeRequest = {
+  tenantId: string;
+  rulesetId: string;
+  extraBudget: number;
+  strategy?: string;
+  targetComponent?: string;
+  asOfDate?: string;
+};
+
+export type RaisePlan = {
+  strategy: string;
+  targetComponent: string;
+  percentage: string;
+  description: string;
+};
+
+export type PayrollSummary = {
+  totalCost: string;
+  avgPerEmployee: string;
+  employeeCount: number;
+  componentTotals: Record<string, string>;
+};
+
+export type OptimizationResult = {
+  rulesetId: string;
+  rulesetName: string;
+  extraBudget: string;
+  strategy: string;
+  asOfDate: string;
+  calculatedAt: string;
+  raisePlan: RaisePlan;
+  baseline: PayrollSummary;
+  optimized: PayrollSummary;
+  extraCostUsed: string;
+};
+
+export const optimizerApi = {
+  async optimize(request: OptimizeRequest): Promise<OptimizationResult> {
+    return apiCall('/optimizer/optimize', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+};
+
 export default {
   ruleset: rulesetApi,
   rule: ruleApi,
@@ -633,5 +679,6 @@ export default {
   scenario: scenarioApi,
   baseline: baselineApi,
   ruleAssistant: ruleAssistantApi,
+  optimizer: optimizerApi,
 };
 

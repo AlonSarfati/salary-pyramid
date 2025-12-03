@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Home, PlayCircle, Settings, BarChart3, Shield, Users, Network, HelpCircle } from 'lucide-react';
+import { Home, PlayCircle, Settings, BarChart3, Shield, Users, Network, HelpCircle, TrendingUp } from 'lucide-react';
 import HomePage from './components/HomePage';
 import SimulateSingle from './components/SimulateSingle';
 import SimulateBulk from './components/SimulateBulk';
@@ -9,10 +9,11 @@ import ResultsPage from './components/ResultsPage';
 import AdminPage from './components/AdminPage';
 import EmployeeManager from './components/EmployeeManager';
 import GlobalPayrollDashboard from './components/GlobalPayrollDashboard';
+import Optimizer from './components/Optimizer';
 import { tenantApi } from './services/apiService';
 import { ToastProvider } from './components/ToastProvider';
 
-type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees' | 'dashboard';
+type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees' | 'dashboard' | 'optimizer';
 
 type Tenant = {
   tenantId: string;
@@ -57,6 +58,7 @@ export default function App() {
     { id: 'home' as Page, icon: Home, label: 'Home' },
     { id: 'dashboard' as Page, icon: BarChart3, label: 'Dashboard' },
     { id: 'simulate-single' as Page, icon: PlayCircle, label: 'Simulate' },
+    { id: 'optimizer' as Page, icon: TrendingUp, label: 'Optimizer' },
     { id: 'employees' as Page, icon: Users, label: 'Employees' },
     { id: 'rule-builder' as Page, icon: Settings, label: 'Rules' },
     { id: 'visual' as Page, icon: Network, label: 'Visual' },
@@ -72,6 +74,8 @@ export default function App() {
         return <SimulateSingle tenantId={selectedTenantId} />;
       case 'simulate-bulk':
         return <SimulateBulk tenantId={selectedTenantId} />;
+      case 'optimizer':
+        return <Optimizer tenantId={selectedTenantId} />;
       case 'rule-builder':
         return <RuleBuilder tenantId={selectedTenantId} />;
       case 'visual':

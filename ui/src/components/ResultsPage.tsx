@@ -65,13 +65,33 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
 
   // Convert scenarios to Simulation format
   const simulations: Simulation[] = scenarios.map(scenario => {
-    const total = typeof scenario.resultData.total === 'string' 
-      ? parseFloat(scenario.resultData.total) 
-      : (scenario.resultData.total as number) || 0;
-    const components = scenario.resultData.components || {};
-    const employeeCount = scenario.simulationType === 'bulk' 
-      ? (scenario.resultData.results?.length || 1)
-      : 1;
+    // Handle optimization scenarios differently
+    const isOptimization = scenario.simulationType === 'optimization' || scenario.resultData.optimization === true;
+    
+    let total: number;
+    let components: Record<string, any> = {};
+    let employeeCount: number;
+    
+    if (isOptimization) {
+      // For optimization scenarios, use optimized total
+      total = typeof scenario.resultData.total === 'string' 
+        ? parseFloat(scenario.resultData.total) 
+        : (scenario.resultData.total as number) || 
+          (scenario.resultData.optimized?.totalCost 
+            ? parseFloat(scenario.resultData.optimized.totalCost) 
+            : 0);
+      components = scenario.resultData.components || scenario.resultData.optimized?.componentTotals || {};
+      employeeCount = scenario.resultData.optimized?.employeeCount || scenario.resultData.baseline?.employeeCount || 1;
+    } else {
+      // For regular simulation scenarios
+      total = typeof scenario.resultData.total === 'string' 
+        ? parseFloat(scenario.resultData.total) 
+        : (scenario.resultData.total as number) || 0;
+      components = scenario.resultData.components || {};
+      employeeCount = scenario.simulationType === 'bulk' 
+        ? (scenario.resultData.results?.length || 1)
+        : 1;
+    }
     
     // Format pay month as period
     const [year, month] = scenario.payMonth.split('-');
@@ -101,10 +121,26 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
 
   // Get component breakdown from selected simulation
   const componentBreakdown = selectedSimulation ? (() => {
-    const components = selectedSimulation.scenario.resultData.components || {};
-    const total = typeof selectedSimulation.scenario.resultData.total === 'string'
-      ? parseFloat(selectedSimulation.scenario.resultData.total)
-      : (selectedSimulation.scenario.resultData.total as number) || 0;
+    const scenario = selectedSimulation.scenario;
+    const isOptimization = scenario.simulationType === 'optimization' || scenario.resultData.optimization === true;
+    
+    // For optimization scenarios, use optimized component totals
+    // For regular scenarios, use the components field
+    let components: Record<string, any> = {};
+    if (isOptimization) {
+      components = scenario.resultData.components || 
+                   scenario.resultData.optimized?.componentTotals || 
+                   {};
+    } else {
+      components = scenario.resultData.components || {};
+    }
+    
+    const total = typeof scenario.resultData.total === 'string'
+      ? parseFloat(scenario.resultData.total)
+      : (scenario.resultData.total as number) || 
+        (isOptimization && scenario.resultData.optimized?.totalCost
+          ? parseFloat(scenario.resultData.optimized.totalCost)
+          : 0);
     
     return Object.entries(components)
       .map(([component, amount]) => {
@@ -115,6 +151,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
           percentage: total > 0 ? Math.round((numAmount / total) * 10000) / 100 : 0, // Round to 2 decimal places
         };
       })
+      .filter(comp => comp.amount > 0) // Only show components with values
       .sort((a, b) => b.amount - a.amount);
   })() : [];
 
@@ -347,29 +384,93 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
 
             {/* Component Breakdown */}
             <div>
-              <h4 className="text-[#1E1E1E] mb-3">Component Breakdown</h4>
-              <div className="space-y-2">
-                {componentBreakdown.map((comp, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="text-sm text-[#1E1E1E]">{comp.component}</div>
-                      <div className="flex-1 mx-4">
-                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-[#0052CC]"
-                            style={{ width: `${comp.percentage}%` }}
-                          />
+              <h4 className="text-[#1E1E1E] mb-3">
+                {selectedSimulation?.scenario.simulationType === 'optimization' || selectedSimulation?.scenario.resultData.optimization
+                  ? 'Optimized Component Breakdown'
+                  : 'Component Breakdown'}
+              </h4>
+              {componentBreakdown.length === 0 ? (
+                <div className="text-sm text-gray-500 py-4">
+                  No component breakdown available for this scenario.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {componentBreakdown.map((comp, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="text-sm text-[#1E1E1E]">{comp.component}</div>
+                        <div className="flex-1 mx-4">
+                          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-[#0052CC]"
+                              style={{ width: `${comp.percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right min-w-[120px]">
+                        <div className="text-sm text-[#1E1E1E]">{formatCurrencyWithDecimals(comp.amount, currency, 0)}</div>
+                        <div className="text-xs text-gray-600">{comp.percentage.toFixed(2)}%</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* Optimization-specific details */}
+            {selectedSimulation && (selectedSimulation.scenario.simulationType === 'optimization' || selectedSimulation.scenario.resultData.optimization) && (
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <h4 className="text-[#1E1E1E] mb-3">Optimization Details</h4>
+                <div className="space-y-3">
+                  {selectedSimulation.scenario.resultData.raisePlan && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="text-sm font-medium text-blue-900 mb-1">Raise Plan</div>
+                      <div className="text-sm text-blue-800">
+                        {selectedSimulation.scenario.resultData.raisePlan.description || 
+                         `${selectedSimulation.scenario.resultData.raisePlan.percentage}% on ${selectedSimulation.scenario.resultData.raisePlan.targetComponent}`}
+                      </div>
+                    </div>
+                  )}
+                  {selectedSimulation.scenario.resultData.baseline && selectedSimulation.scenario.resultData.optimized && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <div className="text-xs text-gray-600 mb-1">Baseline Total</div>
+                        <div className="text-sm font-medium text-[#1E1E1E]">
+                          {formatCurrencyWithDecimals(
+                            parseFloat(selectedSimulation.scenario.resultData.baseline.totalCost || '0'),
+                            currency,
+                            0
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="text-xs text-gray-600 mb-1">Optimized Total</div>
+                        <div className="text-sm font-medium text-green-700">
+                          {formatCurrencyWithDecimals(
+                            parseFloat(selectedSimulation.scenario.resultData.optimized.totalCost || '0'),
+                            currency,
+                            0
+                          )}
                         </div>
                       </div>
                     </div>
-                    <div className="text-right min-w-[120px]">
-                      <div className="text-sm text-[#1E1E1E]">{formatCurrencyWithDecimals(comp.amount, currency, 0)}</div>
-                      <div className="text-xs text-gray-600">{comp.percentage.toFixed(2)}%</div>
+                  )}
+                  {selectedSimulation.scenario.resultData.extraCostUsed && (
+                    <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                      <div className="text-xs text-gray-600 mb-1">Extra Cost Used</div>
+                      <div className="text-sm font-medium text-orange-700">
+                        {formatCurrencyWithDecimals(
+                          parseFloat(selectedSimulation.scenario.resultData.extraCostUsed || '0'),
+                          currency,
+                          0
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Actions */}
             <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
