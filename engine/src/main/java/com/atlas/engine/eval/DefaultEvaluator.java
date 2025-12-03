@@ -15,14 +15,7 @@ import com.atlas.engine.spi.TableService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class DefaultEvaluator implements Evaluator {
 
@@ -38,19 +31,23 @@ public class DefaultEvaluator implements Evaluator {
         Map<String, Rule> ruleIdx = rules.activeRuleIndex(ctx.periodDate());
         List<String> order = resolver.order(rules, ctx.periodDate());
 
-        Map<String, Object> values = new HashMap<>(ctx.inputs()); // seed with inputs
+        // Use LinkedHashMap to preserve input order (deterministic)
+        Map<String, Object> values = new LinkedHashMap<>(ctx.inputs()); // seed with inputs
         Map<String, ComponentResult> results = new LinkedHashMap<>();
 
         final String tenantId = String.valueOf(values.getOrDefault("_tenantId", "default"));
         final LocalDate periodDate = ctx.periodDate();
 
         // Build set of all component names (targets of rules)
-        Set<String> componentNames = new HashSet<>(ruleIdx.keySet());
+        // Use LinkedHashSet to preserve insertion order (deterministic)
+        Set<String> componentNames = new LinkedHashSet<>(ruleIdx.keySet());
         componentNames.addAll(ctx.inputs().keySet());
         
         // Build component-to-group mapping and extract group names
-        Map<String, String> componentToGroup = new HashMap<>();
-        Set<String> groupNames = new HashSet<>();
+        // Use LinkedHashMap to preserve insertion order (deterministic)
+        Map<String, String> componentToGroup = new LinkedHashMap<>();
+        // Use LinkedHashSet to preserve insertion order, then we'll sort it
+        Set<String> groupNames = new LinkedHashSet<>();
         for (Rule rule : ruleIdx.values()) {
             String componentName = rule.getTarget();
             Map<String, String> meta = rule.getMeta();
@@ -86,8 +83,9 @@ public class DefaultEvaluator implements Evaluator {
             Collections.sort(sortedGroups);
         }
         
-        Map<String, Integer> groupToNumber = new HashMap<>();
-        Map<Integer, String> numberToGroup = new HashMap<>();
+        // Use LinkedHashMap to preserve insertion order (deterministic)
+        Map<String, Integer> groupToNumber = new LinkedHashMap<>();
+        Map<Integer, String> numberToGroup = new LinkedHashMap<>();
         int groupNumber = 1;
         for (String groupName : sortedGroups) {
             groupToNumber.put(groupName, groupNumber);
@@ -299,9 +297,15 @@ public class DefaultEvaluator implements Evaluator {
             }
         }
 
-        BigDecimal total = results.values().stream()
-                .map(ComponentResult::amount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // Calculate total by iterating in the same order as components were processed (deterministic)
+        // This ensures consistent calculation order even though addition is commutative
+        BigDecimal total = BigDecimal.ZERO;
+        for (String comp : order) {
+            ComponentResult result = results.get(comp);
+            if (result != null) {
+                total = total.add(result.amount());
+            }
+        }
 
         return new EvaluationResult(results, total);
     }
@@ -334,7 +338,8 @@ public class DefaultEvaluator implements Evaluator {
         
         // Build a map of component -> group number
         // Components without a group get the highest group number + 1 (calculated last)
-        Map<String, Integer> componentGroupNumber = new HashMap<>();
+        // Use LinkedHashMap to preserve insertion order (deterministic)
+        Map<String, Integer> componentGroupNumber = new LinkedHashMap<>();
         for (String component : dependencyOrder) {
             String groupName = componentToGroup.get(component);
             if (groupName != null) {

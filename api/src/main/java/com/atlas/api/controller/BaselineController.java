@@ -41,8 +41,9 @@ public class BaselineController {
             : java.time.Instant.now().toString();
         
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("totalPayroll", summary.totalPayroll());
-        response.put("avgPerEmployee", summary.avgPerEmployee());
+        // Convert BigDecimal to string to ensure consistent serialization (no precision/rounding variations)
+        response.put("totalPayroll", summary.totalPayroll().toPlainString());
+        response.put("avgPerEmployee", summary.avgPerEmployee().toPlainString());
         response.put("employeeCount", summary.employeeCount());
         response.put("activeRulesetName", summary.activeRulesetName());
         response.put("activeRulesetId", summary.activeRulesetId());

@@ -41,6 +41,10 @@ public class OptimizerController {
             Object extraBudgetObj = request.get("extraBudget");
             String strategy = (String) request.getOrDefault("strategy", "FLAT_RAISE_ON_BASE");
             String targetComponent = (String) request.getOrDefault("targetComponent", "Base");
+            String targetGroup = (String) request.get("targetGroup");
+            String newComponentName = (String) request.get("newComponentName");
+            String targetTable = (String) request.get("targetTable");
+            String tableComponent = (String) request.get("tableComponent");
             Object asOfDateObj = request.get("asOfDate");
 
             if (tenantId == null || tenantId.isBlank()) {
@@ -78,7 +82,8 @@ public class OptimizerController {
             }
 
             OptimizerService.OptimizationResultDto result = optimizerService.optimize(
-                tenantId, rulesetId, extraBudget, strategy, targetComponent, asOfDate
+                tenantId, rulesetId, extraBudget, strategy, targetComponent, 
+                targetGroup, newComponentName, targetTable, tableComponent, asOfDate
             );
 
             // Convert to response map
@@ -90,13 +95,33 @@ public class OptimizerController {
             response.put("asOfDate", result.asOfDate().toString());
             response.put("calculatedAt", result.calculatedAt().toInstant().toString());
             
-            // Raise plan
-            Map<String, Object> raisePlan = new LinkedHashMap<>();
-            raisePlan.put("strategy", result.raisePlan().strategy());
-            raisePlan.put("targetComponent", result.raisePlan().targetComponent());
-            raisePlan.put("percentage", result.raisePlan().percentage().toPlainString());
-            raisePlan.put("description", result.raisePlan().description());
-            response.put("raisePlan", raisePlan);
+            // Adjustment plan (renamed from raisePlan for clarity)
+            Map<String, Object> adjustmentPlan = new LinkedHashMap<>();
+            adjustmentPlan.put("strategy", result.adjustmentPlan().strategy());
+            if (result.adjustmentPlan().targetComponent() != null) {
+                adjustmentPlan.put("targetComponent", result.adjustmentPlan().targetComponent());
+            }
+            if (result.adjustmentPlan().targetGroup() != null) {
+                adjustmentPlan.put("targetGroup", result.adjustmentPlan().targetGroup());
+            }
+            if (result.adjustmentPlan().newComponentName() != null) {
+                adjustmentPlan.put("newComponentName", result.adjustmentPlan().newComponentName());
+            }
+            if (result.adjustmentPlan().targetTable() != null) {
+                adjustmentPlan.put("targetTable", result.adjustmentPlan().targetTable());
+            }
+            if (result.adjustmentPlan().tableComponent() != null) {
+                adjustmentPlan.put("tableComponent", result.adjustmentPlan().tableComponent());
+            }
+            if (result.adjustmentPlan().percentage() != null) {
+                adjustmentPlan.put("percentage", result.adjustmentPlan().percentage().toPlainString());
+            }
+            if (result.adjustmentPlan().scalarOrFactor() != null) {
+                adjustmentPlan.put("scalarOrFactor", result.adjustmentPlan().scalarOrFactor().toPlainString());
+            }
+            adjustmentPlan.put("description", result.adjustmentPlan().description());
+            response.put("raisePlan", adjustmentPlan); // Keep "raisePlan" key for backward compatibility
+            response.put("adjustmentPlan", adjustmentPlan); // Also add new key
             
             // Baseline summary
             Map<String, Object> baseline = new LinkedHashMap<>();

@@ -6,6 +6,7 @@ import com.atlas.api.repo.RulesetJdbcRepo;
 import com.atlas.engine.eval.Evaluator;
 import com.atlas.engine.model.EvalContext;
 import com.atlas.engine.model.EvaluationResult;
+import com.atlas.engine.model.ComponentResult;
 import com.atlas.engine.model.RuleSet;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -65,10 +66,13 @@ public class BaselineService {
                 
                 totalPayroll = totalPayroll.add(result.total());
                 
-                // Aggregate component totals
-                result.components().forEach((component, value) -> {
+                // Aggregate component totals in deterministic order (alphabetical)
+                List<String> componentNames = new ArrayList<>(result.components().keySet());
+                Collections.sort(componentNames);
+                for (String component : componentNames) {
+                    ComponentResult value = result.components().get(component);
                     componentTotals.merge(component, value.amount(), BigDecimal::add);
-                });
+                }
             } catch (Exception e) {
                 // Log error but continue with other employees
                 System.err.println("Error calculating payroll for employee " + emp.employeeId() + ": " + e.getMessage());
@@ -116,7 +120,8 @@ public class BaselineService {
         List<ComponentGroupsService.GroupDto> groups = componentGroupsService.getAllGroups();
         Map<String, String> groupNameToDisplayName = new LinkedHashMap<>();
         Map<String, Integer> groupDisplayOrder = new LinkedHashMap<>();
-        Map<String, Integer> groupOrdering = new HashMap<>(); // For evaluator (lowercase keys)
+        // Use LinkedHashMap to preserve insertion order from database (deterministic)
+        Map<String, Integer> groupOrdering = new LinkedHashMap<>(); // For evaluator (lowercase keys)
         for (ComponentGroupsService.GroupDto group : groups) {
             groupNameToDisplayName.put(group.groupName(), group.displayName());
             groupDisplayOrder.put(group.groupName(), group.displayOrder());
@@ -124,7 +129,8 @@ public class BaselineService {
         }
         
         // Build component name -> group name mapping from ruleset rules
-        Map<String, String> componentToGroup = new HashMap<>();
+        // Use LinkedHashMap to preserve rule order (deterministic)
+        Map<String, String> componentToGroup = new LinkedHashMap<>();
         for (com.atlas.engine.model.Rule rule : ruleset.getRules()) {
             String componentName = rule.getTarget();
             Map<String, String> meta = rule.getMeta();
@@ -153,7 +159,11 @@ public class BaselineService {
                 EvaluationResult result = evaluator.evaluateAll(ruleset, ctx);
                 
                 // Group components by their actual component groups
-                result.components().forEach((component, value) -> {
+                // Process in deterministic order (alphabetical)
+                List<String> componentNames = new ArrayList<>(result.components().keySet());
+                Collections.sort(componentNames);
+                for (String component : componentNames) {
+                    ComponentResult value = result.components().get(component);
                     String groupName = componentToGroup.getOrDefault(component, "core");
                     String displayName = groupNameToDisplayName.getOrDefault(groupName, groupName);
                     // If group doesn't exist in database, use the group name as-is
@@ -161,7 +171,7 @@ public class BaselineService {
                         categoryTotals.put(displayName, BigDecimal.ZERO);
                     }
                     categoryTotals.merge(displayName, value.amount(), BigDecimal::add);
-                });
+                }
             } catch (Exception e) {
                 System.err.println("Error calculating breakdown for employee " + emp.employeeId() + ": " + e.getMessage());
             }
@@ -215,12 +225,15 @@ public class BaselineService {
                 EvalContext ctx = addGroupOrdering(Mappers.toEvalContext(asOfDate, empInput), groupOrdering);
                 EvaluationResult result = evaluator.evaluateAll(ruleset, ctx);
                 
-                // Build component map
+                // Build component map in deterministic order (alphabetical)
                 Map<String, BigDecimal> components = new LinkedHashMap<>();
-                result.components().forEach((component, value) -> {
+                List<String> componentNames = new ArrayList<>(result.components().keySet());
+                Collections.sort(componentNames);
+                for (String component : componentNames) {
+                    ComponentResult value = result.components().get(component);
                     components.put(component, value.amount());
                     componentTotals.merge(component, value.amount(), BigDecimal::add);
-                });
+                }
                 
                 employeeResults.add(new EmployeeSimulationResult(
                     emp.employeeId(),
@@ -260,7 +273,8 @@ public class BaselineService {
     }
     
     private Map<String, Integer> getGroupOrdering() {
-        Map<String, Integer> ordering = new HashMap<>();
+        // Use LinkedHashMap to preserve insertion order from database (deterministic)
+        Map<String, Integer> ordering = new LinkedHashMap<>();
         for (ComponentGroupsService.GroupDto group : componentGroupsService.getAllGroups()) {
             ordering.put(group.groupName().toLowerCase(), group.displayOrder());
         }
@@ -268,7 +282,8 @@ public class BaselineService {
     }
     
     private EvalContext addGroupOrdering(EvalContext ctx, Map<String, Integer> groupOrdering) {
-        Map<String, Object> inputs = new HashMap<>(ctx.inputs());
+        // Use LinkedHashMap to preserve input order (deterministic)
+        Map<String, Object> inputs = new LinkedHashMap<>(ctx.inputs());
         inputs.put("_groupOrdering", groupOrdering);
         return new EvalContext(inputs, ctx.periodDate());
     }

@@ -100,10 +100,14 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
         setLoading(true);
         setError(null);
         
+        // Use first of current month for consistent results (instead of today's date which changes daily)
+        const today = new Date();
+        const asOfDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+        
         const [summaryData, trendData, breakdownData, simCountData] = await Promise.all([
-          baselineApi.getSummary(tenantId, undefined, selectedRulesetId || undefined),
+          baselineApi.getSummary(tenantId, asOfDate, selectedRulesetId || undefined),
           baselineApi.getTrend(tenantId),
-          baselineApi.getBreakdown(tenantId, undefined, selectedRulesetId || undefined),
+          baselineApi.getBreakdown(tenantId, asOfDate, selectedRulesetId || undefined),
           baselineApi.getSimulationCount(tenantId),
         ]);
         

@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { optimizerApi, rulesetApi, scenarioApi, type OptimizationResult, type OptimizeRequest } from '../services/apiService';
+import { optimizerApi, rulesetApi, scenarioApi, tableApi, componentGroupsApi, type OptimizationResult, type OptimizeRequest, type ComponentGroup } from '../services/apiService';
 import { useToast } from './ToastProvider';
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, getCurrencySymbol, parseFormattedNumber, formatNumberCompact } from '../utils/currency';
@@ -28,6 +28,10 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   const [extraBudget, setExtraBudget] = useState<string>('');
   const [strategy, setStrategy] = useState<string>('FLAT_RAISE_ON_BASE');
   const [targetComponent, setTargetComponent] = useState<string>('Base');
+  const [targetGroup, setTargetGroup] = useState<string>('');
+  const [newComponentName, setNewComponentName] = useState<string>('');
+  const [targetTable, setTargetTable] = useState<string>('');
+  const [tableComponent, setTableComponent] = useState<string>('');
   
   // Optimization state
   const [optimizing, setOptimizing] = useState(false);
@@ -41,6 +45,72 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   
   // Available components (will be populated from ruleset)
   const [availableComponents, setAvailableComponents] = useState<string[]>([]);
+  
+  // Component groups and tables
+  const [componentGroups, setComponentGroups] = useState<ComponentGroup[]>([]);
+  const [availableTables, setAvailableTables] = useState<Array<{ tableName: string; component: string }>>([]);
+  
+  // Group name to number mapping
+  const groupNameToNumber = (): Map<string, string> => {
+    const mapping = new Map<string, string>();
+    componentGroups
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+      .forEach((group, index) => {
+        const groupNumber = `group${index + 1}`;
+        mapping.set(group.groupName.toLowerCase(), groupNumber);
+      });
+    return mapping;
+  };
+  
+  // Load component groups
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const groups = await componentGroupsApi.getAll();
+        if (!cancelled) {
+          setComponentGroups(groups);
+          // Set default target group to first group
+          if (groups.length > 0) {
+            const firstGroup = groups.sort((a, b) => a.displayOrder - b.displayOrder)[0];
+            const groupNum = `group${firstGroup.displayOrder}`;
+            setTargetGroup(groupNum);
+          }
+        }
+      } catch (e: any) {
+        console.error('Failed to load component groups:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  
+  // Load tables when component is selected for table strategy
+  useEffect(() => {
+    if (strategy === 'INCREASE_TABLE_VALUES' && tableComponent) {
+      let cancelled = false;
+      (async () => {
+        try {
+          const response = await tableApi.listTables(tenantId, tableComponent);
+          if (!cancelled) {
+            const tables = (response.tables || []).map(t => ({
+              tableName: t.tableName,
+              component: tableComponent,
+            }));
+            setAvailableTables(tables);
+            if (tables.length > 0 && !targetTable) {
+              setTargetTable(tables[0].tableName);
+            }
+          }
+        } catch (e: any) {
+          console.error('Failed to load tables:', e);
+          setAvailableTables([]);
+        }
+      })();
+      return () => { cancelled = true; };
+    } else {
+      setAvailableTables([]);
+    }
+  }, [strategy, tableComponent, tenantId]);
   
   // Load rulesets
   useEffect(() => {
@@ -105,17 +175,47 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
       return;
     }
     
+    // Validate strategy-specific fields
+    if (strategy === 'ADD_NEW_COMPONENT_IN_GROUP' && !targetGroup) {
+      setError('Please select a target group');
+      return;
+    }
+    if (strategy === 'INCREASE_TABLE_VALUES') {
+      if (!tableComponent) {
+        setError('Please select a component that owns the table');
+        return;
+      }
+      if (!targetTable) {
+        setError('Please select a table');
+        return;
+      }
+    }
+    
     setOptimizing(true);
     setError(null);
     setResult(null);
     
     try {
+      // Convert group number to group name if needed
+      let finalTargetGroup = targetGroup;
+      if (strategy === 'ADD_NEW_COMPONENT_IN_GROUP' && targetGroup.startsWith('group')) {
+        const groupNum = parseInt(targetGroup.replace('group', ''));
+        const group = componentGroups.find(g => g.displayOrder === groupNum);
+        if (group) {
+          finalTargetGroup = group.groupName;
+        }
+      }
+      
       const request: OptimizeRequest = {
         tenantId,
         rulesetId: selectedRulesetId,
         extraBudget: budgetValue,
         strategy,
-        targetComponent,
+        targetComponent: strategy === 'FLAT_RAISE_ON_BASE' ? targetComponent : undefined,
+        targetGroup: strategy === 'ADD_NEW_COMPONENT_IN_GROUP' ? finalTargetGroup : undefined,
+        newComponentName: strategy === 'ADD_NEW_COMPONENT_IN_GROUP' ? (newComponentName || undefined) : undefined,
+        targetTable: strategy === 'INCREASE_TABLE_VALUES' ? targetTable : undefined,
+        tableComponent: strategy === 'INCREASE_TABLE_VALUES' ? tableComponent : undefined,
       };
       
       const optimizationResult = await optimizerApi.optimize(request);
@@ -141,15 +241,16 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
       const payMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
       
       // Ensure all data is properly structured
+      const adjustmentPlan = result.adjustmentPlan || result.raisePlan;
       const inputData = {
         optimizer: true,
         extraBudget: result.extraBudget || '0',
         strategy: result.strategy || 'FLAT_RAISE_ON_BASE',
-        raisePlan: result.raisePlan || {
+        raisePlan: adjustmentPlan || {
           strategy: result.strategy || 'FLAT_RAISE_ON_BASE',
-          targetComponent: result.raisePlan?.targetComponent || 'Base',
-          percentage: result.raisePlan?.percentage || '0',
-          description: result.raisePlan?.description || '',
+          targetComponent: adjustmentPlan?.targetComponent || 'Base',
+          percentage: adjustmentPlan?.percentage || '0',
+          description: adjustmentPlan?.description || '',
         },
       };
       
@@ -174,11 +275,11 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
           componentTotals: {},
         },
         extraCostUsed: result.extraCostUsed || '0',
-        raisePlan: result.raisePlan || {
+        raisePlan: result.adjustmentPlan || result.raisePlan || {
           strategy: result.strategy || 'FLAT_RAISE_ON_BASE',
-          targetComponent: result.raisePlan?.targetComponent || 'Base',
-          percentage: result.raisePlan?.percentage || '0',
-          description: result.raisePlan?.description || '',
+          targetComponent: (result.adjustmentPlan || result.raisePlan)?.targetComponent || 'Base',
+          percentage: (result.adjustmentPlan || result.raisePlan)?.percentage || '0',
+          description: (result.adjustmentPlan || result.raisePlan)?.description || '',
         },
         rulesetId: result.rulesetId,
         rulesetName: result.rulesetName,
@@ -290,36 +391,127 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
           {/* Strategy Selector */}
           <div>
             <Label htmlFor="strategy">Strategy</Label>
-            <Select value={strategy} onValueChange={setStrategy}>
+            <Select value={strategy} onValueChange={(value) => {
+              setStrategy(value);
+              setResult(null);
+            }}>
               <SelectTrigger id="strategy">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="FLAT_RAISE_ON_BASE">Flat raise on component</SelectItem>
+                <SelectItem value="ADD_NEW_COMPONENT_IN_GROUP">Add new component in group</SelectItem>
+                <SelectItem value="INCREASE_TABLE_VALUES">Increase table values from current month</SelectItem>
               </SelectContent>
             </Select>
           </div>
           
-          {/* Target Component Selector */}
-          <div>
-            <Label htmlFor="component">Target Component</Label>
-            <Select
-              value={targetComponent}
-              onValueChange={setTargetComponent}
-              disabled={availableComponents.length === 0}
-            >
-              <SelectTrigger id="component">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {availableComponents.map((comp) => (
-                  <SelectItem key={comp} value={comp}>
-                    {comp}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Conditional fields based on strategy */}
+          {strategy === 'FLAT_RAISE_ON_BASE' && (
+            <div>
+              <Label htmlFor="component">Target Component</Label>
+              <Select
+                value={targetComponent}
+                onValueChange={setTargetComponent}
+                disabled={availableComponents.length === 0}
+              >
+                <SelectTrigger id="component">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableComponents.map((comp) => (
+                    <SelectItem key={comp} value={comp}>
+                      {comp}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          
+          {strategy === 'ADD_NEW_COMPONENT_IN_GROUP' && (
+            <>
+              <div>
+                <Label htmlFor="targetGroup">Target Group</Label>
+                <Select
+                  value={targetGroup}
+                  onValueChange={setTargetGroup}
+                  disabled={componentGroups.length === 0}
+                >
+                  <SelectTrigger id="targetGroup">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {componentGroups
+                      .sort((a, b) => a.displayOrder - b.displayOrder)
+                      .map((group) => {
+                        const groupNum = `group${group.displayOrder}`;
+                        return (
+                          <SelectItem key={group.groupName} value={groupNum}>
+                            {group.displayName || group.groupName} ({groupNum})
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="newComponentName">New Component Name (optional)</Label>
+                <Input
+                  id="newComponentName"
+                  value={newComponentName}
+                  onChange={(e) => setNewComponentName(e.target.value)}
+                  placeholder="Auto-generated if empty"
+                />
+              </div>
+            </>
+          )}
+          
+          {strategy === 'INCREASE_TABLE_VALUES' && (
+            <>
+              <div>
+                <Label htmlFor="tableComponent">Component</Label>
+                <Select
+                  value={tableComponent}
+                  onValueChange={(value) => {
+                    setTableComponent(value);
+                    setTargetTable(''); // Reset table selection
+                  }}
+                  disabled={availableComponents.length === 0}
+                >
+                  <SelectTrigger id="tableComponent">
+                    <SelectValue placeholder="Select component" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableComponents.map((comp) => (
+                      <SelectItem key={comp} value={comp}>
+                        {comp}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="targetTable">Table</Label>
+                <Select
+                  value={targetTable}
+                  onValueChange={setTargetTable}
+                  disabled={!tableComponent || availableTables.length === 0}
+                >
+                  <SelectTrigger id="targetTable">
+                    <SelectValue placeholder="Select table" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableTables.map((t) => (
+                      <SelectItem key={t.tableName} value={t.tableName}>
+                        {t.tableName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
         </div>
         
         <Button
@@ -358,13 +550,38 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-gray-600">Raise Percentage</p>
+                <p className="text-sm text-gray-600">Adjustment</p>
                 <Percent className="w-5 h-5 text-blue-600" />
               </div>
               <p className="text-2xl font-bold text-[#1E1E1E]">
-                {formatPercent(result.raisePlan.percentage)}
+                {(() => {
+                  const plan = result.adjustmentPlan || result.raisePlan;
+                  if (plan.percentage) {
+                    return formatPercent(plan.percentage);
+                  } else if (plan.scalarOrFactor) {
+                    const value = parseFloat(plan.scalarOrFactor);
+                    if (result.strategy === 'INCREASE_TABLE_VALUES') {
+                      return formatPercent(value * 100);
+                    } else {
+                      return formatCurrency(value);
+                    }
+                  }
+                  return 'N/A';
+                })()}
               </p>
-              <p className="text-xs text-gray-500 mt-1">on {result.raisePlan.targetComponent}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {(() => {
+                  const plan = result.adjustmentPlan || result.raisePlan;
+                  if (plan.targetComponent) {
+                    return `on ${plan.targetComponent}`;
+                  } else if (plan.newComponentName) {
+                    return `${plan.newComponentName} in ${plan.targetGroup || 'group'}`;
+                  } else if (plan.targetTable) {
+                    return `table ${plan.targetTable}`;
+                  }
+                  return '';
+                })()}
+              </p>
             </Card>
             
             <Card className="p-6">
@@ -443,14 +660,14 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
             </div>
           </Card>
           
-          {/* Raise Plan Description */}
+          {/* Adjustment Plan Description */}
           <Card className="p-6 bg-blue-50 border-blue-200">
             <div className="flex items-start gap-3">
               <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div>
                 <h3 className="font-medium text-blue-900 mb-1">Optimization Result</h3>
                 <p className="text-sm text-blue-800">
-                  {result.raisePlan.description}. This will increase the total employer cost by approximately{' '}
+                  {(result.adjustmentPlan || result.raisePlan).description}. This will increase the total employer cost by approximately{' '}
                   {formatCurrency(result.extraCostUsed)} per year, using{' '}
                   {((parseFloat(result.extraCostUsed) / parseFloat(result.extraBudget)) * 100).toFixed(1)}% of your extra budget.
                 </p>

@@ -629,15 +629,27 @@ export type OptimizeRequest = {
   extraBudget: number;
   strategy?: string;
   targetComponent?: string;
+  targetGroup?: string;
+  newComponentName?: string;
+  targetTable?: string;
+  tableComponent?: string;
   asOfDate?: string;
 };
 
-export type RaisePlan = {
+export type AdjustmentPlan = {
   strategy: string;
-  targetComponent: string;
-  percentage: string;
+  targetComponent?: string | null;
+  targetGroup?: string | null;
+  newComponentName?: string | null;
+  targetTable?: string | null;
+  tableComponent?: string | null;
+  percentage?: string | null;
+  scalarOrFactor?: string | null;
   description: string;
 };
+
+// Backward compatibility alias
+export type RaisePlan = AdjustmentPlan;
 
 export type PayrollSummary = {
   totalCost: string;
@@ -653,7 +665,8 @@ export type OptimizationResult = {
   strategy: string;
   asOfDate: string;
   calculatedAt: string;
-  raisePlan: RaisePlan;
+  raisePlan: AdjustmentPlan; // Backward compatibility
+  adjustmentPlan?: AdjustmentPlan; // New field
   baseline: PayrollSummary;
   optimized: PayrollSummary;
   extraCostUsed: string;

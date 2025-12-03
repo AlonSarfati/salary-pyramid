@@ -9,8 +9,7 @@ import com.atlas.engine.expr.ComponentRefNode;
 import com.atlas.engine.expr.TracingExprEvaluator;
 
 import java.math.BigDecimal;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
@@ -43,9 +42,13 @@ public class RuleExpression {
             ExprNode root = tempParser.parse();
             
             // Extract component references from AST
-            Set<String> deps = new HashSet<>();
+            // Use LinkedHashSet to preserve order, then we'll sort for determinism
+            Set<String> deps = new LinkedHashSet<>();
             extractComponentRefs(root, deps);
-            return deps;
+            // Convert to sorted list and back to set for deterministic order
+            List<String> sortedDeps = new ArrayList<>(deps);
+            Collections.sort(sortedDeps);
+            return new LinkedHashSet<>(sortedDeps);
         } catch (Exception e) {
             // Fall back to regex extraction if parsing fails
             return extractDependenciesRegex(availableComponents);
@@ -64,9 +67,12 @@ public class RuleExpression {
             ExprNode root = tempParser.parse();
             
             // Extract component references from AST (this automatically excludes quoted strings)
-            Set<String> allRefs = new HashSet<>();
+            Set<String> allRefs = new LinkedHashSet<>();
             extractComponentRefs(root, allRefs);
-            return allRefs;
+            // Sort for deterministic order
+            List<String> sortedRefs = new ArrayList<>(allRefs);
+            Collections.sort(sortedRefs);
+            return new LinkedHashSet<>(sortedRefs);
         } catch (Exception e) {
             // Fall back to regex extraction if parsing fails, but exclude quoted strings
             Set<String> allRefs = new HashSet<>();
@@ -83,7 +89,10 @@ public class RuleExpression {
                     allRefs.add(name);
                 }
             }
-            return allRefs;
+            // Sort for deterministic order
+            List<String> sortedRefs = new ArrayList<>(allRefs);
+            Collections.sort(sortedRefs);
+            return new LinkedHashSet<>(sortedRefs);
         }
     }
     
@@ -113,7 +122,8 @@ public class RuleExpression {
      * Matches identifiers that start with uppercase and contain lowercase letters.
      */
     private Set<String> extractDependenciesRegex(Set<String> availableComponents) {
-        Set<String> deps = new HashSet<>();
+        // Use LinkedHashSet, then sort for deterministic order
+        Set<String> deps = new LinkedHashSet<>();
         // Pattern for CamelCase: starts with uppercase, contains lowercase
         Pattern pattern = Pattern.compile("\\b([A-Z][a-zA-Z0-9]*[a-z][a-zA-Z0-9]*)\\b");
         Matcher matcher = pattern.matcher(expression);
@@ -124,7 +134,10 @@ public class RuleExpression {
                 deps.add(name);
             }
         }
-        return deps;
+        // Sort for deterministic order
+        List<String> sortedDeps = new ArrayList<>(deps);
+        Collections.sort(sortedDeps);
+        return new LinkedHashSet<>(sortedDeps);
     }
 
     /**

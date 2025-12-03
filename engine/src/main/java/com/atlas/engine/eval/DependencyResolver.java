@@ -10,20 +10,32 @@ public class DependencyResolver {
 
     public List<String> order(RuleSet rules, java.time.LocalDate date) {
         Map<String, Rule> idx = rules.activeRuleIndex(date);
-        Set<String> targets = idx.keySet();
-        Map<String, Set<String>> graph = new HashMap<>();
+        // Use LinkedHashSet to preserve insertion order from LinkedHashMap (deterministic)
+        Set<String> targets = new LinkedHashSet<>(idx.keySet());
+        // Use LinkedHashMap to preserve insertion order (deterministic)
+        Map<String, Set<String>> graph = new LinkedHashMap<>();
 
-        for (Rule r : idx.values()) {
+        // Iterate over rules in deterministic order (by target name)
+        List<Rule> sortedRules = new ArrayList<>(idx.values());
+        sortedRules.sort(Comparator.comparing(Rule::getTarget)); // Sort by target for determinism
+        
+        for (Rule r : sortedRules) {
             Set<String> deps = new LinkedHashSet<>();
             if (r.getDependsOn() != null) {
-                deps.addAll(r.getDependsOn());
+                // Sort dependencies before adding to ensure deterministic order
+                List<String> sortedDeps = new ArrayList<>(r.getDependsOn());
+                Collections.sort(sortedDeps);
+                deps.addAll(sortedDeps);
             }
             
             // Use RuleExpression to extract dependencies from the new expression syntax
             try {
                 RuleExpression ruleExpr = new RuleExpression(r.getExpression());
                 Set<String> exprDeps = ruleExpr.extractDependencies(targets);
-                deps.addAll(exprDeps);
+                // Sort extracted dependencies before adding to ensure deterministic order
+                List<String> sortedExprDeps = new ArrayList<>(exprDeps);
+                Collections.sort(sortedExprDeps);
+                deps.addAll(sortedExprDeps);
             } catch (Exception e) {
                 // If parsing fails, the extractDependencies method will fall back to regex internally
                 // So we can just catch and continue - dependencies will be empty for this rule
@@ -39,26 +51,60 @@ public class DependencyResolver {
     }
 
     private List<String> topoSort(Map<String, Set<String>> g) {
-        Map<String,Integer> indeg = new HashMap<>();
-        for (var e: g.entrySet()) {
-            indeg.putIfAbsent(e.getKey(), 0);
-            for (String d : e.getValue()) indeg.put(d, indeg.getOrDefault(d,0));
-        }
-        for (var e: g.entrySet()) for (String d: e.getValue()) indeg.put(e.getKey(), indeg.get(e.getKey())+1);
-
-        Deque<String> q=new ArrayDeque<>();
-        for (var e: indeg.entrySet()) if (e.getValue()==0) q.add(e.getKey());
-
-        List<String> order=new ArrayList<>();
-        while(!q.isEmpty()){
-            String n=q.remove();
-            order.add(n);
-            for (var e: g.entrySet()) if (e.getValue().contains(n)) {
-                indeg.put(e.getKey(), indeg.get(e.getKey())-1);
-                if (indeg.get(e.getKey())==0) q.add(e.getKey());
+        Map<String,Integer> indeg = new LinkedHashMap<>();
+        // Build indegree map - iterate in sorted order for determinism
+        List<String> allNodes = new ArrayList<>(g.keySet());
+        Collections.sort(allNodes); // Sort for deterministic processing
+        
+        for (String node : allNodes) {
+            indeg.putIfAbsent(node, 0);
+            Set<String> deps = g.get(node);
+            if (deps != null) {
+                for (String d : deps) {
+                    indeg.putIfAbsent(d, 0);
+                }
             }
         }
-        if (order.size()!=indeg.size()) throw new IllegalStateException("Cyclic dependency detected");
+        
+        // Calculate in-degrees
+        for (String node : allNodes) {
+            Set<String> deps = g.get(node);
+            if (deps != null) {
+                for (String d : deps) {
+                    indeg.put(node, indeg.get(node) + 1);
+                }
+            }
+        }
+
+        // Use PriorityQueue for deterministic ordering (alphabetical)
+        PriorityQueue<String> q = new PriorityQueue<>();
+        for (Map.Entry<String, Integer> e : indeg.entrySet()) {
+            if (e.getValue() == 0) {
+                q.add(e.getKey());
+            }
+        }
+
+        List<String> order = new ArrayList<>();
+        while (!q.isEmpty()) {
+            String n = q.poll();
+            order.add(n);
+            
+            // Find all nodes that depend on n - iterate in sorted order for determinism
+            for (String dependent : allNodes) {
+                Set<String> deps = g.get(dependent);
+                if (deps != null && deps.contains(n)) {
+                    int newIndeg = indeg.get(dependent) - 1;
+                    indeg.put(dependent, newIndeg);
+                    if (newIndeg == 0) {
+                        q.add(dependent);
+                    }
+                }
+            }
+        }
+        
+        if (order.size() != indeg.size()) {
+            throw new IllegalStateException("Cyclic dependency detected");
+        }
         return order;
     }
 }

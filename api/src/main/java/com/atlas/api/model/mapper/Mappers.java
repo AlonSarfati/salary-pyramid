@@ -26,7 +26,8 @@ public class Mappers {
     }
 
     public static EvalContext toEvalContext(LocalDate date, EmployeeInput e) {
-        Map<String, Object> inputs = new HashMap<>();
+        // Use LinkedHashMap to preserve insertion order (deterministic)
+        Map<String, Object> inputs = new LinkedHashMap<>();
         // Map standard fields to CamelCase component names
         if (e.base() != null)  inputs.put("BaseSalary", e.base());
         if (e.hours() != null) inputs.put("Hours", e.hours());
@@ -40,11 +41,13 @@ public class Mappers {
         if (e.status() != null) inputs.put("Status", e.status());
         
         // Map any additional fields from extra to CamelCase
+        // Sort keys to ensure deterministic order (JSON object key order is not guaranteed)
         if (e.extra() != null) {
-            for (Map.Entry<String, Object> entry : e.extra().entrySet()) {
-                String key = entry.getKey();
+            List<String> sortedKeys = new ArrayList<>(e.extra().keySet());
+            Collections.sort(sortedKeys); // Sort alphabetically for deterministic order
+            for (String key : sortedKeys) {
                 // Keys from extra are already in CamelCase (e.g., "Role"), so use as-is
-                inputs.put(key, entry.getValue());
+                inputs.put(key, e.extra().get(key));
             }
         }
         return new EvalContext(inputs, date);

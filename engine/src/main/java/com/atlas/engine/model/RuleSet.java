@@ -14,7 +14,8 @@ public class RuleSet {
     private List<Rule> rules;
 
     public Map<String, Rule> activeRuleIndex(java.time.LocalDate date) {
-        Map<String, Rule> idx = new HashMap<>();
+        // Use LinkedHashMap to preserve insertion order (deterministic)
+        Map<String, Rule> idx = new LinkedHashMap<>();
         for (Rule r : rules) if (r.isActiveOn(date)) idx.put(r.getTarget(), r);
         return idx;
     }
