@@ -556,7 +556,18 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
               <p className="text-2xl font-bold text-[#1E1E1E]">
                 {(() => {
                   const plan = result.adjustmentPlan || result.raisePlan;
-                  if (plan.percentage) {
+                  if (result.strategy === 'FLAT_RAISE_ON_BASE') {
+                    // For flat raise, show amount instead of percentage
+                    if (plan.scalarOrFactor) {
+                      return formatCurrency(plan.scalarOrFactor);
+                    } else if (plan.percentage) {
+                      // Fallback: calculate from percentage if scalarOrFactor not available
+                      const baselineComponentTotal = parseFloat(result.baseline?.componentTotals?.[plan.targetComponent || ''] || '0');
+                      const employeeCount = result.baseline?.employeeCount || 1;
+                      const raiseAmount = (baselineComponentTotal * parseFloat(plan.percentage)) / 100 / employeeCount;
+                      return formatCurrency(raiseAmount);
+                    }
+                  } else if (plan.percentage) {
                     return formatPercent(plan.percentage);
                   } else if (plan.scalarOrFactor) {
                     const value = parseFloat(plan.scalarOrFactor);

@@ -117,6 +117,19 @@ public class OptimizerService {
                 RuleSet optimizedRuleset = applyRaisePlan(originalRuleset, targetComponent, optimalPercentage);
                 optimized = calculatePayrollSummary(tenantId, optimizedRuleset, asOfDate, null);
                 
+                // Calculate the raise amount per employee from the baseline component total
+                // raiseAmountPerEmployee = (baselineComponentTotal * percentage / 100) / employeeCount
+                BigDecimal baselineComponentTotal = baseline.componentTotals().getOrDefault(targetComponent, BigDecimal.ZERO);
+                int employeeCount = baseline.employeeCount();
+                BigDecimal raiseAmountPerEmployee = BigDecimal.ZERO;
+                if (employeeCount > 0 && baselineComponentTotal.compareTo(BigDecimal.ZERO) > 0) {
+                    // Total increase = baselineComponentTotal * percentage / 100
+                    BigDecimal totalIncrease = baselineComponentTotal.multiply(optimalPercentage)
+                        .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                    // Per employee = totalIncrease / employeeCount
+                    raiseAmountPerEmployee = totalIncrease.divide(BigDecimal.valueOf(employeeCount), 2, RoundingMode.HALF_UP);
+                }
+                
                 adjustmentPlan = new AdjustmentPlan(
                     strategy,
                     targetComponent,
@@ -125,8 +138,8 @@ public class OptimizerService {
                     null,
                     null,
                     optimalPercentage,
-                    null,
-                    "Uniform " + optimalPercentage.setScale(2, RoundingMode.HALF_UP) + "% raise on " + targetComponent
+                    raiseAmountPerEmployee, // Store raise amount in scalarOrFactor field
+                    "Uniform " + raiseAmountPerEmployee.setScale(2, RoundingMode.HALF_UP) + " ₪ raise per employee on " + targetComponent
                 );
                 break;
                 
