@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Play, Save, Loader2, AlertCircle, CheckCircle2, DollarSign, Users, Percent, Info } from 'lucide-react';
+import { TrendingUp, Play, Save, Loader2, AlertCircle, CheckCircle2, DollarSign, Users, Percent, Info, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { RadioGroup, RadioGroupItem } from './ui/radio-group';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
+import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
+import { Checkbox } from './ui/checkbox';
 import { optimizerApi, rulesetApi, scenarioApi, tableApi, componentGroupsApi, employeeApi, type OptimizationResult, type OptimizeRequest, type ComponentGroup, type FocusDefinition } from '../services/apiService';
 import { useToast } from './ToastProvider';
 import { useCurrency } from '../hooks/useCurrency';
@@ -33,7 +37,7 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   const [newComponentName, setNewComponentName] = useState<string>('');
   const [targetTable, setTargetTable] = useState<string>('');
   const [tableComponent, setTableComponent] = useState<string>('');
-  // Focus configuration (for segmented strategies) - support multiple conditions (AND)
+  // Focus configuration (for segmented strategies) - simplified + advanced
   type UiFocusCondition = {
     field: string;
     type: 'number' | 'string';
@@ -41,6 +45,13 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
     min?: string;
     max?: string;
   };
+  // Simplified focus (default)
+  const [simpleFocusDimension, setSimpleFocusDimension] = useState<string>('');
+  const [simpleFocusValues, setSimpleFocusValues] = useState<string[]>([]);
+  const [simpleFocusMin, setSimpleFocusMin] = useState<string>('');
+  const [simpleFocusMax, setSimpleFocusMax] = useState<string>('');
+  // Advanced focus (collapsible)
+  const [showAdvancedFocus, setShowAdvancedFocus] = useState(false);
   const [focusConditions, setFocusConditions] = useState<UiFocusCondition[]>([]);
   const [focusPriority, setFocusPriority] = useState<'SLIGHT' | 'STRONG' | 'EXTREME'>('STRONG');
   
@@ -221,6 +232,9 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
     };
   }, [tenantId]);
   
+  // Global ruleset persistence key
+  const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+
   // Load rulesets
   useEffect(() => {
     let cancelled = false;
@@ -231,8 +245,20 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
         if (!cancelled) {
           setRulesets(data.ruleSets || []);
           if (data.ruleSets && data.ruleSets.length > 0) {
-            const first = data.ruleSets[0];
-            setSelectedRulesetId(first.rulesetId);
+            // Try to restore from global storage
+            let initialRulesetId = data.ruleSets[0].rulesetId;
+            const storedGlobalRuleset = localStorage.getItem(GLOBAL_RULESET_KEY);
+            if (storedGlobalRuleset) {
+              try {
+                const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
+                if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
+                  initialRulesetId = storedId;
+                }
+              } catch (e) {
+                console.warn('Failed to parse global ruleset from localStorage:', e);
+              }
+            }
+            setSelectedRulesetId(initialRulesetId);
           }
         }
       } catch (e: any) {
@@ -247,6 +273,23 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
     })();
     return () => { cancelled = true; };
   }, [tenantId]);
+
+  // Save ruleset selection to global storage when it changes
+  useEffect(() => {
+    if (selectedRulesetId && rulesets.length > 0) {
+      const selected = rulesets.find(rs => rs.rulesetId === selectedRulesetId);
+      if (selected) {
+        try {
+          localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
+            rulesetId: selected.rulesetId,
+            name: selected.name || selected.rulesetId,
+          }));
+        } catch (e) {
+          console.warn('Failed to save ruleset to localStorage:', e);
+        }
+      }
+    }
+  }, [selectedRulesetId, rulesets, tenantId]);
   
   // Load components from selected ruleset
   useEffect(() => {
@@ -335,32 +378,62 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
         }
       };
 
+      // Build focus conditions: use simplified if available, otherwise use advanced
       const focusConditionsPayload =
         strategy === 'SEGMENTED_FLAT_RAISE'
-          ? focusConditions
-              .map((c) => {
-                const meta = availableFocusFields.find((f) => f.name === c.field);
-                if (!c.field || !meta) return undefined;
-                if (meta.type === 'number') {
-                  const min = c.min && c.min !== '' ? Number(c.min) : undefined;
-                  const max = c.max && c.max !== '' ? Number(c.max) : undefined;
-                  if (min === undefined && max === undefined) return undefined;
+          ? (() => {
+              // Prefer simplified focus if it's filled
+              if (simpleFocusDimension) {
+                const meta = availableFocusFields.find((f) => f.name === simpleFocusDimension);
+                if (meta) {
+                  if (meta.type === 'number') {
+                    const min = simpleFocusMin && simpleFocusMin !== '' ? Number(simpleFocusMin) : undefined;
+                    const max = simpleFocusMax && simpleFocusMax !== '' ? Number(simpleFocusMax) : undefined;
+                    if (min !== undefined || max !== undefined) {
+                      return [{
+                        field: simpleFocusDimension,
+                        fieldType: 'number' as const,
+                        min,
+                        max,
+                      }];
+                    }
+                  } else {
+                    if (simpleFocusValues.length > 0) {
+                      return [{
+                        field: simpleFocusDimension,
+                        fieldType: 'string' as const,
+                        values: simpleFocusValues,
+                      }];
+                    }
+                  }
+                }
+              }
+              // Fall back to advanced conditions if they exist
+              return focusConditions
+                .map((c) => {
+                  const meta = availableFocusFields.find((f) => f.name === c.field);
+                  if (!c.field || !meta) return undefined;
+                  if (meta.type === 'number') {
+                    const min = c.min && c.min !== '' ? Number(c.min) : undefined;
+                    const max = c.max && c.max !== '' ? Number(c.max) : undefined;
+                    if (min === undefined && max === undefined) return undefined;
+                    return {
+                      field: c.field,
+                      fieldType: 'number' as const,
+                      min,
+                      max,
+                    };
+                  }
+                  // string field
+                  if (!c.values || c.values.length === 0) return undefined;
                   return {
                     field: c.field,
-                    fieldType: 'number' as const,
-                    min,
-                    max,
+                    fieldType: 'string' as const,
+                    values: c.values,
                   };
-                }
-                // string field
-                if (!c.values || c.values.length === 0) return undefined;
-                return {
-                  field: c.field,
-                  fieldType: 'string' as const,
-                  values: c.values,
-                };
-              })
-              .filter((c): c is FocusDefinition['conditions'][number] => !!c)
+                })
+                .filter((c): c is FocusDefinition['conditions'][number] => !!c);
+            })()
           : [];
 
       const focus: FocusDefinition | undefined =
@@ -492,93 +565,182 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   const selectedRuleset = rulesets.find(r => r.rulesetId === selectedRulesetId);
   
   return (
-    <div className="p-8 max-w-[1600px] mx-auto">
-      <div className="mb-8">
+    <div className="p-8 max-w-[1600px] mx-auto space-y-8">
+      <div className="mb-6">
         <h1 className="text-3xl font-bold text-[#1E1E1E] mb-2">Raise Optimizer</h1>
-        <p className="text-gray-600">
-          Plan raises based on an extra yearly budget. Choose a ruleset and budget, and we'll calculate a flat raise percentage.
+        <p className="text-gray-600 mb-1">
+          Plan raises under a fixed yearly budget. Choose a ruleset, pick a strategy, and we'll compute the best raise structure for you.
+        </p>
+        <p className="text-sm text-gray-500">
+          Strategies can target everyone, specific groups of employees, new components, or table values.
         </p>
       </div>
       
       {/* Controls Card */}
-      <Card className="p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-          {/* Ruleset Selector */}
-          <div>
-            <Label htmlFor="ruleset">Ruleset</Label>
-            <Select
-              value={selectedRulesetId || ''}
-              onValueChange={(value) => {
-                setSelectedRulesetId(value);
-                setResult(null);
-              }}
-              disabled={rulesetsLoading}
-            >
-              <SelectTrigger id="ruleset">
-                <SelectValue placeholder="Select ruleset" />
-              </SelectTrigger>
-              <SelectContent>
-                {rulesets.map((rs) => (
-                  <SelectItem key={rs.rulesetId} value={rs.rulesetId}>
-                    {rs.name || rs.rulesetId} {rs.status === 'ACTIVE' && '(Active)'}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          {/* Extra Budget Input */}
-          <div>
-            <Label htmlFor="budget">Extra Yearly Budget</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 z-10">
-                {getCurrencySymbol(currency)}
-              </span>
-              <Input
-                id="budget"
-                type="text"
-                value={extraBudget}
-                onChange={(e) => setExtraBudget(e.target.value)}
-                placeholder="50M or 1.3M or 500K"
-                className="pl-8"
-              />
+      <Card className="p-6">
+        {/* Step 1: Ruleset & Budget */}
+        <div className="mb-6 pb-6 border-b">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Step 1: Choose ruleset & budget</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Ruleset Selector */}
+            <div>
+              <Label htmlFor="ruleset">Ruleset</Label>
+              <Select
+                value={selectedRulesetId || ''}
+                onValueChange={(value) => {
+                  setSelectedRulesetId(value);
+                  setResult(null);
+                }}
+                disabled={rulesetsLoading}
+              >
+                <SelectTrigger id="ruleset">
+                  <SelectValue placeholder="Select ruleset" />
+                </SelectTrigger>
+                <SelectContent>
+                  {rulesets.map((rs) => (
+                    <SelectItem key={rs.rulesetId} value={rs.rulesetId}>
+                      {rs.name || rs.rulesetId} {rs.status === 'ACTIVE' && '(Active)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            {extraBudget && (() => {
-              const parsed = parseFormattedNumber(extraBudget);
-              return parsed !== null && parsed > 0 ? (
-                <p className="text-xs text-gray-500 mt-1">
-                  = {formatCurrencyWithDecimals(parsed, currency)}
-                </p>
-              ) : extraBudget.trim() !== '' ? (
-                <p className="text-xs text-red-500 mt-1">
-                  Invalid format. Use numbers like 50M, 1.3M, or 500K
-                </p>
-              ) : null;
-            })()}
+            
+            {/* Extra Budget Input */}
+            <div>
+              <Label htmlFor="budget">Annual employer budget (extra)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 z-10">
+                  {getCurrencySymbol(currency)}
+                </span>
+                <Input
+                  id="budget"
+                  type="text"
+                  value={extraBudget}
+                  onChange={(e) => setExtraBudget(e.target.value)}
+                  placeholder="50M or 1.3M or 500K"
+                  className="pl-8"
+                />
+              </div>
+              {extraBudget && (() => {
+                const parsed = parseFormattedNumber(extraBudget);
+                return parsed !== null && parsed > 0 ? (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Parsed as {formatCurrencyWithDecimals(parsed, currency)} per year.
+                  </p>
+                ) : extraBudget.trim() !== '' ? (
+                  <p className="text-xs text-red-500 mt-1">
+                    Invalid format. Use numbers like 50M, 1.3M, or 500K
+                  </p>
+                ) : null;
+              })()}
+            </div>
           </div>
+        </div>
+
+        {/* Step 2: Strategy Selection */}
+        <div className="mb-6 pb-6 border-b">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Step 2: Choose strategy</h3>
+          <RadioGroup value={strategy} onValueChange={(value) => {
+            setStrategy(value);
+            setResult(null);
+            // Reset focus when strategy changes
+            if (value !== 'SEGMENTED_FLAT_RAISE') {
+              setSimpleFocusDimension('');
+              setSimpleFocusValues([]);
+              setSimpleFocusMin('');
+              setSimpleFocusMax('');
+              setFocusConditions([]);
+              setShowAdvancedFocus(false);
+            }
+          }}>
+            <div className="space-y-3">
+              {/* Flat raise for everyone */}
+              <label htmlFor="strategy-flat" className={`flex items-start gap-3 p-4 border-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors ${strategy === 'FLAT_RAISE_ON_BASE' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+                <div className="relative mt-0.5 flex items-center justify-center h-5 w-5">
+                  <RadioGroupItem value="FLAT_RAISE_ON_BASE" id="strategy-flat" className="h-5 w-5 border-2" />
+                  {strategy === 'FLAT_RAISE_ON_BASE' && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="h-2.5 w-2.5 rounded-full bg-blue-600"></div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium cursor-pointer">Flat raise for everyone</div>
+                  <p className="text-sm text-gray-600 mt-0.5">Same percentage raise on the selected component for all employees.</p>
+                </div>
+              </label>
+
+              {/* Raise with focus group */}
+              <label htmlFor="strategy-segmented" className={`flex items-start gap-3 p-4 border-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors ${strategy === 'SEGMENTED_FLAT_RAISE' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+                <div className="relative mt-0.5 flex items-center justify-center h-5 w-5">
+                  <RadioGroupItem value="SEGMENTED_FLAT_RAISE" id="strategy-segmented" className="h-5 w-5 border-2" />
+                  {strategy === 'SEGMENTED_FLAT_RAISE' && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="h-2.5 w-2.5 rounded-full bg-blue-600"></div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium cursor-pointer">Raise with focus group</div>
+                  <p className="text-sm text-gray-600 mt-0.5">Give a higher raise to a specific group (for example, certain roles or grades), and a smaller raise to others.</p>
+                </div>
+              </label>
+
+              {/* New component in the pyramid */}
+              <label htmlFor="strategy-new-component" className={`flex items-start gap-3 p-4 border-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors ${strategy === 'ADD_NEW_COMPONENT_IN_GROUP' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+                <div className="relative mt-0.5 flex items-center justify-center h-5 w-5">
+                  <RadioGroupItem value="ADD_NEW_COMPONENT_IN_GROUP" id="strategy-new-component" className="h-5 w-5 border-2" />
+                  {strategy === 'ADD_NEW_COMPONENT_IN_GROUP' && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="h-2.5 w-2.5 rounded-full bg-blue-600"></div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium cursor-pointer">New component in the pyramid</div>
+                  <p className="text-sm text-gray-600 mt-0.5">Add a new component in a group and let dependent components increase automatically.</p>
+                </div>
+              </label>
+
+              {/* Increase table values */}
+              <label htmlFor="strategy-table" className={`flex items-start gap-3 p-4 border-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors ${strategy === 'INCREASE_TABLE_VALUES' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+                <div className="relative mt-0.5 flex items-center justify-center h-5 w-5">
+                  <RadioGroupItem value="INCREASE_TABLE_VALUES" id="strategy-table" className="h-5 w-5 border-2" />
+                  {strategy === 'INCREASE_TABLE_VALUES' && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="h-2.5 w-2.5 rounded-full bg-blue-600"></div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium cursor-pointer">Increase table values</div>
+                  <p className="text-sm text-gray-600 mt-0.5">Use budget to increase values in a selected lookup table (e.g. Role/Seniority table) from the current month.</p>
+                </div>
+              </label>
+            </div>
+          </RadioGroup>
           
-          {/* Strategy Selector */}
-          <div>
-            <Label htmlFor="strategy">Strategy</Label>
-            <Select value={strategy} onValueChange={(value) => {
-              setStrategy(value);
-              setResult(null);
-            }}>
-              <SelectTrigger id="strategy">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="FLAT_RAISE_ON_BASE">Flat raise on component</SelectItem>
-                <SelectItem value="SEGMENTED_FLAT_RAISE">Segmented raise with focus group</SelectItem>
-                <SelectItem value="ADD_NEW_COMPONENT_IN_GROUP">Add new component in group</SelectItem>
-                <SelectItem value="INCREASE_TABLE_VALUES">Increase table values from current month</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Strategy helper text */}
+          {strategy && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                {strategy === 'FLAT_RAISE_ON_BASE' && 'This strategy will apply the same raise percentage to all employees on the selected component.'}
+                {strategy === 'SEGMENTED_FLAT_RAISE' && 'This strategy will give a higher raise to your focus group and a smaller raise to everyone else.'}
+                {strategy === 'ADD_NEW_COMPONENT_IN_GROUP' && 'This strategy will add a new component to the selected group, and components that depend on that group will automatically increase.'}
+                {strategy === 'INCREASE_TABLE_VALUES' && 'This strategy will increase values in the selected lookup table for rows effective from the current month onward.'}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Step 3: Strategy Details */}
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Step 3: Configure strategy details</h3>
           
           {/* Target component (used for FLAT_RAISE_ON_BASE and SEGMENTED_FLAT_RAISE) */}
           {(strategy === 'FLAT_RAISE_ON_BASE' || strategy === 'SEGMENTED_FLAT_RAISE') && (
-            <div>
+            <div className="mb-4">
               <Label htmlFor="component">Target Component</Label>
               <Select
                 value={targetComponent}
@@ -600,7 +762,7 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
           )}
           
           {strategy === 'ADD_NEW_COMPONENT_IN_GROUP' && (
-            <>
+            <div className="space-y-4">
               <div>
                 <Label htmlFor="targetGroup">Target Group</Label>
                 <Select
@@ -634,11 +796,11 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
                   placeholder="Auto-generated if empty"
                 />
               </div>
-            </>
+            </div>
           )}
           
           {strategy === 'INCREASE_TABLE_VALUES' && (
-            <>
+            <div className="space-y-4">
               <div>
                 <Label htmlFor="tableComponent">Component</Label>
                 <Select
@@ -680,156 +842,114 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
                   </SelectContent>
                 </Select>
               </div>
-            </>
+            </div>
           )}
 
-          {/* Focus configuration - only for segmented strategies (future extension) */}
+          {/* Focus configuration - simplified for segmented strategies */}
           {strategy === 'SEGMENTED_FLAT_RAISE' && (
-            <div className="md:col-span-2 space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="mb-0">Focus (optional)</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    // Add a new empty focus condition
-                    setFocusConditions((conds) => [
-                      ...conds,
-                      { field: '', type: 'string', values: [], min: '', max: '' },
-                    ]);
+            <div className="space-y-4">
+              {/* Simple Focus UI */}
+              <div>
+                <Label htmlFor="simpleFocusDimension">Focus on</Label>
+                <Select
+                  value={simpleFocusDimension}
+                  onValueChange={(value) => {
+                    setSimpleFocusDimension(value);
+                    setSimpleFocusValues([]);
+                    setSimpleFocusMin('');
+                    setSimpleFocusMax('');
                   }}
                 >
-                  Add condition
-                </Button>
+                  <SelectTrigger id="simpleFocusDimension">
+                    <SelectValue placeholder="Select dimension" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableFocusFields
+                      .filter(f => f.name && f.name !== '')
+                      .map((f) => (
+                        <SelectItem key={f.name} value={f.name}>
+                          {f.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              {focusConditions.length === 0 && (
-                <p className="text-xs text-gray-500">
-                  Optionally add one or more conditions. Employees must match all conditions to be in the focus group.
-                </p>
-              )}
-
-              <div className="space-y-3">
-                {focusConditions.map((cond, idx) => {
-                  const meta = availableFocusFields.find((f) => f.name === cond.field);
-                  const type: 'number' | 'string' = meta?.type ?? cond.type;
+              {/* Values or range based on selected dimension */}
+              {simpleFocusDimension && (() => {
+                const meta = availableFocusFields.find(f => f.name === simpleFocusDimension);
+                if (!meta) return null;
+                
+                if (meta.type === 'number') {
                   return (
-                    <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                      {/* Field selector */}
-                      <div>
-                        <Label>Field</Label>
-                        <Select
-                          value={cond.field || ''}
-                          onValueChange={(value) => {
-                            setFocusConditions((conds) =>
-                              conds.map((c, i) =>
-                                i === idx
-                                  ? {
-                                      field: value,
-                                      type: availableFocusFields.find((f) => f.name === value)?.type ?? 'string',
-                                      values: [],
-                                      min: '',
-                                      max: '',
-                                    }
-                                  : c,
-                              ),
-                            );
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select field" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableFocusFields
-                              .filter((f) => f.name && f.name !== '')
-                              .map((f) => (
-                                <SelectItem key={f.name} value={f.name}>
-                                  {f.name}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Values or range */}
-                      <div>
-                        <Label>Condition</Label>
-                        {!meta && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Select a field to configure this focus condition.
-                          </p>
-                        )}
-                        {meta && type === 'number' && (
-                          <div className="flex gap-2">
-                            <Input
-                              type="number"
-                              placeholder={meta.min != null ? String(meta.min) : 'Min'}
-                              value={cond.min ?? ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setFocusConditions((conds) =>
-                                  conds.map((c, i) => (i === idx ? { ...c, min: val } : c)),
-                                );
-                              }}
-                            />
-                            <Input
-                              type="number"
-                              placeholder={meta.max != null ? String(meta.max) : 'Max'}
-                              value={cond.max ?? ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setFocusConditions((conds) =>
-                                  conds.map((c, i) => (i === idx ? { ...c, max: val } : c)),
-                                );
-                              }}
-                            />
-                          </div>
-                        )}
-                        {meta && type === 'string' && (
-                          <Select
-                            value={cond.values[0] || ''}
-                            onValueChange={(value) => {
-                              setFocusConditions((conds) =>
-                                conds.map((c, i) => (i === idx ? { ...c, values: [value] } : c)),
-                              );
-                            }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select value" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {meta.values
-                                .filter((v) => v !== '')
-                                .map((v) => (
-                                  <SelectItem key={v} value={v}>
-                                    {v}
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-
-                      {/* Remove button */}
-                      <div className="flex justify-end">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setFocusConditions((conds) => conds.filter((_, i) => i !== idx));
-                          }}
-                        >
-                          Remove
-                        </Button>
+                    <div>
+                      <Label>Range</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          placeholder={meta.min != null ? String(meta.min) : 'Min'}
+                          value={simpleFocusMin}
+                          onChange={(e) => setSimpleFocusMin(e.target.value)}
+                        />
+                        <Input
+                          type="number"
+                          placeholder={meta.max != null ? String(meta.max) : 'Max'}
+                          value={simpleFocusMax}
+                          onChange={(e) => setSimpleFocusMax(e.target.value)}
+                        />
                       </div>
                     </div>
                   );
-                })}
-              </div>
+                } else {
+                  return (
+                    <div>
+                      <Label>Values</Label>
+                      <div className="mt-2 p-3 border rounded-lg max-h-48 overflow-y-auto space-y-2">
+                        {meta.values
+                          .filter((v) => v !== '')
+                          .map((v) => (
+                            <div key={v} className="flex items-center gap-3 py-1">
+                              <Checkbox
+                                id={`focus-value-${v}`}
+                                checked={simpleFocusValues.includes(v)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setSimpleFocusValues([...simpleFocusValues, v]);
+                                  } else {
+                                    setSimpleFocusValues(simpleFocusValues.filter(val => val !== v));
+                                  }
+                                }}
+                                className="h-4 w-4"
+                              />
+                              <Label 
+                                htmlFor={`focus-value-${v}`} 
+                                className="cursor-pointer flex-1 text-sm font-normal"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  const isChecked = simpleFocusValues.includes(v);
+                                  if (isChecked) {
+                                    setSimpleFocusValues(simpleFocusValues.filter(val => val !== v));
+                                  } else {
+                                    setSimpleFocusValues([...simpleFocusValues, v]);
+                                  }
+                                }}
+                              >
+                                {v}
+                              </Label>
+                            </div>
+                          ))}
+                      </div>
+                      {simpleFocusValues.length > 0 && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          {simpleFocusValues.length} value{simpleFocusValues.length !== 1 ? 's' : ''} selected
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+              })()}
 
-              {/* Priority / intensity (applies to full focus group) */}
+              {/* Focus intensity */}
               <div>
                 <Label htmlFor="focusPriority">Focus intensity</Label>
                 <Select
@@ -849,6 +969,153 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
                   Controls how much more aggressively the focus group is raised compared to others.
                 </p>
               </div>
+
+              {/* Advanced filters (collapsible) */}
+              <Collapsible open={showAdvancedFocus} onOpenChange={setShowAdvancedFocus}>
+                <CollapsibleTrigger asChild>
+                  <Button type="button" variant="ghost" size="sm" className="w-full justify-between">
+                    <span>Advanced filters (optional)</span>
+                    {showAdvancedFocus ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="mb-0">Add condition</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFocusConditions((conds) => [
+                          ...conds,
+                          { field: '', type: 'string', values: [], min: '', max: '' },
+                        ]);
+                      }}
+                    >
+                      Add condition
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {focusConditions.map((cond, idx) => {
+                      const meta = availableFocusFields.find((f) => f.name === cond.field);
+                      const type: 'number' | 'string' = meta?.type ?? cond.type;
+                      return (
+                        <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                          {/* Field selector */}
+                          <div>
+                            <Label>Field</Label>
+                            <Select
+                              value={cond.field || ''}
+                              onValueChange={(value) => {
+                                setFocusConditions((conds) =>
+                                  conds.map((c, i) =>
+                                    i === idx
+                                      ? {
+                                          field: value,
+                                          type: availableFocusFields.find((f) => f.name === value)?.type ?? 'string',
+                                          values: [],
+                                          min: '',
+                                          max: '',
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select field" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableFocusFields
+                                  .filter((f) => f.name && f.name !== '')
+                                  .map((f) => (
+                                    <SelectItem key={f.name} value={f.name}>
+                                      {f.name}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Values or range */}
+                          <div>
+                            <Label>Condition</Label>
+                            {!meta && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                Select a field to configure this focus condition.
+                              </p>
+                            )}
+                            {meta && type === 'number' && (
+                              <div className="flex gap-2">
+                                <Input
+                                  type="number"
+                                  placeholder={meta.min != null ? String(meta.min) : 'Min'}
+                                  value={cond.min ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFocusConditions((conds) =>
+                                      conds.map((c, i) => (i === idx ? { ...c, min: val } : c)),
+                                    );
+                                  }}
+                                />
+                                <Input
+                                  type="number"
+                                  placeholder={meta.max != null ? String(meta.max) : 'Max'}
+                                  value={cond.max ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFocusConditions((conds) =>
+                                      conds.map((c, i) => (i === idx ? { ...c, max: val } : c)),
+                                    );
+                                  }}
+                                />
+                              </div>
+                            )}
+                            {meta && type === 'string' && (
+                              <Select
+                                value={cond.values[0] || ''}
+                                onValueChange={(value) => {
+                                  setFocusConditions((conds) =>
+                                    conds.map((c, i) => (i === idx ? { ...c, values: [value] } : c)),
+                                  );
+                                }}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select value" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {meta.values
+                                    .filter((v) => v !== '')
+                                    .map((v) => (
+                                      <SelectItem key={v} value={v}>
+                                        {v}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+
+                          {/* Remove button */}
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setFocusConditions((conds) => conds.filter((_, i) => i !== idx));
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
           )}
         </div>
@@ -922,14 +1189,21 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
               <p className="text-xs text-gray-500 mt-1">
                 {(() => {
                   const plan = result.adjustmentPlan || result.raisePlan;
+                  const isAmount = result.strategy === 'FLAT_RAISE_ON_BASE' && plan.scalarOrFactor;
+                  const isPercentage = plan.percentage && result.strategy !== 'FLAT_RAISE_ON_BASE';
+                  const isTablePercentage = result.strategy === 'INCREASE_TABLE_VALUES' && plan.scalarOrFactor;
+                  let unit = '';
+                  if (isAmount) unit = ' per employee';
+                  else if (isPercentage || isTablePercentage) unit = ' raise';
+                  
                   if (plan.targetComponent) {
-                    return `on ${plan.targetComponent}`;
+                    return `${unit ? unit + ' ' : ''}on ${plan.targetComponent}`;
                   } else if (plan.newComponentName) {
                     return `${plan.newComponentName} in ${plan.targetGroup || 'group'}`;
                   } else if (plan.targetTable) {
                     return `table ${plan.targetTable}`;
                   }
-                  return '';
+                  return unit || '';
                 })()}
               </p>
             </Card>
@@ -967,6 +1241,74 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
               <p className="text-xs text-gray-500 mt-1">of {formatCurrency(result.extraBudget)} budget</p>
             </Card>
           </div>
+          
+          {/* Raise Plan Card */}
+          <Card className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+            <h2 className="text-xl font-semibold mb-4">Raise Plan</h2>
+            <div className="space-y-3">
+              {(() => {
+                const plan = result.adjustmentPlan || result.raisePlan;
+                if (result.strategy === 'FLAT_RAISE_ON_BASE') {
+                  const amount = plan.scalarOrFactor ? parseFloat(plan.scalarOrFactor) : null;
+                  const percentage = plan.percentage ? parseFloat(plan.percentage) : null;
+                  return (
+                    <div className="p-4 bg-white rounded-lg border border-blue-200">
+                      <p className="font-medium text-gray-900">
+                        All employees: {amount ? `+${formatCurrency(amount)}` : percentage ? `+${formatPercent(percentage)}` : 'N/A'} on {plan.targetComponent || 'component'}.
+                      </p>
+                    </div>
+                  );
+                } else if (result.strategy === 'SEGMENTED_FLAT_RAISE') {
+                  const focusPercent = plan.percentage ? parseFloat(plan.percentage) : null;
+                  const othersPercent = plan.scalarOrFactor ? parseFloat(plan.scalarOrFactor) : null;
+                  // Build focus group description from conditions
+                  const focusDesc = plan.description?.includes('Focus group') 
+                    ? plan.description.split('.')[0] 
+                    : 'Focus group';
+                  return (
+                    <div className="space-y-2">
+                      <div className="p-4 bg-white rounded-lg border border-blue-200">
+                        <p className="font-medium text-gray-900 mb-1">
+                          {focusDesc}: {focusPercent ? `+${formatPercent(focusPercent)}` : 'N/A'}
+                        </p>
+                        <p className="text-sm text-gray-600">on {plan.targetComponent || 'component'}</p>
+                      </div>
+                      <div className="p-4 bg-white rounded-lg border border-gray-200">
+                        <p className="font-medium text-gray-900 mb-1">
+                          Others: {othersPercent ? `+${formatPercent(othersPercent)}` : 'N/A'}
+                        </p>
+                        <p className="text-sm text-gray-600">on {plan.targetComponent || 'component'}</p>
+                      </div>
+                    </div>
+                  );
+                } else if (result.strategy === 'ADD_NEW_COMPONENT_IN_GROUP') {
+                  const scalar = plan.scalarOrFactor ? parseFloat(plan.scalarOrFactor) : null;
+                  return (
+                    <div className="p-4 bg-white rounded-lg border border-blue-200">
+                      <p className="font-medium text-gray-900 mb-2">
+                        New component <strong>{plan.newComponentName || 'NewComponent'}</strong> added in <strong>{plan.targetGroup || 'group'}</strong>.
+                      </p>
+                      <p className="text-sm text-gray-700">
+                        Each employee gets {scalar ? `+${formatCurrency(scalar)}` : 'N/A'} in this component. Components depending on {plan.targetGroup || 'this group'} will also increase.
+                      </p>
+                    </div>
+                  );
+                } else if (result.strategy === 'INCREASE_TABLE_VALUES') {
+                  const factor = plan.scalarOrFactor ? parseFloat(plan.scalarOrFactor) : null;
+                  const percentage = factor ? factor * 100 : null;
+                  const asOfDate = result.asOfDate ? new Date(result.asOfDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'current month';
+                  return (
+                    <div className="p-4 bg-white rounded-lg border border-blue-200">
+                      <p className="font-medium text-gray-900 mb-2">
+                        Values in table <strong>{plan.targetTable || 'table'}</strong> effective from <strong>{asOfDate}</strong> increased by {percentage ? `+${formatPercent(percentage)}` : 'N/A'}.
+                      </p>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          </Card>
           
           {/* Comparison Card */}
           <Card className="p-6">
@@ -1043,9 +1385,9 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
       {!result && !optimizing && !error && (
         <Card className="p-12 text-center">
           <TrendingUp className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Ready to Optimize</h3>
+          <h3 className="text-lg font-medium text-gray-700 mb-2">Ready to Optimize Raises</h3>
           <p className="text-gray-500 max-w-md mx-auto">
-            Select a ruleset, enter your extra yearly budget, and click "Run Optimization" to find the optimal raise percentage.
+            Select a ruleset, enter your extra yearly budget, choose a strategy, and we'll find a raise structure that matches it.
           </p>
         </Card>
       )}

@@ -153,6 +153,23 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   }, [selectedRulesetId, tenantId]);
 
+  // Save ruleset selection to global storage when it changes
+  useEffect(() => {
+    if (selectedRulesetId && rulesets.length > 0) {
+      const selected = rulesets.find(rs => rs.rulesetId === selectedRulesetId);
+      if (selected) {
+        try {
+          localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
+            rulesetId: selected.rulesetId,
+            name: selected.name || selected.rulesetId,
+          }));
+        } catch (e) {
+          console.warn('Failed to save ruleset to localStorage:', e);
+        }
+      }
+    }
+  }, [selectedRulesetId, rulesets, tenantId]);
+
   // Update components when ruleset changes
   useEffect(() => {
     if (ruleset) {
