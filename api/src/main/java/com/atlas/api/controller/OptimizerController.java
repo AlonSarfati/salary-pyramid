@@ -45,6 +45,8 @@ public class OptimizerController {
             String newComponentName = (String) request.get("newComponentName");
             String targetTable = (String) request.get("targetTable");
             String tableComponent = (String) request.get("tableComponent");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> focusMap = (Map<String, Object>) request.get("focus");
             Object asOfDateObj = request.get("asOfDate");
 
             if (tenantId == null || tenantId.isBlank()) {
@@ -81,9 +83,42 @@ public class OptimizerController {
                 }
             }
 
+            OptimizerService.FocusDefinition focus = null;
+            if (focusMap != null) {
+                @SuppressWarnings("unchecked")
+                java.util.List<Map<String, Object>> rawConditions =
+                        (java.util.List<Map<String, Object>>) focusMap.getOrDefault("conditions", java.util.List.of());
+
+                java.util.List<OptimizerService.FocusCondition> conditions = new java.util.ArrayList<>();
+                for (Map<String, Object> c : rawConditions) {
+                    String field = c.get("field") != null ? String.valueOf(c.get("field")) : null;
+                    if (field == null || field.isBlank()) continue;
+                    String fieldType = c.get("fieldType") != null ? String.valueOf(c.get("fieldType")) : null;
+                    @SuppressWarnings("unchecked")
+                    java.util.List<String> values = c.get("values") instanceof java.util.List
+                            ? (java.util.List<String>) c.get("values")
+                            : java.util.Collections.emptyList();
+                    BigDecimal min = c.get("min") != null
+                            ? new BigDecimal(String.valueOf(c.get("min")))
+                            : null;
+                    BigDecimal max = c.get("max") != null
+                            ? new BigDecimal(String.valueOf(c.get("max")))
+                            : null;
+                    conditions.add(new OptimizerService.FocusCondition(field, fieldType, values, min, max));
+                }
+
+                BigDecimal weight = focusMap.get("weight") != null
+                        ? new BigDecimal(String.valueOf(focusMap.get("weight")))
+                        : BigDecimal.ONE;
+
+                if (!conditions.isEmpty()) {
+                    focus = new OptimizerService.FocusDefinition(conditions, weight);
+                }
+            }
+
             OptimizerService.OptimizationResultDto result = optimizerService.optimize(
                 tenantId, rulesetId, extraBudget, strategy, targetComponent, 
-                targetGroup, newComponentName, targetTable, tableComponent, asOfDate
+                targetGroup, newComponentName, targetTable, tableComponent, focus, asOfDate
             );
 
             // Convert to response map

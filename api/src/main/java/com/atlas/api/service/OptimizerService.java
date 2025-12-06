@@ -79,6 +79,7 @@ public class OptimizerService {
                                          String newComponentName,
                                          String targetTable,
                                          String tableComponent,
+                                         FocusDefinition focus,
                                          LocalDate asOfDate) {
         if (asOfDate == null) {
             asOfDate = LocalDate.now();
@@ -140,6 +141,75 @@ public class OptimizerService {
                     optimalPercentage,
                     raiseAmountPerEmployee, // Store raise amount in scalarOrFactor field
                     "Uniform " + raiseAmountPerEmployee.setScale(2, RoundingMode.HALF_UP) + " ₪ raise per employee on " + targetComponent
+                );
+                break;
+            case "SEGMENTED_FLAT_RAISE":
+                if (focus == null) {
+                    throw new IllegalArgumentException("focus definition is required for SEGMENTED_FLAT_RAISE strategy");
+                }
+                if (targetComponent == null || targetComponent.isBlank()) {
+                    throw new IllegalArgumentException("targetComponent is required for SEGMENTED_FLAT_RAISE strategy");
+                }
+                // Validate that target component exists
+                boolean segmentedComponentExists = originalRuleset.getRules().stream()
+                    .anyMatch(r -> r.getTarget().equals(targetComponent));
+                if (!segmentedComponentExists) {
+                    throw new IllegalArgumentException("Component '" + targetComponent + "' not found in ruleset");
+                }
+
+                // Find optimal base percentage for non-focus group; focus group gets higher raise based on weight
+                SegmentedRaiseResult segmented = findOptimalSegmentedRaisePercentage(
+                    tenantId, originalRuleset, targetComponent, asOfDate,
+                    baseline.totalCost, extraBudget, focus);
+
+                // Apply segmented raise plan with the chosen base percentage
+                RuleSet segmentedRuleset = applySegmentedRaisePlan(originalRuleset, targetComponent, segmented.basePercent(), focus);
+                optimized = calculatePayrollSummary(tenantId, segmentedRuleset, asOfDate, null);
+
+                // Build human-readable description from all focus conditions
+                StringBuilder desc = new StringBuilder();
+                desc.append("Segmented raise on ").append(targetComponent).append(". ");
+                if (focus.conditions() != null && !focus.conditions().isEmpty()) {
+                    List<String> parts = new ArrayList<>();
+                    for (FocusCondition c : focus.conditions()) {
+                        if (c.field() == null || c.field().isEmpty()) continue;
+                        StringBuilder condDesc = new StringBuilder();
+                        condDesc.append(c.field()).append(" ");
+                        if ("number".equalsIgnoreCase(c.fieldType())) {
+                            if (c.minValue() != null) {
+                                condDesc.append(">= ").append(c.minValue()).append(" ");
+                            }
+                            if (c.maxValue() != null) {
+                                if (c.minValue() != null) {
+                                    condDesc.append("and ");
+                                }
+                                condDesc.append("<= ").append(c.maxValue());
+                            }
+                        } else if (c.values() != null && !c.values().isEmpty()) {
+                            condDesc.append("in [").append(String.join(", ", c.values())).append("]");
+                        }
+                        parts.add(condDesc.toString().trim());
+                    }
+                    if (!parts.isEmpty()) {
+                        desc.append("Focus conditions: ").append(String.join(" AND ", parts)).append(". ");
+                    }
+                }
+                desc.append("Focus group raise: ")
+                    .append(segmented.focusPercent().setScale(2, RoundingMode.HALF_UP))
+                    .append("%, others: ")
+                    .append(segmented.basePercent().setScale(2, RoundingMode.HALF_UP))
+                    .append("%.");
+
+                adjustmentPlan = new AdjustmentPlan(
+                    strategy,
+                    targetComponent,
+                    null,
+                    null,
+                    null,
+                    null,
+                    segmented.focusPercent(),   // store focus group percentage
+                    segmented.basePercent(),    // store others percentage in scalarOrFactor
+                    desc.toString()
                 );
                 break;
                 
@@ -399,7 +469,7 @@ public class OptimizerService {
     private BigDecimal findOptimalRaisePercentage(String tenantId, RuleSet originalRuleset,
                                                   String targetComponent, LocalDate asOfDate,
                                                   BigDecimal baselineCost, BigDecimal extraBudget) {
-        BigDecimal targetCost = baselineCost.add(extraBudget);
+        BigDecimal targetCost = baselineCost.add(extraBudget).max(baselineCost);
         
         BigDecimal minPercent = BigDecimal.ZERO;
         BigDecimal maxPercent = BigDecimal.valueOf(100);
@@ -524,6 +594,168 @@ public class OptimizerService {
         }
         
         return bestFactor.setScale(4, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Find optimal segmented raise percentages using binary search on the base (non-focus) percentage.
+     * Focus group percentage is derived as basePercent * weight.
+     */
+    private SegmentedRaiseResult findOptimalSegmentedRaisePercentage(String tenantId,
+                                                                     RuleSet originalRuleset,
+                                                                     String targetComponent,
+                                                                     LocalDate asOfDate,
+                                                                     BigDecimal baselineCost,
+                                                                     BigDecimal extraBudget,
+                                                                     FocusDefinition focus) {
+        BigDecimal targetCost = baselineCost.add(extraBudget);
+
+        BigDecimal minPercent = BigDecimal.ZERO;
+        BigDecimal maxPercent = BigDecimal.valueOf(100);
+        BigDecimal tolerance = BigDecimal.valueOf(0.01);
+        BigDecimal bestPercent = BigDecimal.ZERO;
+        BigDecimal bestDiff = extraBudget.abs();
+
+        int maxIterations = 50;
+        int iterations = 0;
+
+        while (iterations < maxIterations && maxPercent.subtract(minPercent).compareTo(tolerance) > 0) {
+            BigDecimal midPercent = minPercent.add(maxPercent).divide(BigDecimal.valueOf(2), 4, RoundingMode.HALF_UP);
+
+            RuleSet testRuleset = applySegmentedRaisePlan(originalRuleset, targetComponent, midPercent, focus);
+            PayrollSummary testSummary = calculatePayrollSummary(tenantId, testRuleset, asOfDate, null);
+            BigDecimal testCost = testSummary.totalCost();
+            BigDecimal diff = testCost.subtract(targetCost).abs();
+
+            if (diff.compareTo(bestDiff) < 0) {
+                bestDiff = diff;
+                bestPercent = midPercent;
+            }
+
+            if (testCost.compareTo(targetCost) < 0) {
+                minPercent = midPercent;
+            } else {
+                maxPercent = midPercent;
+            }
+
+            iterations++;
+        }
+
+        BigDecimal basePercent = bestPercent.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal weight = focus.weight() != null ? focus.weight() : BigDecimal.ONE;
+        BigDecimal focusPercent = basePercent.multiply(weight).setScale(2, RoundingMode.HALF_UP);
+        return new SegmentedRaiseResult(basePercent, focusPercent);
+    }
+
+    /**
+     * Apply segmented raise plan to a ruleset in-memory.
+     * Focus group gets basePercent * weight, others get basePercent.
+     */
+    private RuleSet applySegmentedRaisePlan(RuleSet originalRuleset,
+                                            String targetComponent,
+                                            BigDecimal basePercent,
+                                            FocusDefinition focus) {
+        BigDecimal weight = focus.weight() != null ? focus.weight() : BigDecimal.ONE;
+
+        // Build condition expression based on focus dimension
+        String condition = buildFocusConditionExpression(focus);
+
+        // Focus and non-focus multipliers
+        String baseMultiplier = "(1 + " + basePercent.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP) + ")";
+        String focusMultiplier = "(1 + " +
+                basePercent.multiply(weight).divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP) + ")";
+
+        List<Rule> modifiedRules = originalRuleset.getRules().stream()
+            .map(rule -> {
+                if (!rule.getTarget().equals(targetComponent)) {
+                    return rule;
+                }
+
+                String originalExpr = rule.getExpression();
+                String trimmedExpr = originalExpr.trim();
+
+                String wrappedExpr;
+                // Handle simple self-reference specially
+                if (trimmedExpr.equals(targetComponent)) {
+                    wrappedExpr = targetComponent;
+                } else {
+                    wrappedExpr = "(" + originalExpr + ")";
+                }
+
+                // Use IF ... THEN ... ELSE ... syntax expected by the new DSL parser
+                // Example: IF YearsOfService >= 1 AND YearsOfService <= 3 THEN RoleStipend * 1.05 ELSE RoleStipend * 1.02
+                String newExpr = "IF " + condition + " THEN " +
+                        wrappedExpr + " * " + focusMultiplier + " ELSE " +
+                        wrappedExpr + " * " + baseMultiplier;
+
+                return new Rule(
+                    rule.getTarget(),
+                    newExpr,
+                    rule.getDependsOn(),
+                    rule.getEffectiveFrom(),
+                    rule.getEffectiveTo(),
+                    rule.getMeta() != null ? new HashMap<>(rule.getMeta()) : new HashMap<>()
+                );
+            })
+            .collect(Collectors.toList());
+
+        return new RuleSet(originalRuleset.getId(), modifiedRules);
+    }
+
+    /**
+     * Build an expression condition for the focus group based on the focus definition.
+     * Each FocusCondition is converted to a DSL predicate, and all predicates are AND-ed together.
+     */
+    private String buildFocusConditionExpression(FocusDefinition focus) {
+        if (focus == null || focus.conditions() == null || focus.conditions().isEmpty()) {
+            // No valid focus – condition that is always false
+            return "0 = 1";
+        }
+
+        List<String> parts = new ArrayList<>();
+        for (FocusCondition c : focus.conditions()) {
+            if (c == null || c.field() == null || c.field().isEmpty()) continue;
+
+            // Canonicalize field name to match EvalContext keys (e.g., YearsOfService, Role, etc.)
+            String rawField = c.field();
+            String field = rawField.substring(0, 1).toUpperCase(Locale.ROOT) + rawField.substring(1);
+            String type = c.fieldType() != null ? c.fieldType().toLowerCase(Locale.ROOT) : "string";
+
+            if ("number".equals(type)) {
+                StringBuilder cond = new StringBuilder();
+                if (c.minValue() != null) {
+                    cond.append(field).append(" >= ").append(c.minValue());
+                }
+                if (c.maxValue() != null) {
+                    if (cond.length() > 0) {
+                        cond.append(" AND ");
+                    }
+                    cond.append(field).append(" <= ").append(c.maxValue());
+                }
+                if (cond.length() > 0) {
+                    parts.add(cond.toString());
+                }
+            } else if (c.values() != null && !c.values().isEmpty()) {
+                parts.add(buildEqualsAnyCondition(field, c.values()));
+            }
+        }
+
+        if (parts.isEmpty()) {
+            // All conditions were invalid/empty – no focus
+            return "0 = 1";
+        }
+
+        return String.join(" AND ", parts);
+    }
+
+    private String buildEqualsAnyCondition(String field, List<String> values) {
+        if (values == null || values.isEmpty()) {
+            // No specific values: treat everyone as focus
+            return "1 = 1";
+        }
+        return values.stream()
+            .filter(v -> v != null && !v.isBlank())
+            .map(v -> field + " = \"" + v.replace("\"", "\\\"") + "\"")
+            .collect(Collectors.joining(" OR ", "(", ")"));
     }
 
     /**
@@ -761,4 +993,35 @@ public class OptimizerService {
     ) {}
     
     private record TableRow(LocalDate effectiveFrom, LocalDate effectiveTo, String keysJson, BigDecimal value) {}
+
+    /**
+     * Definition of a focus group for segmented strategies.
+     * Field and fieldType are generic so we can support any simulation input dynamically.
+     */
+    /**
+     * Single field condition inside a focus group (e.g. Role = 'Engineer', YearsOfService between 1 and 3).
+     */
+    public record FocusCondition(
+        String field,              // Field name used in expressions / inputs
+        String fieldType,          // "number" or "string"
+        List<String> values,       // For string/categorical fields
+        BigDecimal minValue,       // For numeric fields
+        BigDecimal maxValue        // For numeric fields
+    ) {}
+
+    /**
+     * A focus group can have one or more field conditions combined with AND, and a weight.
+     */
+    public record FocusDefinition(
+        List<FocusCondition> conditions,
+        BigDecimal weight
+    ) {}
+
+    /**
+     * Result of segmented raise search: base (others) and focus percentages.
+     */
+    private record SegmentedRaiseResult(
+        BigDecimal basePercent,
+        BigDecimal focusPercent
+    ) {}
 }

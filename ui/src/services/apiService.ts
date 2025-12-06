@@ -623,6 +623,21 @@ export const ruleAssistantApi = {
 };
 
 // Optimizer API
+// Generic focus: one or more field conditions combined with AND
+export type FocusCondition = {
+  field: string;
+  fieldType: 'number' | 'string';
+  values?: string[]; // for string/categorical fields
+  min?: number; // for numeric fields
+  max?: number; // for numeric fields
+};
+
+export type FocusDefinition = {
+  conditions: FocusCondition[];
+  // Relative weight / intensity (e.g. 1.5, 2.0, 3.0)
+  weight: number;
+};
+
 export type OptimizeRequest = {
   tenantId: string;
   rulesetId: string;
@@ -634,6 +649,8 @@ export type OptimizeRequest = {
   targetTable?: string;
   tableComponent?: string;
   asOfDate?: string;
+  // Optional per-run focus definition for segmented strategies
+  focus?: FocusDefinition;
 };
 
 export type AdjustmentPlan = {
