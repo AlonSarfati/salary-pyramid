@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles, Layers, Edit } from 'lucide-react';
+import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles, Layers, Edit, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
@@ -40,10 +40,11 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   // Data state
   const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; status: string }>>([]);
   const [ruleset, setRuleset] = useState<RuleSet | null>(null);
-  const [components, setComponents] = useState<Array<{ id: string; name: string; group: string; status: string }>>([]);
+  const [components, setComponents] = useState<Array<{ id: string; name: string; group: string; status: string; order?: number }>>([]);
   const [draftComponents, setDraftComponents] = useState<Record<string, boolean>>({});
   const [validationResults, setValidationResults] = useState<ValidateIssue[]>([]);
   const [componentGroups, setComponentGroups] = useState<ComponentGroup[]>([]);
+  const [componentSearchQuery, setComponentSearchQuery] = useState<string>('');
   
   // Group mapping: group name -> group number (group1, group2, etc.)
   const groupNameToNumber = React.useMemo(() => {
@@ -174,9 +175,100 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   }, [selectedRulesetId, rulesets, tenantId]);
 
+  // Calculate component order based on dependencies (topological sort)
+  const calculateComponentOrder = (rules: RuleDto[]): string[] => {
+    // Build dependency graph
+    const graph = new Map<string, Set<string>>();
+    const allComponents = new Set<string>();
+    
+    rules.forEach(rule => {
+      allComponents.add(rule.target);
+      if (!graph.has(rule.target)) {
+        graph.set(rule.target, new Set<string>());
+      }
+      
+      // Extract dependencies from expression
+      const expression = rule.expression || '';
+      // Remove quoted strings (table names in TBL functions)
+      const withoutQuotes = expression.replaceAll(/"([^"]*)"/g, '');
+      // Match CamelCase identifiers
+      const camelCasePattern = /\b([A-Z][a-zA-Z0-9]*[a-z][a-zA-Z0-9]*)\b/g;
+      let match;
+      const deps = new Set<string>();
+      
+      // Add explicit dependencies
+      if (rule.dependsOn) {
+        rule.dependsOn.forEach(dep => {
+          if (allComponents.has(dep)) {
+            deps.add(dep);
+          }
+        });
+      }
+      
+      // Extract from expression
+      while ((match = camelCasePattern.exec(withoutQuotes)) !== null) {
+        const name = match[1];
+        // Skip if it's a function (ALL_CAPS) or if it's the target itself
+        if (name !== rule.target && allComponents.has(name)) {
+          deps.add(name);
+        }
+      }
+      
+      graph.get(rule.target)!.add(...Array.from(deps));
+    });
+    
+    // Topological sort (Kahn's algorithm)
+    const inDegree = new Map<string, number>();
+    allComponents.forEach(comp => {
+      inDegree.set(comp, 0);
+    });
+    
+    // Calculate in-degree: how many dependencies each component has
+    graph.forEach((deps, comp) => {
+      inDegree.set(comp, deps.size);
+    });
+    
+    const queue: string[] = [];
+    inDegree.forEach((degree, comp) => {
+      if (degree === 0) {
+        queue.push(comp);
+      }
+    });
+    
+    queue.sort(); // Sort for determinism
+    
+    const result: string[] = [];
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      result.push(node);
+      
+      graph.forEach((deps, comp) => {
+        if (deps.has(node)) {
+          const newDegree = (inDegree.get(comp) || 0) - 1;
+          inDegree.set(comp, newDegree);
+          if (newDegree === 0) {
+            queue.push(comp);
+          }
+        }
+      });
+      
+      // Re-sort queue for determinism
+      queue.sort();
+    }
+    
+    return result;
+  };
+
   // Update components when ruleset changes
   useEffect(() => {
     if (ruleset) {
+      // Calculate component order
+      const componentOrder = calculateComponentOrder(ruleset.rules);
+      const orderMap = new Map<string, number>();
+      componentOrder.forEach((comp, index) => {
+        orderMap.set(comp, index);
+      });
+      
       const comps = ruleset.rules.map(rule => {
         const actualGroupName = rule.meta?.group || 'core';
         const groupNumber = groupNameToNumber[actualGroupName] || 'group1';
@@ -185,8 +277,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           name: rule.target,
           group: groupNumber, // Display group number
           status: 'valid', // TODO: determine from validation
+          order: orderMap.get(rule.target) ?? 9999, // Use calculation order
         };
       });
+      
+      // Sort by calculation order
+      comps.sort((a, b) => a.order - b.order);
       setComponents(comps);
       
       // Select first component if none selected
@@ -1330,8 +1426,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left - Components List */}
             <div className="lg:col-span-1">
-              <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
-                <div className="flex items-center justify-between mb-4">
+              <Card className="p-6 bg-white rounded-xl shadow-sm border-0 flex flex-col h-full">
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
                   <h3 className="text-[#1E1E1E]">Components</h3>
                   <button 
                     onClick={() => setShowAddComponent(true)}
@@ -1341,8 +1437,29 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                     <Plus className="w-5 h-5 text-[#0052CC]" />
                   </button>
                 </div>
-                <div className="space-y-2">
-                  {components.map((component) => (
+                
+                {/* Search Bar */}
+                <div className="mb-4 flex-shrink-0">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <Input
+                      type="text"
+                      placeholder="Search components..."
+                      value={componentSearchQuery}
+                      onChange={(e) => setComponentSearchQuery(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+                
+                {/* Scrollable Component List */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-2" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+                  {components
+                    .filter(component => 
+                      componentSearchQuery === '' || 
+                      component.name.toLowerCase().includes(componentSearchQuery.toLowerCase())
+                    )
+                    .map((component) => (
                     <div
                       key={component.id}
                       className={`p-4 rounded-lg transition-colors ${
@@ -1413,6 +1530,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       </Badge>
                     </div>
                   ))}
+                  {components.filter(component => 
+                    componentSearchQuery === '' || 
+                    component.name.toLowerCase().includes(componentSearchQuery.toLowerCase())
+                  ).length === 0 && componentSearchQuery && (
+                    <div className="text-center text-gray-500 py-8 text-sm">
+                      No components found matching "{componentSearchQuery}"
+                    </div>
+                  )}
                 </div>
               </Card>
             </div>

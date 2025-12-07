@@ -223,42 +223,89 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
     // Position nodes in pyramid layers
     const nodeWidth = 140;
     const nodeHeight = 50;
-    const layerSpacing = 120; // Vertical spacing between layers
+    const baseLayerSpacing = 80; // Base vertical spacing between layers
     const nodeSpacing = 20; // Horizontal spacing between nodes in same layer
+    const rowSpacing = 70; // Vertical spacing between rows within a layer
     const baseY = 50; // Starting Y position (bottom layer)
     const centerX = 600; // Center X position for the pyramid
+    const maxNodesPerRow = 4; // Maximum nodes per row before wrapping
 
-    // Calculate positions for each layer (from bottom to top)
-    sortedGroupNumbers.forEach((groupNum, groupIndex) => {
+    // First pass: calculate how many rows each layer needs
+    const layerRowCounts = new Map<number, number>();
+    sortedGroupNumbers.forEach((groupNum) => {
+      const layerNodes = layersByGroup.get(groupNum)!;
+      const rowsNeeded = Math.ceil(layerNodes.length / maxNodesPerRow);
+      layerRowCounts.set(groupNum, rowsNeeded);
+    });
+
+    // Calculate cumulative Y positions accounting for wrapped rows
+    let currentY = baseY;
+    const layerBaseY = new Map<number, number>();
+    
+    // Go from top group to bottom (reverse order) to calculate positions
+    for (let i = sortedGroupNumbers.length - 1; i >= 0; i--) {
+      const groupNum = sortedGroupNumbers[i];
+      const rowsNeeded = layerRowCounts.get(groupNum) || 1;
+      layerBaseY.set(groupNum, currentY);
+      // Move up for next layer (accounting for this layer's rows)
+      currentY += rowsNeeded * rowSpacing + baseLayerSpacing;
+    }
+
+    // Position nodes in each layer
+    sortedGroupNumbers.forEach((groupNum) => {
       const layerNodes = layersByGroup.get(groupNum)!;
       // Sort nodes within layer alphabetically for consistent layout
       layerNodes.sort((a, b) => a.name.localeCompare(b.name));
       
-      // Calculate Y position (group1 at bottom, higher groups above)
-      // Reverse so group1 is at the bottom
-      const layerY = baseY + (sortedGroupNumbers.length - 1 - groupIndex) * layerSpacing;
+      const baseLayerY = layerBaseY.get(groupNum) || baseY;
       
-      // Calculate total width needed for this layer
-      const totalWidth = layerNodes.length * (nodeWidth + nodeSpacing) - nodeSpacing;
-      const startX = centerX - totalWidth / 2;
+      // Split nodes into rows if there are too many
+      const rows: Node[][] = [];
+      for (let i = 0; i < layerNodes.length; i += maxNodesPerRow) {
+        rows.push(layerNodes.slice(i, i + maxNodesPerRow));
+      }
       
-      // Position each node in the layer
-      layerNodes.forEach((node, nodeIndex) => {
-        node.x = startX + nodeIndex * (nodeWidth + nodeSpacing) + nodeWidth / 2;
-        node.y = layerY;
+      // Position nodes in rows
+      rows.forEach((row, rowIndex) => {
+        const rowY = baseLayerY + rowIndex * rowSpacing;
+        const totalWidth = row.length * (nodeWidth + nodeSpacing) - nodeSpacing;
+        const startX = centerX - totalWidth / 2;
+        
+        row.forEach((node, nodeIndex) => {
+          node.x = startX + nodeIndex * (nodeWidth + nodeSpacing) + nodeWidth / 2;
+          node.y = rowY;
+        });
       });
     });
 
     // Position ungrouped nodes at the top
     if (ungroupedNodes.length > 0) {
       ungroupedNodes.sort((a, b) => a.name.localeCompare(b.name));
-      const topY = baseY + sortedGroupNumbers.length * layerSpacing;
-      const totalWidth = ungroupedNodes.length * (nodeWidth + nodeSpacing) - nodeSpacing;
-      const startX = centerX - totalWidth / 2;
       
-      ungroupedNodes.forEach((node, nodeIndex) => {
-        node.x = startX + nodeIndex * (nodeWidth + nodeSpacing) + nodeWidth / 2;
-        node.y = topY;
+      // Calculate top Y position based on the highest group's position
+      let topY = baseY;
+      if (sortedGroupNumbers.length > 0) {
+        const topGroupNum = sortedGroupNumbers[sortedGroupNumbers.length - 1];
+        const topGroupRows = layerRowCounts.get(topGroupNum) || 1;
+        const topGroupBaseY = layerBaseY.get(topGroupNum) || baseY;
+        topY = topGroupBaseY + topGroupRows * rowSpacing + baseLayerSpacing;
+      }
+      
+      // Split ungrouped nodes into rows if needed
+      const rows: Node[][] = [];
+      for (let i = 0; i < ungroupedNodes.length; i += maxNodesPerRow) {
+        rows.push(ungroupedNodes.slice(i, i + maxNodesPerRow));
+      }
+      
+      rows.forEach((row, rowIndex) => {
+        const rowY = topY + rowIndex * rowSpacing;
+        const totalWidth = row.length * (nodeWidth + nodeSpacing) - nodeSpacing;
+        const startX = centerX - totalWidth / 2;
+        
+        row.forEach((node, nodeIndex) => {
+          node.x = startX + nodeIndex * (nodeWidth + nodeSpacing) + nodeWidth / 2;
+          node.y = rowY;
+        });
       });
     }
 
@@ -314,9 +361,12 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
       const layerY = baseY + (sortedGroupNumbers.length - 1 - groupIndex) * layerSpacing;
       const groupInfo = sortedGroups.find(g => groupToNumber.get(g.groupName.toLowerCase()) === groupNum);
       const groupName = groupInfo?.displayName || `Group ${groupNum}`;
+      // Find the maximum X position across all nodes in this group (including wrapped rows)
       const maxX = Math.max(...layerNodes.map(n => n.x));
+      // Find the minimum Y to position label at the top of the layer
+      const minY = Math.min(...layerNodes.map(n => n.y));
       
-      return { groupNum, layerY, groupName, maxX };
+      return { groupNum, layerY: minY, groupName, maxX };
     }).filter(Boolean) as Array<{ groupNum: number; layerY: number; groupName: string; maxX: number }>;
   }, [nodes, groups, ruleset]);
 
@@ -420,8 +470,8 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
             </div>
           ) : (
             <svg
-              width={Math.max(1200, nodes.length > 0 ? Math.max(...nodes.map(n => n.x)) + 300 : 1200)}
-              height={Math.max(600, nodes.length > 0 ? Math.max(...nodes.map(n => n.y)) + 150 : 600)}
+              width={Math.max(1200, nodes.length > 0 ? Math.max(...nodes.map(n => n.x)) + 200 : 1200)}
+              height={Math.max(600, nodes.length > 0 ? Math.max(...nodes.map(n => n.y)) + 100 : 600)}
             style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
             className="mx-auto"
           >
