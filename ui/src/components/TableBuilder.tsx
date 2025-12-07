@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Upload, Plus, Trash2, Loader2, Database } from 'lucide-react';
+import { Save, Upload, Plus, Trash2, Loader2, Database, Download } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -9,6 +9,7 @@ import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import { tableApi, rulesetApi } from '../services/apiService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import * as XLSX from 'xlsx';
 
 interface TableColumn {
   name: string;
@@ -448,9 +449,243 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
     });
   };
 
+  const parseXLSX = (file: File): Promise<string[][]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'binary', cellDates: true });
+          
+          // Get first sheet
+          const firstSheetName = workbook.SheetNames[0];
+          if (!firstSheetName) {
+            reject(new Error('Excel file has no sheets'));
+            return;
+          }
+
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' }) as any[][];
+
+          if (rows.length === 0) {
+            reject(new Error('Excel file is empty'));
+            return;
+          }
+
+          // Convert to string array, handling dates properly
+          const stringRows = rows.map(row => row.map(cell => {
+            if (cell instanceof Date) {
+              // Convert Date object to YYYY-MM-DD format
+              const year = cell.getFullYear();
+              const month = String(cell.getMonth() + 1).padStart(2, '0');
+              const day = String(cell.getDate()).padStart(2, '0');
+              return `${year}-${month}-${day}`;
+            }
+            // Handle Excel serial date numbers (days since 1900-01-01)
+            if (typeof cell === 'number' && cell > 1 && cell < 100000) {
+              // Check if it might be an Excel date serial number
+              const excelEpoch = new Date(1899, 11, 30); // Excel epoch is 1899-12-30
+              const date = new Date(excelEpoch.getTime() + cell * 86400000);
+              if (date.getFullYear() >= 1900 && date.getFullYear() <= 2100) {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+              }
+            }
+            return String(cell || '').trim();
+          }));
+          resolve(stringRows);
+        } catch (err: any) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read Excel file'));
+      reader.readAsBinaryString(file);
+    });
+  };
+
+  const handleDownloadTemplate = () => {
+    if (!tableName || columns.filter(col => col.name.trim()).length === 0) {
+      setError('Please define table name and columns before downloading template');
+      return;
+    }
+
+    try {
+      const keyColumns = columns.filter(col => col.name.trim());
+      
+      // Build header row: [key columns] + value + effective_from + effective_to
+      const headerRow: string[] = [];
+      keyColumns.forEach(col => {
+        headerRow.push(col.name);
+      });
+      headerRow.push('Value');
+      headerRow.push('Effective From');
+      headerRow.push('Effective To');
+
+      // Create example data row (optional, but helpful)
+      const exampleRow: string[] = [];
+      keyColumns.forEach(col => {
+        if (col.type === 'number') {
+          if (col.usesRanges) {
+            exampleRow.push('1-10'); // Example range
+          } else {
+            exampleRow.push('1'); // Example number
+          }
+        } else {
+          exampleRow.push('Example'); // Example string
+        }
+      });
+      exampleRow.push('1000'); // Example value
+      
+      // Create dates as Date objects for Excel
+      const effectiveFromDate = new Date('2024-01-01');
+      const effectiveToDate = new Date('9999-12-31');
+      exampleRow.push(effectiveFromDate); // Example effective from (as Date object)
+      exampleRow.push(effectiveToDate); // Example effective to (as Date object)
+
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, exampleRow]);
+      
+      // Set column widths for better readability
+      const colWidths = headerRow.map((_, idx) => ({ wch: Math.max(15, headerRow[idx].length + 2) }));
+      ws['!cols'] = colWidths;
+      
+      // Helper function to convert column index to Excel column letter (A, B, C, ..., Z, AA, AB, etc.)
+      const getColumnLetter = (colIndex: number): string => {
+        let result = '';
+        let num = colIndex;
+        while (num >= 0) {
+          result = String.fromCharCode(65 + (num % 26)) + result;
+          num = Math.floor(num / 26) - 1;
+        }
+        return result;
+      };
+      
+      // Set date format for the last two columns (Effective From and Effective To)
+      const effectiveFromColIndex = headerRow.length - 2; // Second to last column
+      const effectiveToColIndex = headerRow.length - 1; // Last column
+      const effectiveFromCol = getColumnLetter(effectiveFromColIndex);
+      const effectiveToCol = getColumnLetter(effectiveToColIndex);
+      
+      // Apply date format to the date columns in the example row (row 2, since row 1 is header)
+      const effectiveFromCell = ws[`${effectiveFromCol}2`];
+      const effectiveToCell = ws[`${effectiveToCol}2`];
+      if (effectiveFromCell) {
+        effectiveFromCell.z = 'yyyy-mm-dd';
+        effectiveFromCell.t = 'd'; // Date type
+      }
+      if (effectiveToCell) {
+        effectiveToCell.z = 'yyyy-mm-dd';
+        effectiveToCell.t = 'd'; // Date type
+      }
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Template');
+
+      // Generate filename
+      const fileName = `${tableName || 'table'}_template.xlsx`;
+
+      // Write and download
+      XLSX.writeFile(wb, fileName);
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate template');
+    }
+  };
+
+  const parseRowData = (row: string[], keyColumns: TableColumn[]): { keys: Record<string, any>; value: string; effectiveFrom: string; effectiveTo: string } => {
+    // Expected columns: [key columns] + value + effective_from + effective_to
+    const expectedColumnCount = keyColumns.length + 1 + 2;
+    
+    if (row.length !== expectedColumnCount) {
+      throw new Error(`Row has ${row.length} columns, expected ${expectedColumnCount}. Format: [key columns] + value + effective_from + effective_to`);
+    }
+
+    // Parse row: [key1, key2, ..., value, effective_from, effective_to]
+    const keys: Record<string, any> = {};
+    keyColumns.forEach((col, idx) => {
+      const value = row[idx]?.trim() || '';
+      if (col.type === 'number') {
+        if (col.usesRanges) {
+          // For ranges, try to parse as "min-max" or just a number
+          const rangeMatch = value.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
+          if (rangeMatch) {
+            keys[col.name] = { min: parseFloat(rangeMatch[1]), max: parseFloat(rangeMatch[2]) };
+          } else {
+            const num = parseFloat(value);
+            if (!isNaN(num)) {
+              keys[col.name] = { min: num, max: num };
+            } else {
+              keys[col.name] = { min: null, max: null };
+            }
+          }
+        } else {
+          const num = parseFloat(value);
+          keys[col.name] = isNaN(num) ? 0 : num;
+        }
+      } else {
+        keys[col.name] = value;
+      }
+    });
+
+    const valueIndex = keyColumns.length;
+    const effectiveFromIndex = keyColumns.length + 1;
+    const effectiveToIndex = keyColumns.length + 2;
+
+    const value = row[valueIndex]?.trim() || '0';
+    
+    // Parse dates - handle various formats and convert to YYYY-MM-DD
+    const parseDate = (dateStr: string): string => {
+      if (!dateStr || dateStr.trim() === '') {
+        return '';
+      }
+      
+      // If already in YYYY-MM-DD format, return as is
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return dateStr;
+      }
+      
+      // Try to parse various date formats
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      
+      // Try DD/MM/YYYY or MM/DD/YYYY format
+      const ddmmyyyy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (ddmmyyyy) {
+        const day = ddmmyyyy[1].padStart(2, '0');
+        const month = ddmmyyyy[2].padStart(2, '0');
+        const year = ddmmyyyy[3];
+        // Try both interpretations (DD/MM and MM/DD)
+        const date1 = new Date(`${year}-${month}-${day}`);
+        const date2 = new Date(`${year}-${day}-${month}`);
+        if (!isNaN(date1.getTime()) && date1.getDate() == parseInt(day) && date1.getMonth() + 1 == parseInt(month)) {
+          return `${year}-${month}-${day}`;
+        }
+        if (!isNaN(date2.getTime()) && date2.getDate() == parseInt(day) && date2.getMonth() + 1 == parseInt(month)) {
+          return `${year}-${day}-${month}`;
+        }
+        // Default to DD/MM/YYYY
+        return `${year}-${month}-${day}`;
+      }
+      
+      return dateStr; // Return as-is if can't parse
+    };
+    
+    const effectiveFrom = parseDate(row[effectiveFromIndex]?.trim() || '') || new Date().toISOString().split('T')[0];
+    const effectiveTo = parseDate(row[effectiveToIndex]?.trim() || '') || '9999-12-31';
+
+    return { keys, value, effectiveFrom, effectiveTo };
+  };
+
   const handleImportCSV = async (file: File) => {
     if (!tableName || columns.filter(col => col.name.trim()).length === 0) {
-      setImportError('Please define table name and columns before importing CSV');
+      setImportError('Please define table name and columns before importing');
       return;
     }
 
@@ -458,11 +693,30 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
     setImportError(null);
 
     try {
-      const text = await file.text();
-      const csvRows = parseCSV(text);
+      let rows: string[][];
       
-      if (csvRows.length === 0) {
-        setImportError('CSV file is empty');
+      // Check file extension
+      const fileName = file.name.toLowerCase();
+      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        // Parse XLSX file
+        rows = await parseXLSX(file);
+      } else {
+        // Parse CSV file
+        const text = await file.text();
+        rows = parseCSV(text);
+      }
+      
+      if (rows.length === 0) {
+        setImportError('File is empty');
+        setImporting(false);
+        return;
+      }
+
+      // Always skip first row (header)
+      const dataRows = rows.slice(1);
+      
+      if (dataRows.length === 0) {
+        setImportError('No data rows found (only header row)');
         setImporting(false);
         return;
       }
@@ -471,78 +725,38 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       const keyColumns = columns.filter(col => col.name.trim());
       const expectedColumnCount = keyColumns.length + 1 + 2; // keys + value + effective_from + effective_to
 
-      // Check if first row is header (optional - we'll skip it if it looks like headers)
-      let dataStartIndex = 0;
-      if (csvRows.length > 0) {
-        const firstRow = csvRows[0];
-        // If first row has same number of columns and doesn't look like data (has text headers), skip it
-        if (firstRow.length === expectedColumnCount && 
-            (firstRow[firstRow.length - 2]?.toLowerCase().includes('effective') || 
-             firstRow[firstRow.length - 1]?.toLowerCase().includes('effective'))) {
-          dataStartIndex = 1;
-        }
-      }
-
       const importedRows: Array<{ effectiveFrom: string; effectiveTo: string; keys: Record<string, any>; value: string }> = [];
 
-      for (let i = dataStartIndex; i < csvRows.length; i++) {
-        const row = csvRows[i];
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
         
-        if (row.length !== expectedColumnCount) {
-          setImportError(`Row ${i + 1} has ${row.length} columns, expected ${expectedColumnCount}. CSV format: [key columns] + value + effective_from + effective_to`);
+        // Skip empty rows
+        if (!row || row.length === 0 || row.every(cell => !cell || cell.trim() === '')) {
+          continue;
+        }
+        
+        try {
+          const parsed = parseRowData(row, keyColumns);
+          importedRows.push(parsed);
+        } catch (err: any) {
+          setImportError(`Row ${i + 2}: ${err.message}`); // +2 because we skipped header and 1-indexed
           setImporting(false);
           return;
         }
+      }
 
-        // Parse row: [key1, key2, ..., value, effective_from, effective_to]
-        const keys: Record<string, any> = {};
-        keyColumns.forEach((col, idx) => {
-          const value = row[idx].trim();
-          if (col.type === 'number') {
-            if (col.usesRanges) {
-              // For ranges, try to parse as "min-max" or just a number
-              const rangeMatch = value.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
-              if (rangeMatch) {
-                keys[col.name] = { min: parseFloat(rangeMatch[1]), max: parseFloat(rangeMatch[2]) };
-              } else {
-                const num = parseFloat(value);
-                if (!isNaN(num)) {
-                  keys[col.name] = { min: num, max: num };
-                } else {
-                  keys[col.name] = { min: null, max: null };
-                }
-              }
-            } else {
-              const num = parseFloat(value);
-              keys[col.name] = isNaN(num) ? 0 : num;
-            }
-          } else {
-            keys[col.name] = value;
-          }
-        });
-
-        const valueIndex = keyColumns.length;
-        const effectiveFromIndex = keyColumns.length + 1;
-        const effectiveToIndex = keyColumns.length + 2;
-
-        const value = row[valueIndex]?.trim() || '0';
-        const effectiveFrom = row[effectiveFromIndex]?.trim() || new Date().toISOString().split('T')[0];
-        const effectiveTo = row[effectiveToIndex]?.trim() || '9999-12-31';
-
-        importedRows.push({
-          effectiveFrom,
-          effectiveTo,
-          keys,
-          value,
-        });
+      if (importedRows.length === 0) {
+        setImportError('No valid data rows found after skipping header');
+        setImporting(false);
+        return;
       }
 
       // Replace existing rows with imported rows
       setRows(importedRows);
       setShowImportCSVDialog(false);
-      setSuccess(`Successfully imported ${importedRows.length} row(s) from CSV`);
+      setSuccess(`Successfully imported ${importedRows.length} row(s) from ${fileName.endsWith('.xlsx') || fileName.endsWith('.xls') ? 'Excel' : 'CSV'}`);
     } catch (err: any) {
-      setImportError(err.message || 'Failed to parse CSV file');
+      setImportError(err.message || 'Failed to parse file');
     } finally {
       setImporting(false);
     }
@@ -741,6 +955,15 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-lg font-semibold">Table Rows</h3>
                       <div className="flex gap-2">
+                        <Button 
+                          onClick={handleDownloadTemplate} 
+                          size="sm" 
+                          variant="outline"
+                          disabled={!tableName || columns.filter(col => col.name.trim()).length === 0}
+                        >
+                          <Download className="w-4 h-4 mr-1" />
+                          Download Template
+                        </Button>
                         <Button onClick={handleUploadCSV} size="sm" variant="outline">
                           <Upload className="w-4 h-4 mr-1" />
                           Upload CSV
@@ -968,15 +1191,27 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       <Dialog open={showImportCSVDialog} onOpenChange={setShowImportCSVDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Import CSV</DialogTitle>
+            <DialogTitle>Import Table Rows</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-4">
             <div>
-              <Label htmlFor="csvFile">CSV File</Label>
+              <div className="flex items-center justify-between gap-4 mb-2">
+                <Label htmlFor="csvFile">CSV or Excel File</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadTemplate}
+                  disabled={!tableName || columns.filter(col => col.name.trim()).length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Template
+                </Button>
+              </div>
               <Input
                 id="csvFile"
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
@@ -989,8 +1224,8 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
             </div>
             
             <div className="text-sm text-gray-600 space-y-2">
-              <p className="font-semibold">CSV Format:</p>
-              <p>The CSV should have columns in this order:</p>
+              <p className="font-semibold">File Format:</p>
+              <p>The file should have columns in this order (first row is header and will be skipped):</p>
               <ol className="list-decimal list-inside space-y-1 ml-2">
                 {columns.filter(col => col.name.trim()).map((col, idx) => (
                   <li key={idx}>{idx + 1}. {col.name} ({col.type})</li>
@@ -1000,7 +1235,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                 <li>{columns.filter(col => col.name.trim()).length + 3}. Effective To (date: YYYY-MM-DD)</li>
               </ol>
               <p className="mt-2 text-xs text-gray-500">
-                Note: The first row can be a header row (will be auto-detected). All subsequent rows will be imported as data.
+                Supported formats: CSV (.csv), Excel (.xlsx, .xls). The first row is always treated as a header and will be skipped.
               </p>
             </div>
 
@@ -1027,7 +1262,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                   if (importFile) {
                     handleImportCSV(importFile);
                   } else {
-                    setImportError('Please select a CSV file');
+                    setImportError('Please select a CSV or Excel file');
                   }
                 }}
                 disabled={importing || !importFile}

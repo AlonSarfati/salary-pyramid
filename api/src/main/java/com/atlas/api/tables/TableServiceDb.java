@@ -112,8 +112,44 @@ public class TableServiceDb implements TableService {
                     if (!matches) return false;
                 } else {
                     // Exact match for non-range values
-                    String s = String.valueOf(val);
-                    if (!Objects.equals(keyNode.asText(), s)) return false;
+                    // Handle numeric comparison properly - compare numbers numerically, not as strings
+                    if (val instanceof Number num && keyNode.isNumber()) {
+                        // Both are numbers - compare numerically
+                        double keyValue = keyNode.asDouble();
+                        double lookupValue = num.doubleValue();
+                        if (Math.abs(keyValue - lookupValue) > 0.0001) { // Use small epsilon for floating point comparison
+                            return false;
+                        }
+                    } else if (val instanceof Number num && keyNode.isTextual()) {
+                        // Key is stored as text but lookup value is number - try to parse and compare
+                        try {
+                            double keyValue = Double.parseDouble(keyNode.asText());
+                            double lookupValue = num.doubleValue();
+                            if (Math.abs(keyValue - lookupValue) > 0.0001) {
+                                return false;
+                            }
+                        } catch (NumberFormatException e) {
+                            // Can't parse as number, fall through to string comparison
+                            String s = String.valueOf(val);
+                            if (!Objects.equals(keyNode.asText(), s)) return false;
+                        }
+                    } else if (keyNode.isNumber() && val instanceof String str) {
+                        // Key is stored as number but lookup value is string - try to parse and compare
+                        try {
+                            double keyValue = keyNode.asDouble();
+                            double lookupValue = Double.parseDouble(str);
+                            if (Math.abs(keyValue - lookupValue) > 0.0001) {
+                                return false;
+                            }
+                        } catch (NumberFormatException e) {
+                            // Can't parse as number, fall through to string comparison
+                            if (!Objects.equals(keyNode.asText(), str)) return false;
+                        }
+                    } else {
+                        // String comparison for non-numeric values
+                        String s = String.valueOf(val);
+                        if (!Objects.equals(keyNode.asText(), s)) return false;
+                    }
                 }
             }
             return true;
