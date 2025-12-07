@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DollarSign, Users, TrendingUp, FileText, Loader2, Info, Play, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card } from './ui/card';
 import { Label } from './ui/label';
@@ -21,6 +21,8 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   const [simulationCount, setSimulationCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Track which ruleset the current data belongs to, to prevent showing stale data
+  const [dataRulesetId, setDataRulesetId] = useState<string | null>(null);
   const { showToast } = useToast();
   
   // Ruleset selection and full simulation
@@ -35,6 +37,13 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   
   // Component groups for colors
   const [componentGroups, setComponentGroups] = useState<ComponentGroup[]>([]);
+  
+  // Ref to track if a dashboard data request is in progress
+  const loadingRef = useRef(false);
+  // Ref to track the current request's AbortController
+  const abortControllerRef = useRef<AbortController | null>(null);
+  // Ref to track the latest request ID to prevent stale data
+  const requestIdRef = useRef(0);
 
   // Load component groups
   useEffect(() => {
@@ -92,42 +101,89 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     return () => { cancelled = true; };
   }, [tenantId]);
 
-  // Load dashboard data
+  // Load dashboard data (trend, breakdown, simulation count - but NOT the total payroll)
+  // The total payroll will only be shown after the user explicitly runs a full simulation
   useEffect(() => {
+    if (!selectedRulesetId) {
+      // Don't load data if no ruleset is selected - clear state atomically
+      setLoading(false);
+      setSummary(null);
+      setTrend([]);
+      setBreakdown(null);
+      setSimulationCount(0);
+      setDataRulesetId(null);
+      setError(null);
+      return;
+    }
+    
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new AbortController for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
+    // Increment request ID to track the latest request
+    const currentRequestId = ++requestIdRef.current;
+    
     let cancelled = false;
+    loadingRef.current = true;
+    
+    // Clear previous breakdown when ruleset changes
+    setBreakdown(null);
+    setLoading(true);
+    setError(null);
+    
     (async () => {
       try {
-        setLoading(true);
-        setError(null);
-        
-        // Use first of current month for consistent results (instead of today's date which changes daily)
-        const today = new Date();
-        const asOfDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
-        
-        const [summaryData, trendData, breakdownData, simCountData] = await Promise.all([
-          baselineApi.getSummary(tenantId, asOfDate, selectedRulesetId || undefined),
+        // Load only trend, breakdown, and simulation count
+        // Do NOT load the total payroll automatically - it will be set when user clicks "Run Full Simulation"
+        const [trendData, breakdownData, simCountData] = await Promise.all([
           baselineApi.getTrend(tenantId),
-          baselineApi.getBreakdown(tenantId, asOfDate, selectedRulesetId || undefined),
+          baselineApi.getBreakdown(tenantId, undefined, selectedRulesetId),
           baselineApi.getSimulationCount(tenantId),
         ]);
         
-        if (!cancelled) {
-          setSummary(summaryData);
+        // Check if request was cancelled, ruleset changed, or this is not the latest request
+        if (abortController.signal.aborted || cancelled || !selectedRulesetId || currentRequestId !== requestIdRef.current) {
+          return; // Don't update state if cancelled or superseded by a newer request
+        }
+        
+        // Update state if this is still the latest request
+        if (selectedRulesetId && currentRequestId === requestIdRef.current) {
           setTrend(trendData);
           setBreakdown(breakdownData);
           setSimulationCount(simCountData.count);
+          setLoading(false);
+          setError(null);
         }
       } catch (e: any) {
-        if (!cancelled) {
+        // Ignore abort errors
+        if (e.name === 'AbortError' || abortController.signal.aborted) {
+          return;
+        }
+        
+        if (!cancelled && selectedRulesetId && !abortController.signal.aborted) {
           setError(e.message || 'Failed to load dashboard data');
+          setLoading(false);
+          // Clear data on error to prevent showing stale data
+          setBreakdown(null);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
+        if (!cancelled && !abortController.signal.aborted) {
+          loadingRef.current = false;
         }
       }
     })();
-    return () => { cancelled = true; };
+    return () => { 
+      cancelled = true;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      loadingRef.current = false;
+    };
   }, [tenantId, selectedRulesetId]);
 
   // Get currency for tenant
@@ -142,12 +198,14 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   const growthRate = null; // TODO: Implement when baseline snapshots are available
 
   // Prepare breakdown data for charts
-  const breakdownData = breakdown ? Object.entries(breakdown.categoryTotals)
-    .filter(([_, value]) => value > 0)
-    .map(([category, value]) => ({
-      category,
-      value: Number(value),
-    })) : [];
+  const breakdownData = breakdown 
+    ? Object.entries(breakdown.categoryTotals)
+        .filter(([_, value]) => value > 0)
+        .map(([category, value]) => ({
+          category,
+          value: Number(value),
+        })) 
+    : [];
 
   // Create a map of displayName -> color from component groups
   const categoryColorMap = new Map<string, string>();
@@ -169,7 +227,31 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     try {
       setRunningSimulation(true);
       setError(null);
-      const result = await baselineApi.runFullSimulation(tenantId, selectedRulesetId);
+      // Use the SAME date as the dashboard (first of current month) for consistency
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const asOfDate = `${year}-${month}-01`;
+      const result = await baselineApi.runFullSimulation(tenantId, selectedRulesetId, asOfDate);
+      
+      // Update the dashboard summary with the result from the explicit simulation
+      // This ensures the dashboard card shows the exact same data as the simulation result
+      const avgPerEmployee = result.employeeCount > 0
+        ? result.grandTotal / result.employeeCount
+        : 0;
+      
+      const summaryData: BaselineSummary = {
+        totalPayroll: result.grandTotal,
+        avgPerEmployee: avgPerEmployee,
+        employeeCount: result.employeeCount,
+        activeRulesetName: result.rulesetName,
+        activeRulesetId: result.rulesetId,
+        asOfDate: result.asOfDate,
+        calculatedAt: result.calculatedAt,
+      };
+      
+      setSummary(summaryData);
+      setDataRulesetId(selectedRulesetId);
       setFullSimulationResult(result);
       setShowFullSimulation(true);
     } catch (e: any) {
@@ -179,7 +261,11 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     }
   };
 
-  if (loading) {
+  // Show loading state only if we're actively loading AND we don't have any data yet
+  // Since we no longer auto-load summary, we should allow the page to render even without summary
+  const isDataLoading = loading && !trend.length && !breakdown && simulationCount === 0;
+  
+  if (isDataLoading) {
     return (
       <div className="p-8 max-w-[1600px] mx-auto">
         <div className="flex items-center justify-center py-20">
@@ -259,8 +345,17 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
             <div className="text-sm text-gray-600">Total Current Payroll</div>
           </div>
           <div className="text-2xl text-[#1E1E1E]">
-            {summary ? formatCurrency(summary.totalPayroll) : '-'}
+            {summary && dataRulesetId === selectedRulesetId 
+              ? formatCurrency(summary.totalPayroll)
+              : fullSimulationResult && showFullSimulation
+                ? formatCurrency(fullSimulationResult.grandTotal)
+                : '-'}
           </div>
+          {!summary && !fullSimulationResult && (
+            <div className="text-xs text-gray-500 mt-1">
+              Click "Run Full Simulation" to calculate
+            </div>
+          )}
         </Card>
 
         <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
@@ -271,10 +366,18 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
             <div className="text-sm text-gray-600">Avg Payroll Per Employee</div>
           </div>
           <div className="text-2xl text-[#1E1E1E]">
-            {summary ? formatCurrency(summary.avgPerEmployee) : '-'}
+            {summary && dataRulesetId === selectedRulesetId 
+              ? formatCurrency(summary.avgPerEmployee)
+              : fullSimulationResult && showFullSimulation && fullSimulationResult.employeeCount > 0
+                ? formatCurrency(fullSimulationResult.grandTotal / fullSimulationResult.employeeCount)
+                : '-'}
           </div>
           <div className="text-sm text-gray-600 mt-1">
-            Across {summary?.employeeCount || 0} employees
+            Across {summary && dataRulesetId === selectedRulesetId 
+              ? (summary.employeeCount || 0)
+              : fullSimulationResult && showFullSimulation
+                ? fullSimulationResult.employeeCount
+                : 0} employees
           </div>
         </Card>
 

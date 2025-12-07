@@ -90,9 +90,22 @@ public final class Value {
 
     // Comparison operations
     public Value equals(Value other) {
+        // Handle number-to-number comparison
         if (type == ValueType.NUMBER && other.type == ValueType.NUMBER) {
             return Value.ofBoolean(this.asNumber().compareTo(other.asNumber()) == 0);
         }
+        // Handle boolean-to-boolean comparison
+        if (type == ValueType.BOOLEAN && other.type == ValueType.BOOLEAN) {
+            return Value.ofBoolean(this.asBoolean() == other.asBoolean());
+        }
+        // Handle number-to-boolean comparison: convert number to boolean (non-zero = true, zero = false)
+        if (type == ValueType.NUMBER && other.type == ValueType.BOOLEAN) {
+            return Value.ofBoolean(this.asBoolean() == other.asBoolean());
+        }
+        if (type == ValueType.BOOLEAN && other.type == ValueType.NUMBER) {
+            return Value.ofBoolean(this.asBoolean() == other.asBoolean());
+        }
+        // For all other cases (including string comparisons), use string comparison
         return Value.ofBoolean(this.asString().equals(other.asString()));
     }
 

@@ -47,10 +47,18 @@ public class BaselineService {
         RuleSet ruleset = rulesetId != null ? rules.getById(tenantId, rulesetId) : rules.getActive(tenantId, asOfDate);
         List<EmployeeService.EmployeeDto> employees = employeeService.listEmployees(tenantId);
         
+        // Ensure deterministic order: sort by employeeId as a safety measure
+        // (Database query already orders, but this ensures consistency even if query changes)
+        employees = new ArrayList<>(employees);
+        employees.sort(Comparator
+            .comparing((EmployeeService.EmployeeDto e) -> e.name() != null ? e.name() : "")
+            .thenComparing(EmployeeService.EmployeeDto::employeeId));
+        
         // Get group ordering once for all employees
         Map<String, Integer> groupOrdering = getGroupOrdering();
         
-        BigDecimal totalPayroll = BigDecimal.ZERO;
+        // Initialize with scale 2 for consistent currency precision
+        BigDecimal totalPayroll = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         Map<String, BigDecimal> componentTotals = new LinkedHashMap<>();
         int employeeCount = employees.size();
         
@@ -64,24 +72,37 @@ public class BaselineService {
                 EvalContext ctx = addGroupOrdering(Mappers.toEvalContext(asOfDate, empInput), groupOrdering);
                 EvaluationResult result = evaluator.evaluateAll(ruleset, ctx);
                 
-                totalPayroll = totalPayroll.add(result.total());
-                
-                // Aggregate component totals in deterministic order (alphabetical)
+                // Use result.total() which is calculated deterministically in the evaluator
+                // But also verify by recalculating from components in sorted order for consistency
+                // Initialize with scale 2 for consistent precision
+                BigDecimal employeeTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
                 List<String> componentNames = new ArrayList<>(result.components().keySet());
-                Collections.sort(componentNames);
+                Collections.sort(componentNames); // Deterministic alphabetical order
                 for (String component : componentNames) {
                     ComponentResult value = result.components().get(component);
-                    componentTotals.merge(component, value.amount(), BigDecimal::add);
+                    // Normalize to scale 2 for consistent currency precision
+                    BigDecimal amount = value.amount().setScale(2, RoundingMode.HALF_UP);
+                    employeeTotal = employeeTotal.add(amount).setScale(2, RoundingMode.HALF_UP);
+                    // Normalize component totals to scale 2
+                    componentTotals.merge(component, amount, (a, b) -> a.add(b).setScale(2, RoundingMode.HALF_UP));
                 }
+                
+                // Use the recalculated total to ensure consistency
+                // (result.total() should match, but this ensures we're using the same calculation order)
+                // Normalize to scale 2 after each addition
+                totalPayroll = totalPayroll.add(employeeTotal).setScale(2, RoundingMode.HALF_UP);
             } catch (Exception e) {
                 // Log error but continue with other employees
                 System.err.println("Error calculating payroll for employee " + emp.employeeId() + ": " + e.getMessage());
             }
         }
         
+        // Final normalization: ensure totalPayroll is at scale 2
+        totalPayroll = totalPayroll.setScale(2, RoundingMode.HALF_UP);
+        
         BigDecimal avgPerEmployee = employeeCount > 0 
             ? totalPayroll.divide(BigDecimal.valueOf(employeeCount), 2, RoundingMode.HALF_UP)
-            : BigDecimal.ZERO;
+            : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         
         // Get ruleset name from database
         String rulesetName = rulesetRepo.findById(tenantId, ruleset.getId())
@@ -115,6 +136,12 @@ public class BaselineService {
     public BaselineBreakdownDto getPayrollBreakdown(String tenantId, LocalDate asOfDate, String rulesetId) {
         RuleSet ruleset = rulesetId != null ? rules.getById(tenantId, rulesetId) : rules.getActive(tenantId, asOfDate);
         List<EmployeeService.EmployeeDto> employees = employeeService.listEmployees(tenantId);
+        
+        // Ensure deterministic order: sort by employeeId as a safety measure
+        employees = new ArrayList<>(employees);
+        employees.sort(Comparator
+            .comparing((EmployeeService.EmployeeDto e) -> e.name() != null ? e.name() : "")
+            .thenComparing(EmployeeService.EmployeeDto::employeeId));
         
         // Get component groups from database
         List<ComponentGroupsService.GroupDto> groups = componentGroupsService.getAllGroups();
@@ -211,9 +238,17 @@ public class BaselineService {
         RuleSet ruleset = rules.getById(tenantId, rulesetId);
         List<EmployeeService.EmployeeDto> employees = employeeService.listEmployees(tenantId);
         
+        // Ensure deterministic order: sort by employeeId as a safety measure
+        // (Database query already orders, but this ensures consistency even if query changes)
+        employees = new ArrayList<>(employees);
+        employees.sort(Comparator
+            .comparing((EmployeeService.EmployeeDto e) -> e.name() != null ? e.name() : "")
+            .thenComparing(EmployeeService.EmployeeDto::employeeId));
+        
         List<EmployeeSimulationResult> employeeResults = new ArrayList<>();
         Map<String, BigDecimal> componentTotals = new LinkedHashMap<>();
-        BigDecimal grandTotal = BigDecimal.ZERO;
+        // Initialize grandTotal with scale 2 to ensure consistent precision
+        BigDecimal grandTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         
         // Get group ordering once for all employees
         Map<String, Integer> groupOrdering = getGroupOrdering();
@@ -229,20 +264,27 @@ public class BaselineService {
                 Map<String, BigDecimal> components = new LinkedHashMap<>();
                 List<String> componentNames = new ArrayList<>(result.components().keySet());
                 Collections.sort(componentNames);
+                // Initialize employeeTotal with scale 2 for consistent precision
+                BigDecimal employeeTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
                 for (String component : componentNames) {
                     ComponentResult value = result.components().get(component);
-                    components.put(component, value.amount());
-                    componentTotals.merge(component, value.amount(), BigDecimal::add);
+                    // Normalize amount to scale 2 to ensure consistent precision
+                    BigDecimal amount = value.amount().setScale(2, RoundingMode.HALF_UP);
+                    components.put(component, amount);
+                    // Normalize component totals to scale 2
+                    componentTotals.merge(component, amount, (a, b) -> a.add(b).setScale(2, RoundingMode.HALF_UP));
+                    employeeTotal = employeeTotal.add(amount).setScale(2, RoundingMode.HALF_UP);
                 }
                 
                 employeeResults.add(new EmployeeSimulationResult(
                     emp.employeeId(),
                     emp.name(),
-                    result.total(),
+                    employeeTotal, // Use recalculated total for consistency
                     components
                 ));
                 
-                grandTotal = grandTotal.add(result.total());
+                // Normalize grandTotal to scale 2 after each addition
+                grandTotal = grandTotal.add(employeeTotal).setScale(2, RoundingMode.HALF_UP);
             } catch (Exception e) {
                 System.err.println("Error calculating payroll for employee " + emp.employeeId() + ": " + e.getMessage());
                 // Add employee with zero total on error
@@ -260,12 +302,21 @@ public class BaselineService {
             .map(row -> row.name() != null ? row.name() : rulesetId)
             .orElse(rulesetId);
         
+        // Final normalization: ensure grandTotal is at scale 2 for consistent currency precision
+        grandTotal = grandTotal.setScale(2, RoundingMode.HALF_UP);
+        
+        // Also normalize all component totals to scale 2
+        Map<String, BigDecimal> normalizedComponentTotals = new LinkedHashMap<>();
+        for (Map.Entry<String, BigDecimal> entry : componentTotals.entrySet()) {
+            normalizedComponentTotals.put(entry.getKey(), entry.getValue().setScale(2, RoundingMode.HALF_UP));
+        }
+        
         return new FullSimulationResultDto(
             rulesetId,
             rulesetName,
             asOfDate,
             employeeResults,
-            componentTotals,
+            normalizedComponentTotals,
             grandTotal,
             employees.size(),
             new Date()

@@ -91,6 +91,9 @@ public class RulesServiceDb implements RulesService {
                     Jsons.map(row.meta())
             ));
         }
+        // Ensure rules are sorted by target for deterministic processing
+        // (Database query already orders, but this ensures consistency)
+        rules.sort(Comparator.comparing(Rule::getTarget));
         return new RuleSet(rs.ruleset_id(), rules);
     }
 

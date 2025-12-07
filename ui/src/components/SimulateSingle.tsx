@@ -179,6 +179,11 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
               // or if the field structure changed (e.g., new field added)
               if (newValues[name] === undefined) {
                 newValues[name] = metadata.defaultValue;
+              } else if (metadata.type === "boolean") {
+                // Convert 1/0 to true/false for boolean inputs (backward compatibility)
+                if (newValues[name] === 1 || newValues[name] === 0) {
+                  newValues[name] = newValues[name] === 1;
+                }
               }
               // If field was removed from required inputs, we keep it in newValues
               // (it will just be ignored by the API)
@@ -230,15 +235,22 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   }, [rulesets]);
 
   // Helper function to populate form with employee data
-  const populateFormWithEmployee = (employee: Employee) => {
+    const populateFormWithEmployee = (employee: Employee) => {
     if (!employee.data || Object.keys(requiredInputs).length === 0) return;
     
     const newInputValues: Record<string, any> = {};
     Object.entries(requiredInputs).forEach(([key, meta]) => {
       // Use employee data if available, otherwise use default
-      newInputValues[key] = employee.data[key] !== undefined 
+      let value = employee.data[key] !== undefined 
         ? employee.data[key] 
         : meta.defaultValue;
+      
+      // Convert 1/0 to true/false for boolean inputs (backward compatibility)
+      if (meta.type === "boolean" && (value === 1 || value === 0)) {
+        value = value === 1;
+      }
+      
+      newInputValues[key] = value;
     });
     setInputValues(newInputValues);
   };
@@ -664,7 +676,11 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
                   {/* Dynamically render input fields based on required inputs */}
                   {Object.entries(requiredInputs).map(([name, metadata]) => {
-                    const value = inputValues[name] ?? metadata.defaultValue;
+                    let value = inputValues[name] ?? metadata.defaultValue;
+                    // Convert 1/0 to true/false for boolean inputs (backward compatibility)
+                    if (metadata.type === "boolean" && (value === 1 || value === 0)) {
+                      value = value === 1;
+                    }
                     return (
                       <div key={name}>
                         <Label htmlFor={name}>{metadata.label}</Label>
@@ -693,20 +709,18 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                             </SelectContent>
                           </Select>
                         ) : metadata.type === "boolean" ? (
-                          <Select
-                            value={String(value)}
-                            onValueChange={(v) =>
-                              setInputValues({ ...inputValues, [name]: v === "1" ? 1 : 0 })
-                            }
-                          >
-                            <SelectTrigger id={name} className="mt-1">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="1">Yes</SelectItem>
-                              <SelectItem value="0">No</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Switch
+                              id={name}
+                              checked={value === true || value === 1 || String(value).toLowerCase() === "true"}
+                              onCheckedChange={(checked) =>
+                                setInputValues({ ...inputValues, [name]: checked })
+                              }
+                            />
+                            <Label htmlFor={name} className="text-sm text-gray-600 cursor-pointer">
+                              {(value === true || value === 1 || String(value).toLowerCase() === "true") ? "True" : "False"}
+                            </Label>
+                          </div>
                         ) : metadata.type === "string" ? (
                           <Input
                             id={name}

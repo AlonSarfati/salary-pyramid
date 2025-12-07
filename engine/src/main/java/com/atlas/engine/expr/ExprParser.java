@@ -163,10 +163,11 @@ public class ExprParser {
         }
         
         // Boolean literal (must be checked before identifier parsing)
-        if (matchToken("TRUE", true)) {
+        // Case-insensitive: matches True, TRUE, true, etc.
+        if (matchToken("TRUE", false)) {
             return new BooleanNode(true);
         }
-        if (matchToken("FALSE", true)) {
+        if (matchToken("FALSE", false)) {
             return new BooleanNode(false);
         }
         

@@ -149,9 +149,16 @@ public class RequiredInputsService {
         Map<String, InputMetadata> result = new LinkedHashMap<>();
         
         for (String input : inputs) {
-            // Infer type and default value by analyzing how the component is used in expressions
-            InputMetadata metadata = inferMetadata(input, activeRules, tenantId, onDate);
-            result.put(input, metadata);
+            try {
+                // Infer type and default value by analyzing how the component is used in expressions
+                InputMetadata metadata = inferMetadata(input, activeRules, tenantId, onDate);
+                result.put(input, metadata);
+            } catch (Exception e) {
+                // If metadata inference fails, use default number type
+                System.err.println("Error inferring metadata for input " + input + ": " + e.getMessage());
+                e.printStackTrace();
+                result.put(input, new InputMetadata(input, formatLabel(input), "number", 0, null, null));
+            }
         }
         
         return result;
@@ -343,9 +350,13 @@ public class RequiredInputsService {
                 String expression = rule.getExpression();
                 if (expression == null) continue;
                 
-                if (!expression.contains(inputName)) {
+                // Check if expression contains the input name (case-insensitive)
+                String expressionLower = expression.toLowerCase();
+                String inputNameLower = inputName.toLowerCase();
+                if (!expressionLower.contains(inputNameLower)) {
                     continue;
                 }
+                
                 
                 // Skip if this expression contains TBL with this component (already handled)
                 if (expression.contains("TBL") && expression.contains(inputName)) {
@@ -399,27 +410,78 @@ public class RequiredInputsService {
                     stringValues.add(value);
                 }
                 
-                // Look for arithmetic operations: ComponentName +, -, *, /
-                Pattern arithmeticPattern = Pattern.compile(
-                    "\\b" + Pattern.quote(inputName) + "\\s*[+\\-*/]"
-                );
-                if (arithmeticPattern.matcher(expression).find()) {
-                    usedInArithmetic = true;
-                }
-                
-                // Look for boolean context: ComponentName = 0 or ComponentName = 1
-                Pattern booleanPattern = Pattern.compile(
-                    "\\b" + Pattern.quote(inputName) + "\\s*[=!]=\\s*[01]\\b"
-                );
-                if (booleanPattern.matcher(expression).find()) {
-                    usedInBooleanContext = true;
+                try {
+                    // Simple approach: check if expression contains the pattern directly
+                    // First, try a simple string contains check (case-insensitive)
+                    String exprLower = expression.toLowerCase();
+                    String inputLower = inputName.toLowerCase();
+                    String pattern1 = "if " + inputLower + " = true";
+                    String pattern2 = "if " + inputLower + " = false";
+                    String pattern3 = "if " + inputLower + " != true";
+                    String pattern4 = "if " + inputLower + " != false";
+                    
+                    if (exprLower.contains(pattern1) || exprLower.contains(pattern2) || 
+                        exprLower.contains(pattern3) || exprLower.contains(pattern4)) {
+                        usedInBooleanContext = true;
+                    }
+                    
+                    // Also try regex patterns as backup
+                    String escapedInputName = inputName.replaceAll("([\\\\\\[\\]{}()*+?.^$|])", "\\\\$1");
+                    
+                    // Check for IF-THEN-ELSE syntax with boolean: IF ComponentName = True THEN ...
+                    Pattern ifBooleanPattern = Pattern.compile(
+                        "(?i)IF\\s+" + escapedInputName + "\\s*[=!]=\\s*(True|False)"
+                    );
+                    boolean match1 = ifBooleanPattern.matcher(expression).find();
+                    if (match1) {
+                        usedInBooleanContext = true;
+                    }
+                    
+                    // Also check for IF function call format: IF(ComponentName = True, ...)
+                    Pattern ifFunctionBooleanPattern = Pattern.compile(
+                        "(?i)IF\\s*\\([^)]*" + escapedInputName + "\\s*[=!]=\\s*(True|False)"
+                    );
+                    boolean match2 = ifFunctionBooleanPattern.matcher(expression).find();
+                    if (match2) {
+                        usedInBooleanContext = true;
+                    }
+                    
+                    // Look for boolean context with True/False: ComponentName = True or ComponentName = False
+                    Pattern booleanTrueFalsePattern = Pattern.compile(
+                        "(?i)" + escapedInputName + "\\s*[=!]=\\s*(True|False)"
+                    );
+                    boolean match3 = booleanTrueFalsePattern.matcher(expression).find();
+                    if (match3) {
+                        usedInBooleanContext = true;
+                    }
+                    
+                    // Look for boolean context: ComponentName = 0 or ComponentName = 1
+                    Pattern booleanPattern = Pattern.compile(
+                        "\\b" + Pattern.quote(inputName) + "\\s*[=!]=\\s*[01]\\b"
+                    );
+                    if (booleanPattern.matcher(expression).find()) {
+                        usedInBooleanContext = true;
+                    }
+                    
+                    // Look for arithmetic operations: ComponentName +, -, *, /
+                    // Only set this if NOT already detected as boolean
+                    if (!usedInBooleanContext) {
+                        Pattern arithmeticPattern = Pattern.compile(
+                            "\\b" + Pattern.quote(inputName) + "\\s*[+\\-*/]"
+                        );
+                        if (arithmeticPattern.matcher(expression).find()) {
+                            usedInArithmetic = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    // If pattern matching fails, log and continue (don't break the whole process)
+                    System.err.println("Error analyzing boolean patterns for input " + inputName + ": " + e.getMessage());
                 }
             }
         }
         
         // Determine type based on usage
-        // If TBL detected it as numeric, prioritize that
-        // Also check if component name suggests numeric and it's used in TBL
+        // Priority order: boolean > TBL numeric > string/select > number
         String lowerInputName = inputName.toLowerCase();
         boolean isLikelyNumeric = lowerInputName.contains("year") || lowerInputName.contains("age") || 
                                   lowerInputName.contains("month") || lowerInputName.contains("day") ||
@@ -429,38 +491,45 @@ public class RequiredInputsService {
         
         Integer minValue = null;
         
-        if (isNumericFromTbl || (usedInTbl && isLikelyNumeric)) {
-            type = "number";
-            defaultValue = 0;
-            // For years, ages, counts, amounts, etc., don't allow negative values
-            // Also for any numeric input used in TBL (typically represents counts, years, etc.)
-            minValue = 0;
-        } else if (usedInStringComparison && !stringValues.isEmpty()) {
-            // Used in string comparisons with specific values - it's a select/enum
-            type = "select";
-            defaultValue = "";
-            options = new ArrayList<>(stringValues);
-            // Sort options for consistency, empty string last
-            options.sort((a, b) -> {
-                if (a.isEmpty()) return 1;
-                if (b.isEmpty()) return -1;
-                return a.compareTo(b);
-            });
-        } else if (usedInStringComparison) {
-            // Used in string comparisons but no specific values found - it's a string
-            type = "string";
-            defaultValue = "";
-        } else if (usedInBooleanContext && !usedInArithmetic) {
-            // Used in boolean context (0/1) but not in arithmetic - it's a boolean
+        // PRIORITY 1: Boolean detection - check this FIRST before other types
+        if (usedInBooleanContext) {
+            // Used in boolean context (True/False or 0/1) - it's a boolean
+            // This takes priority over everything else
             type = "boolean";
-            defaultValue = 0;
+            defaultValue = false;
         } else {
-            // Default to number
-            type = "number";
-            defaultValue = 0;
-            // For numeric inputs, check if name suggests non-negative
-            if (isLikelyNumeric) {
+            
+            // Only check other types if NOT boolean
+            if (isNumericFromTbl || (usedInTbl && isLikelyNumeric)) {
+                // PRIORITY 2: TBL numeric detection
+                type = "number";
+                defaultValue = 0;
+                // For years, ages, counts, amounts, etc., don't allow negative values
+                // Also for any numeric input used in TBL (typically represents counts, years, etc.)
                 minValue = 0;
+            } else if (usedInStringComparison && !stringValues.isEmpty()) {
+                // PRIORITY 3: Used in string comparisons with specific values - it's a select/enum
+                type = "select";
+                defaultValue = "";
+                options = new ArrayList<>(stringValues);
+                // Sort options for consistency, empty string last
+                options.sort((a, b) -> {
+                    if (a.isEmpty()) return 1;
+                    if (b.isEmpty()) return -1;
+                    return a.compareTo(b);
+                });
+            } else if (usedInStringComparison) {
+                // PRIORITY 4: Used in string comparisons but no specific values found - it's a string
+                type = "string";
+                defaultValue = "";
+            } else {
+                // PRIORITY 5: Default to number
+                type = "number";
+                defaultValue = 0;
+                // For numeric inputs, check if name suggests non-negative
+                if (isLikelyNumeric) {
+                    minValue = 0;
+                }
             }
         }
         

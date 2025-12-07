@@ -95,6 +95,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showDeleteComponentDialog, setShowDeleteComponentDialog] = useState(false);
   const [componentToDelete, setComponentToDelete] = useState<string | null>(null);
   const [newRulesetName, setNewRulesetName] = useState('');
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   
   // Help guide drawer state
   const [showHelpGuide, setShowHelpGuide] = useState(false);
@@ -802,6 +805,147 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
+  const parseCSV = (csvText: string): Array<{ componentName: string; expression: string; group: string }> => {
+    const lines = csvText.split('\n').filter(line => line.trim());
+    if (lines.length === 0) {
+      throw new Error('CSV file is empty');
+    }
+
+    // Parse header (optional, but check if first line is header)
+    const header = lines[0].toLowerCase().trim();
+    const hasHeader = header.includes('component') || header.includes('name') || header.includes('expression') || header.includes('group');
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+
+    const results: Array<{ componentName: string; expression: string; group: string }> = [];
+
+    for (let i = 0; i < dataLines.length; i++) {
+      const line = dataLines[i].trim();
+      if (!line) continue;
+
+      // Simple CSV parsing (handles quoted fields)
+      const fields: string[] = [];
+      let currentField = '';
+      let inQuotes = false;
+
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          fields.push(currentField.trim());
+          currentField = '';
+        } else {
+          currentField += char;
+        }
+      }
+      fields.push(currentField.trim()); // Add last field
+
+      if (fields.length < 3) {
+        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Expected 3 columns (component name, rule expression, group), found ${fields.length}`);
+      }
+
+      const componentName = fields[0].replace(/^"|"$/g, '').trim();
+      const expression = fields[1].replace(/^"|"$/g, '').trim();
+      const group = fields[2].replace(/^"|"$/g, '').trim();
+
+      if (!componentName) {
+        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Component name is required`);
+      }
+      if (!expression) {
+        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Rule expression is required`);
+      }
+      if (!group) {
+        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Group is required`);
+      }
+
+      results.push({ componentName, expression, group });
+    }
+
+    return results;
+  };
+
+  const handleImportCSV = async (file: File) => {
+    if (!selectedRulesetId) {
+      setImportError('Please select a ruleset first');
+      return;
+    }
+
+    try {
+      setImporting(true);
+      setImportError(null);
+
+      const text = await file.text();
+      const rows = parseCSV(text);
+
+      if (rows.length === 0) {
+        setImportError('No valid rows found in CSV file');
+        return;
+      }
+
+      // Convert group numbers/names to actual group names
+      const getActualGroupName = (groupInput: string): string => {
+        // Check if it's a group number (group1, group2, etc.)
+        if (groupNumberToName[groupInput]) {
+          return groupNumberToName[groupInput];
+        }
+        // Check if it's already a group name
+        if (componentGroups.some(g => g.groupName.toLowerCase() === groupInput.toLowerCase())) {
+          return groupInput;
+        }
+        // Default to 'core' if not found
+        return 'core';
+      };
+
+      let successCount = 0;
+      let errorCount = 0;
+      const errors: string[] = [];
+
+      // Import each rule
+      for (const row of rows) {
+        try {
+          const actualGroupName = getActualGroupName(row.group);
+          
+          await ruleApi.updateRule(tenantId, selectedRulesetId, row.componentName, {
+            expression: row.expression,
+            dependsOn: null,
+            effectiveFrom: null,
+            effectiveTo: null,
+            group: actualGroupName,
+            incomeTax: false,
+            socialSecurity: false,
+            pension: false,
+            workPension: false,
+            expensesPension: false,
+            educationFund: false,
+            workPercent: false,
+          });
+          successCount++;
+        } catch (err: any) {
+          errorCount++;
+          errors.push(`${row.componentName}: ${err.message || 'Failed to import'}`);
+        }
+      }
+
+      // Reload ruleset to show imported rules
+      await loadRuleset(selectedRulesetId);
+
+      if (errorCount === 0) {
+        showToast('success', 'Import successful', `Successfully imported ${successCount} rule(s).`);
+        setShowImportDialog(false);
+      } else if (successCount > 0) {
+        showToast('warning', 'Partial import', `Imported ${successCount} rule(s), ${errorCount} failed. Check console for details.`);
+        console.error('Import errors:', errors);
+        setImportError(`Imported ${successCount} rule(s), ${errorCount} failed:\n${errors.join('\n')}`);
+      } else {
+        setImportError(`Failed to import all rules:\n${errors.join('\n')}`);
+      }
+    } catch (err: any) {
+      setImportError(err.message || 'Failed to parse CSV file');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleAddComponent = async () => {
     if (!selectedRulesetId || !newComponentName.trim()) {
       setError('Component name is required');
@@ -958,6 +1102,15 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               </button>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowImportDialog(true)}
+                disabled={!selectedRulesetId || importing}
+                className="flex items-center gap-2 px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+                title="Import rules from CSV"
+              >
+                <Upload className="w-5 h-5" />
+                Import CSV
+              </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
@@ -1867,6 +2020,74 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           />
         </div>
       )}
+
+      {/* CSV Import Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Rules from CSV</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-gray-600">
+              <p className="mb-2">CSV format should have 3 columns:</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>Component name</li>
+                <li>Rule expression</li>
+                <li>Group (group1, group2, etc. or group name)</li>
+              </ol>
+              <p className="mt-3 text-xs text-gray-500">
+                Example:<br />
+                <code className="bg-gray-100 px-2 py-1 rounded block mt-1">
+                  BaseSalary,10000,group1<br />
+                  Bonus,BaseSalary * 0.1,group2
+                </code>
+              </p>
+            </div>
+            
+            <div>
+              <Label htmlFor="csv-file">Select CSV File</Label>
+              <Input
+                id="csv-file"
+                type="file"
+                accept=".csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleImportCSV(file);
+                  }
+                }}
+                disabled={importing || !selectedRulesetId}
+                className="mt-1"
+              />
+            </div>
+
+            {importError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm whitespace-pre-wrap">
+                {importError}
+              </div>
+            )}
+
+            {importing && (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Importing rules...
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowImportDialog(false);
+                setImportError(null);
+              }}
+              disabled={importing}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

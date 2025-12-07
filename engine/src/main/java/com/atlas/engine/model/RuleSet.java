@@ -16,7 +16,14 @@ public class RuleSet {
     public Map<String, Rule> activeRuleIndex(java.time.LocalDate date) {
         // Use LinkedHashMap to preserve insertion order (deterministic)
         Map<String, Rule> idx = new LinkedHashMap<>();
-        for (Rule r : rules) if (r.isActiveOn(date)) idx.put(r.getTarget(), r);
+        // Sort rules by target to ensure deterministic processing order
+        List<Rule> sortedRules = new ArrayList<>(rules);
+        sortedRules.sort(Comparator.comparing(Rule::getTarget));
+        for (Rule r : sortedRules) {
+            if (r.isActiveOn(date)) {
+                idx.put(r.getTarget(), r);
+            }
+        }
         return idx;
     }
 }

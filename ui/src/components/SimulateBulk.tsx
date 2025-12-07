@@ -514,18 +514,15 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
                             </SelectContent>
                           </Select>
                         ) : meta.type === 'boolean' ? (
-                          <Select
-                            value={String(emp.inputs[key] || false)}
-                            onValueChange={(value) => handleEmployeeInputChange(idx, key, value === 'true')}
-                          >
-                            <SelectTrigger className="mt-1">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="true">Yes</SelectItem>
-                              <SelectItem value="false">No</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Switch
+                              checked={emp.inputs[key] === true || emp.inputs[key] === 1 || String(emp.inputs[key]).toLowerCase() === "true"}
+                              onCheckedChange={(checked) => handleEmployeeInputChange(idx, key, checked)}
+                            />
+                            <Label className="text-sm text-gray-600 cursor-pointer">
+                              {(emp.inputs[key] === true || emp.inputs[key] === 1 || String(emp.inputs[key]).toLowerCase() === "true") ? "True" : "False"}
+                            </Label>
+                          </div>
                         ) : (
                           <Input
                             type={meta.type === 'number' ? 'number' : 'text'}

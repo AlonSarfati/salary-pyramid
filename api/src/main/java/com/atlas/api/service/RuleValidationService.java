@@ -154,10 +154,25 @@ public class RuleValidationService {
         Map<Integer, String> numberToGroup = new HashMap<>();
         
         // Get groups from database ordered by display_order
-        List<ComponentGroupsService.GroupDto> dbGroups = componentGroupsService.getAllGroups();
+        List<ComponentGroupsService.GroupDto> dbGroups;
+        try {
+            dbGroups = componentGroupsService.getAllGroups();
+        } catch (Exception e) {
+            // If getting groups fails, log and continue without group validation
+            System.err.println("Error getting component groups: " + e.getMessage());
+            e.printStackTrace();
+            return; // Skip group validation if we can't get groups
+        }
+        
+        if (dbGroups == null) {
+            return; // No groups available, skip validation
+        }
+        
         Map<String, Integer> groupDisplayOrder = new HashMap<>();
         for (ComponentGroupsService.GroupDto group : dbGroups) {
-            groupDisplayOrder.put(group.groupName().toLowerCase(), group.displayOrder());
+            if (group != null && group.groupName() != null) {
+                groupDisplayOrder.put(group.groupName().toLowerCase(), group.displayOrder());
+            }
         }
         
         // Sort groups by display_order
@@ -209,7 +224,12 @@ public class RuleValidationService {
             
             // Extract dependencies from expression
             try {
-                RuleExpression ruleExpr = new RuleExpression(rule.getExpression());
+                String expr = rule.getExpression();
+                if (expr == null || expr.trim().isEmpty()) {
+                    continue; // Skip empty expressions
+                }
+                
+                RuleExpression ruleExpr = new RuleExpression(expr);
                 Set<String> dependencies = ruleExpr.extractDependencies(allComponentNames);
                 
                 for (String dep : dependencies) {
@@ -292,6 +312,10 @@ public class RuleValidationService {
             } catch (Exception e) {
                 // If expression parsing fails, skip group validation for this rule
                 // (other validation will catch the parsing error)
+                // Log the error for debugging
+                System.err.println("Error validating group references for component " + componentName + 
+                    ": " + e.getMessage());
+                e.printStackTrace();
             }
         }
     }

@@ -108,11 +108,22 @@ async function apiCall<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
+  // Prevent browser caching for GET requests (baseline API calls)
+  const isGetRequest = !options?.method || options.method === 'GET';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  
+  if (isGetRequest) {
+    // Add cache-busting headers for GET requests to prevent stale data
+    headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    headers['Pragma'] = 'no-cache';
+  }
+  
   const response = await fetch(`${API_BASE}${endpoint}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
+    headers,
+    ...(isGetRequest ? { cache: 'no-store' as RequestCache } : {}), // Prevent browser caching for GET
     ...options,
   });
 

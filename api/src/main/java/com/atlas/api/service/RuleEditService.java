@@ -57,7 +57,8 @@ public class RuleEditService {
             try {
                 com.atlas.engine.model.RuleExpression ruleExpr = new com.atlas.engine.model.RuleExpression(expression);
                 // Try to parse the expression to validate syntax
-                com.atlas.engine.model.RuleExpression.ValidationResult validation = ruleExpr.validate(Set.of()); // Use empty set to allow all component references
+                // Use empty set to allow all component references (they'll be validated separately)
+                com.atlas.engine.model.RuleExpression.ValidationResult validation = ruleExpr.validate(Set.of());
                 if (!validation.isValid()) {
                     throw new IllegalArgumentException("Invalid expression syntax: " + validation.getErrorMessage() + 
                         ". Expression: " + expression);
@@ -66,7 +67,9 @@ public class RuleEditService {
                 // Re-throw validation errors as-is
                 throw e;
             } catch (Exception e) {
-                throw new IllegalArgumentException("Invalid expression syntax: " + e.getMessage() + 
+                // Wrap any other exceptions in IllegalArgumentException with more context
+                String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                throw new IllegalArgumentException("Invalid expression syntax: " + errorMsg + 
                     ". Expression: " + expression, e);
             }
         }
