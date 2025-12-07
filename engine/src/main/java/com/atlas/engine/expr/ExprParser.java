@@ -8,10 +8,11 @@ import java.util.Set;
 /**
  * Parser for expressions.
  * Supports:
- * - Operators: + - * / = != > >= < <= AND OR NOT
+ * - Operators: + - * / ^ = != > >= < <= AND OR NOT
  * - Functions: IF(...), MIN(...), MAX(...), ROUND(...), TBL(...) (ALL_CAPS)
  * - Component references: CamelCase identifiers (e.g., BaseSalary, PerformanceBonus)
  * - IF condition THEN expr ELSE expr syntax (converted to IF function)
+ * - Exponentiation: ^ operator (e.g., 1.01 ^ Vetek)
  */
 public class ExprParser {
     private final String input;
@@ -119,18 +120,35 @@ public class ExprParser {
 
     // Multiplicative operators (* /)
     private ExprNode parseMultiplicative() {
-        ExprNode left = parseUnary();
+        ExprNode left = parseExponentiation();
         skipWhitespace();
         while (pos < input.length()) {
             if (matchToken("*", false)) {
                 skipWhitespace();
-                ExprNode right = parseUnary();
+                ExprNode right = parseExponentiation();
                 left = new BinaryOpNode(left, BinaryOpNode.Operator.MULTIPLY, right);
                 skipWhitespace();
             } else if (matchToken("/", false)) {
                 skipWhitespace();
-                ExprNode right = parseUnary();
+                ExprNode right = parseExponentiation();
                 left = new BinaryOpNode(left, BinaryOpNode.Operator.DIVIDE, right);
+                skipWhitespace();
+            } else {
+                break;
+            }
+        }
+        return left;
+    }
+
+    // Exponentiation operator (^) - higher precedence than multiplication
+    private ExprNode parseExponentiation() {
+        ExprNode left = parseUnary();
+        skipWhitespace();
+        while (pos < input.length()) {
+            if (matchToken("^", false)) {
+                skipWhitespace();
+                ExprNode right = parseUnary(); // Right-associative: a^b^c = a^(b^c)
+                left = new BinaryOpNode(left, BinaryOpNode.Operator.POWER, right);
                 skipWhitespace();
             } else {
                 break;

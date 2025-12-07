@@ -70,6 +70,7 @@ public class TracingExprEvaluator {
                 case SUBTRACT -> leftValue.subtract(rightValue);
                 case MULTIPLY -> leftValue.multiply(rightValue);
                 case DIVIDE -> leftValue.divide(rightValue);
+                case POWER -> leftValue.power(rightValue);
                 case EQUALS -> leftValue.equals(rightValue);
                 case NOT_EQUALS -> leftValue.notEquals(rightValue);
                 case GREATER_THAN -> leftValue.greaterThan(rightValue);

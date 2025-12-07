@@ -88,6 +88,27 @@ public final class Value {
         return Value.ofNumber(this.asNumber().divide(other.asNumber(), MC));
     }
 
+    public Value power(Value other) {
+        BigDecimal base = this.asNumber();
+        BigDecimal exponent = other.asNumber();
+        
+        // If exponent is an integer, use BigDecimal.pow() for precision
+        if (exponent.scale() == 0) {
+            try {
+                int expInt = exponent.intValueExact();
+                return Value.ofNumber(base.pow(expInt, MC));
+            } catch (ArithmeticException e) {
+                // Exponent too large for int, fall through to Math.pow
+            }
+        }
+        
+        // For non-integer exponents or very large exponents, use Math.pow
+        double baseDouble = base.doubleValue();
+        double expDouble = exponent.doubleValue();
+        double result = Math.pow(baseDouble, expDouble);
+        return Value.ofNumber(BigDecimal.valueOf(result));
+    }
+
     // Comparison operations
     public Value equals(Value other) {
         // Handle number-to-number comparison

@@ -55,6 +55,10 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
   const [success, setSuccess] = useState<string | null>(null);
   const [showDeleteRowDialog, setShowDeleteRowDialog] = useState(false);
   const [rowIndexToDelete, setRowIndexToDelete] = useState<number | null>(null);
+  const [showImportCSVDialog, setShowImportCSVDialog] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
 
   // Save state to localStorage whenever it changes
   useEffect(() => {
@@ -371,9 +375,177 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
   };
 
   const handleUploadCSV = () => {
-    // TODO: Implement CSV upload
-    // Using toast would be more in line with the rest of the UI once implemented
-    setError('CSV upload feature coming soon.');
+    if (!tableName || columns.filter(col => col.name.trim()).length === 0) {
+      setError('Please define table name and columns before importing CSV');
+      return;
+    }
+    setShowImportCSVDialog(true);
+    setImportError(null);
+    setImportFile(null);
+  };
+
+  const parseCSV = (csvText: string): string[][] => {
+    const lines: string[] = [];
+    let currentLine = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < csvText.length; i++) {
+      const char = csvText[i];
+      const nextChar = csvText[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          // Escaped quote
+          currentLine += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // End of field
+        lines.push(currentLine);
+        currentLine = '';
+      } else if (char === '\n' && !inQuotes) {
+        // End of line
+        lines.push(currentLine);
+        currentLine = '';
+      } else {
+        currentLine += char;
+      }
+    }
+    // Add last line
+    if (currentLine.length > 0 || csvText.endsWith('\n')) {
+      lines.push(currentLine);
+    }
+
+    // Split each line by commas (now that quotes are handled)
+    return lines.map(line => {
+      const fields: string[] = [];
+      let currentField = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
+
+        if (char === '"') {
+          if (inQuotes && nextChar === '"') {
+            currentField += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === ',' && !inQuotes) {
+          fields.push(currentField.trim());
+          currentField = '';
+        } else {
+          currentField += char;
+        }
+      }
+      fields.push(currentField.trim());
+      return fields;
+    });
+  };
+
+  const handleImportCSV = async (file: File) => {
+    if (!tableName || columns.filter(col => col.name.trim()).length === 0) {
+      setImportError('Please define table name and columns before importing CSV');
+      return;
+    }
+
+    setImporting(true);
+    setImportError(null);
+
+    try {
+      const text = await file.text();
+      const csvRows = parseCSV(text);
+      
+      if (csvRows.length === 0) {
+        setImportError('CSV file is empty');
+        setImporting(false);
+        return;
+      }
+
+      // Expected columns: key columns (in order) + value + effective_from + effective_to
+      const keyColumns = columns.filter(col => col.name.trim());
+      const expectedColumnCount = keyColumns.length + 1 + 2; // keys + value + effective_from + effective_to
+
+      // Check if first row is header (optional - we'll skip it if it looks like headers)
+      let dataStartIndex = 0;
+      if (csvRows.length > 0) {
+        const firstRow = csvRows[0];
+        // If first row has same number of columns and doesn't look like data (has text headers), skip it
+        if (firstRow.length === expectedColumnCount && 
+            (firstRow[firstRow.length - 2]?.toLowerCase().includes('effective') || 
+             firstRow[firstRow.length - 1]?.toLowerCase().includes('effective'))) {
+          dataStartIndex = 1;
+        }
+      }
+
+      const importedRows: Array<{ effectiveFrom: string; effectiveTo: string; keys: Record<string, any>; value: string }> = [];
+
+      for (let i = dataStartIndex; i < csvRows.length; i++) {
+        const row = csvRows[i];
+        
+        if (row.length !== expectedColumnCount) {
+          setImportError(`Row ${i + 1} has ${row.length} columns, expected ${expectedColumnCount}. CSV format: [key columns] + value + effective_from + effective_to`);
+          setImporting(false);
+          return;
+        }
+
+        // Parse row: [key1, key2, ..., value, effective_from, effective_to]
+        const keys: Record<string, any> = {};
+        keyColumns.forEach((col, idx) => {
+          const value = row[idx].trim();
+          if (col.type === 'number') {
+            if (col.usesRanges) {
+              // For ranges, try to parse as "min-max" or just a number
+              const rangeMatch = value.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
+              if (rangeMatch) {
+                keys[col.name] = { min: parseFloat(rangeMatch[1]), max: parseFloat(rangeMatch[2]) };
+              } else {
+                const num = parseFloat(value);
+                if (!isNaN(num)) {
+                  keys[col.name] = { min: num, max: num };
+                } else {
+                  keys[col.name] = { min: null, max: null };
+                }
+              }
+            } else {
+              const num = parseFloat(value);
+              keys[col.name] = isNaN(num) ? 0 : num;
+            }
+          } else {
+            keys[col.name] = value;
+          }
+        });
+
+        const valueIndex = keyColumns.length;
+        const effectiveFromIndex = keyColumns.length + 1;
+        const effectiveToIndex = keyColumns.length + 2;
+
+        const value = row[valueIndex]?.trim() || '0';
+        const effectiveFrom = row[effectiveFromIndex]?.trim() || new Date().toISOString().split('T')[0];
+        const effectiveTo = row[effectiveToIndex]?.trim() || '9999-12-31';
+
+        importedRows.push({
+          effectiveFrom,
+          effectiveTo,
+          keys,
+          value,
+        });
+      }
+
+      // Replace existing rows with imported rows
+      setRows(importedRows);
+      setShowImportCSVDialog(false);
+      setSuccess(`Successfully imported ${importedRows.length} row(s) from CSV`);
+    } catch (err: any) {
+      setImportError(err.message || 'Failed to parse CSV file');
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -790,6 +962,90 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
               Delete
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showImportCSVDialog} onOpenChange={setShowImportCSVDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import CSV</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <Label htmlFor="csvFile">CSV File</Label>
+              <Input
+                id="csvFile"
+                type="file"
+                accept=".csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setImportFile(file);
+                    setImportError(null);
+                  }
+                }}
+                className="mt-1"
+              />
+            </div>
+            
+            <div className="text-sm text-gray-600 space-y-2">
+              <p className="font-semibold">CSV Format:</p>
+              <p>The CSV should have columns in this order:</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                {columns.filter(col => col.name.trim()).map((col, idx) => (
+                  <li key={idx}>{idx + 1}. {col.name} ({col.type})</li>
+                ))}
+                <li>{columns.filter(col => col.name.trim()).length + 1}. Value (number)</li>
+                <li>{columns.filter(col => col.name.trim()).length + 2}. Effective From (date: YYYY-MM-DD)</li>
+                <li>{columns.filter(col => col.name.trim()).length + 3}. Effective To (date: YYYY-MM-DD)</li>
+              </ol>
+              <p className="mt-2 text-xs text-gray-500">
+                Note: The first row can be a header row (will be auto-detected). All subsequent rows will be imported as data.
+              </p>
+            </div>
+
+            {importError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {importError}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowImportCSVDialog(false);
+                  setImportFile(null);
+                  setImportError(null);
+                }}
+                disabled={importing}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (importFile) {
+                    handleImportCSV(importFile);
+                  } else {
+                    setImportError('Please select a CSV file');
+                  }
+                }}
+                disabled={importing || !importFile}
+              >
+                {importing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Importing...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Import
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

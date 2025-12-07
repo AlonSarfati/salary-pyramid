@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles, Layers, Edit } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -806,15 +807,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   };
 
   const parseCSV = (csvText: string): Array<{ componentName: string; expression: string; group: string }> => {
-    const lines = csvText.split('\n').filter(line => line.trim());
+    const lines = csvText.split(/\r?\n/).filter(line => line.trim());
     if (lines.length === 0) {
       throw new Error('CSV file is empty');
     }
 
-    // Parse header (optional, but check if first line is header)
-    const header = lines[0].toLowerCase().trim();
-    const hasHeader = header.includes('component') || header.includes('name') || header.includes('expression') || header.includes('group');
-    const dataLines = hasHeader ? lines.slice(1) : lines;
+    // Always skip first row (header)
+    const dataLines = lines.slice(1);
 
     const results: Array<{ componentName: string; expression: string; group: string }> = [];
 
@@ -822,46 +821,130 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       const line = dataLines[i].trim();
       if (!line) continue;
 
-      // Simple CSV parsing (handles quoted fields)
+      // Improved CSV parsing (handles quoted fields and escaped quotes)
       const fields: string[] = [];
       let currentField = '';
       let inQuotes = false;
 
       for (let j = 0; j < line.length; j++) {
         const char = line[j];
+        const nextChar = line[j + 1];
+
         if (char === '"') {
-          inQuotes = !inQuotes;
+          if (inQuotes && nextChar === '"') {
+            // Escaped quote
+            currentField += '"';
+            j++; // Skip next quote
+          } else {
+            // Toggle quote state
+            inQuotes = !inQuotes;
+          }
         } else if (char === ',' && !inQuotes) {
+          // End of field
           fields.push(currentField.trim());
           currentField = '';
         } else {
           currentField += char;
         }
       }
-      fields.push(currentField.trim()); // Add last field
+      // Add last field
+      fields.push(currentField.trim());
 
+      // Map by position: column 0 = name, column 1 = expression, column 2 = group
       if (fields.length < 3) {
-        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Expected 3 columns (component name, rule expression, group), found ${fields.length}`);
+        throw new Error(`Row ${i + 2}: Expected at least 3 columns (component name, rule expression, group), found ${fields.length}`);
       }
 
-      const componentName = fields[0].replace(/^"|"$/g, '').trim();
-      const expression = fields[1].replace(/^"|"$/g, '').trim();
-      const group = fields[2].replace(/^"|"$/g, '').trim();
+      const componentName = fields[0]?.replace(/^"|"$/g, '').trim() || '';
+      const expression = fields[1]?.replace(/^"|"$/g, '').trim() || '';
+      const group = fields[2]?.replace(/^"|"$/g, '').trim() || '';
 
       if (!componentName) {
-        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Component name is required`);
+        throw new Error(`Row ${i + 2}: Component name (column 1) is required`);
       }
       if (!expression) {
-        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Rule expression is required`);
+        throw new Error(`Row ${i + 2}: Rule expression (column 2) is required`);
       }
       if (!group) {
-        throw new Error(`Row ${i + (hasHeader ? 2 : 1)}: Group is required`);
+        throw new Error(`Row ${i + 2}: Group (column 3) is required`);
       }
 
       results.push({ componentName, expression, group });
     }
 
     return results;
+  };
+
+  const parseXLSX = (file: File): Promise<Array<{ componentName: string; expression: string; group: string }>> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'binary' });
+          
+          // Get first sheet
+          const firstSheetName = workbook.SheetNames[0];
+          if (!firstSheetName) {
+            reject(new Error('Excel file has no sheets'));
+            return;
+          }
+
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
+
+          if (rows.length === 0) {
+            reject(new Error('Excel file is empty'));
+            return;
+          }
+
+          // Always skip first row (header)
+          const dataRows = rows.slice(1);
+
+          const results: Array<{ componentName: string; expression: string; group: string }> = [];
+
+          for (let i = 0; i < dataRows.length; i++) {
+            const row = dataRows[i];
+            
+            // Skip empty rows
+            if (!row || row.length === 0 || (row[0] === '' && row[1] === '' && row[2] === '')) {
+              continue;
+            }
+
+            // Map by position: column 0 = name, column 1 = expression, column 2 = group
+            if (row.length < 3) {
+              reject(new Error(`Row ${i + 2}: Expected at least 3 columns (component name, rule expression, group), found ${row.length}`));
+              return;
+            }
+
+            const componentName = String(row[0] || '').trim();
+            const expression = String(row[1] || '').trim();
+            const group = String(row[2] || '').trim();
+
+            if (!componentName) {
+              reject(new Error(`Row ${i + 2}: Component name (column 1) is required`));
+              return;
+            }
+            if (!expression) {
+              reject(new Error(`Row ${i + 2}: Rule expression (column 2) is required`));
+              return;
+            }
+            if (!group) {
+              reject(new Error(`Row ${i + 2}: Group (column 3) is required`));
+              return;
+            }
+
+            results.push({ componentName, expression, group });
+          }
+
+          resolve(results);
+        } catch (err: any) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read Excel file'));
+      reader.readAsBinaryString(file);
+    });
   };
 
   const handleImportCSV = async (file: File) => {
@@ -874,8 +957,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setImporting(true);
       setImportError(null);
 
-      const text = await file.text();
-      const rows = parseCSV(text);
+      let rows: Array<{ componentName: string; expression: string; group: string }>;
+      
+      // Check file extension
+      const fileName = file.name.toLowerCase();
+      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        // Parse XLSX file
+        rows = await parseXLSX(file);
+      } else {
+        // Parse CSV file
+        const text = await file.text();
+        rows = parseCSV(text);
+      }
 
       if (rows.length === 0) {
         setImportError('No valid rows found in CSV file');
@@ -884,13 +977,22 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
       // Convert group numbers/names to actual group names
       const getActualGroupName = (groupInput: string): string => {
+        // First, normalize the input
+        let normalizedInput = groupInput.trim();
+        
+        // If it's just a number (1, 2, 3, etc.), convert to "group1", "group2", etc.
+        const numericMatch = normalizedInput.match(/^\d+$/);
+        if (numericMatch) {
+          normalizedInput = `group${normalizedInput}`;
+        }
+        
         // Check if it's a group number (group1, group2, etc.)
-        if (groupNumberToName[groupInput]) {
-          return groupNumberToName[groupInput];
+        if (groupNumberToName[normalizedInput]) {
+          return groupNumberToName[normalizedInput];
         }
         // Check if it's already a group name
-        if (componentGroups.some(g => g.groupName.toLowerCase() === groupInput.toLowerCase())) {
-          return groupInput;
+        if (componentGroups.some(g => g.groupName.toLowerCase() === normalizedInput.toLowerCase())) {
+          return normalizedInput;
         }
         // Default to 'core' if not found
         return 'core';
@@ -2024,32 +2126,36 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       {/* CSV Import Dialog */}
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Import Rules from CSV</DialogTitle>
+            <DialogHeader>
+            <DialogTitle>Import Rules from CSV/Excel</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="text-sm text-gray-600">
-              <p className="mb-2">CSV format should have 3 columns:</p>
+              <p className="mb-2">File format should have 3 columns (first row is header and will be skipped):</p>
               <ol className="list-decimal list-inside space-y-1 ml-2">
-                <li>Component name</li>
-                <li>Rule expression</li>
-                <li>Group (group1, group2, etc. or group name)</li>
+                <li>Column 1: Component name</li>
+                <li>Column 2: Rule expression</li>
+                <li>Column 3: Group (group1, group2, etc. or group name)</li>
               </ol>
               <p className="mt-3 text-xs text-gray-500">
                 Example:<br />
                 <code className="bg-gray-100 px-2 py-1 rounded block mt-1">
+                  Component Name,Expression,Group<br />
                   BaseSalary,10000,group1<br />
                   Bonus,BaseSalary * 0.1,group2
                 </code>
               </p>
+              <p className="mt-2 text-xs text-gray-500">
+                Supported formats: CSV (.csv), Excel (.xlsx, .xls)
+              </p>
             </div>
             
             <div>
-              <Label htmlFor="csv-file">Select CSV File</Label>
+              <Label htmlFor="csv-file">Select CSV or Excel File</Label>
               <Input
                 id="csv-file"
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {

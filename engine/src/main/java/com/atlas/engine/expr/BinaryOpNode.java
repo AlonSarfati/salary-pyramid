@@ -9,6 +9,7 @@ public class BinaryOpNode implements ExprNode {
         SUBTRACT("-"),
         MULTIPLY("*"),
         DIVIDE("/"),
+        POWER("^"),
         EQUALS("="),
         NOT_EQUALS("!="),
         GREATER_THAN(">"),
@@ -70,6 +71,7 @@ public class BinaryOpNode implements ExprNode {
             case SUBTRACT -> leftValue.subtract(rightValue);
             case MULTIPLY -> leftValue.multiply(rightValue);
             case DIVIDE -> leftValue.divide(rightValue);
+            case POWER -> leftValue.power(rightValue);
             case EQUALS -> leftValue.equals(rightValue);
             case NOT_EQUALS -> leftValue.notEquals(rightValue);
             case GREATER_THAN -> leftValue.greaterThan(rightValue);
