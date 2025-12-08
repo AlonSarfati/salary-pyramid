@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, Upload, Download, Users, Loader2, FileText, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -193,90 +194,182 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
     }
   };
 
-  const handleCsvUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const parseCSV = (text: string): Array<{ employeeId: string; name?: string; data: Record<string, any> }> => {
+    const lines = text.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      throw new Error("File must have at least a header row and one data row.");
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim());
+    const employeeIdIndex = headers.indexOf('employeeId');
+    const nameIndex = headers.indexOf('name');
+
+    if (employeeIdIndex === -1) {
+      throw new Error('File must have an "employeeId" column.');
+    }
+
+    const employeesToCreate: Array<{ employeeId: string; name?: string; data: Record<string, any> }> = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim());
+      const employeeId = values[employeeIdIndex];
+      
+      if (!employeeId) {
+        console.warn(`Skipping row ${i + 1}: missing employeeId`);
+        continue;
+      }
+
+      const data: Record<string, any> = {};
+      const name = nameIndex >= 0 ? values[nameIndex] : '';
+
+      // All other columns go into data
+      headers.forEach((header, idx) => {
+        if (header !== 'employeeId' && header !== 'name' && idx < values.length) {
+          const value = values[idx];
+          // Try to parse as number if possible
+          if (value && !isNaN(Number(value)) && value !== '') {
+            data[header] = Number(value);
+          } else if (value.toLowerCase() === 'true' || value === '1') {
+            data[header] = true;
+          } else if (value.toLowerCase() === 'false' || value === '0') {
+            data[header] = false;
+          } else {
+            data[header] = value;
+          }
+        }
+      });
+
+      employeesToCreate.push({
+        employeeId,
+        name: name || undefined,
+        data,
+      });
+    }
+
+    return employeesToCreate;
+  };
+
+  const parseXLSX = (file: File): Promise<Array<{ employeeId: string; name?: string; data: Record<string, any> }>> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+          if (jsonData.length < 2) {
+            throw new Error("File must have at least a header row and one data row.");
+          }
+
+          const headers = jsonData[0].map(h => String(h).trim());
+          const employeeIdIndex = headers.indexOf('employeeId');
+          const nameIndex = headers.indexOf('name');
+
+          if (employeeIdIndex === -1) {
+            throw new Error('File must have an "employeeId" column.');
+          }
+
+          const employeesToCreate: Array<{ employeeId: string; name?: string; data: Record<string, any> }> = [];
+
+          for (let i = 1; i < jsonData.length; i++) {
+            const row = jsonData[i];
+            if (!row || row.length === 0) continue;
+
+            const values = row.map(v => v !== null && v !== undefined ? String(v).trim() : '');
+            const employeeId = values[employeeIdIndex];
+            
+            if (!employeeId) {
+              console.warn(`Skipping row ${i + 1}: missing employeeId`);
+              continue;
+            }
+
+            const data: Record<string, any> = {};
+            const name = nameIndex >= 0 ? values[nameIndex] : '';
+
+            // All other columns go into data
+            headers.forEach((header, idx) => {
+              if (header !== 'employeeId' && header !== 'name' && idx < values.length) {
+                const value = values[idx];
+                // Try to parse as number if possible
+                if (value && !isNaN(Number(value)) && value !== '') {
+                  data[header] = Number(value);
+                } else if (value.toLowerCase() === 'true' || value === '1') {
+                  data[header] = true;
+                } else if (value.toLowerCase() === 'false' || value === '0') {
+                  data[header] = false;
+                } else {
+                  data[header] = value;
+                }
+              }
+            });
+
+            employeesToCreate.push({
+              employeeId,
+              name: name || undefined,
+              data,
+            });
+          }
+
+          resolve(employeesToCreate);
+        } catch (err: any) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  const handleCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const text = e.target?.result as string;
-        const lines = text.split('\n').filter(line => line.trim());
-        if (lines.length < 2) {
-          showToast("error", "Invalid CSV", "File must have at least a header row and one data row.");
-          return;
-        }
+    try {
+      let employeesToCreate: Array<{ employeeId: string; name?: string; data: Record<string, any> }> = [];
 
-        const headers = lines[0].split(',').map(h => h.trim());
-        const employeeIdIndex = headers.indexOf('employeeId');
-        const nameIndex = headers.indexOf('name');
-
-        if (employeeIdIndex === -1) {
-          showToast("error", "Invalid CSV", 'CSV must have an "employeeId" column.');
-          return;
-        }
-
-        const employeesToCreate: Array<{ employeeId: string; name?: string; data: Record<string, any> }> = [];
-
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map(v => v.trim());
-          const employeeId = values[employeeIdIndex];
-          
-          if (!employeeId) {
-            console.warn(`Skipping row ${i + 1}: missing employeeId`);
-            continue;
-          }
-
-          const data: Record<string, any> = {};
-          const name = nameIndex >= 0 ? values[nameIndex] : '';
-
-          // All other columns go into data
-          headers.forEach((header, idx) => {
-            if (header !== 'employeeId' && header !== 'name' && idx < values.length) {
-              const value = values[idx];
-              // Try to parse as number if possible
-              if (value && !isNaN(Number(value)) && value !== '') {
-                data[header] = Number(value);
-              } else if (value.toLowerCase() === 'true' || value === '1') {
-                data[header] = true;
-              } else if (value.toLowerCase() === 'false' || value === '0') {
-                data[header] = false;
-              } else {
-                data[header] = value;
-              }
-            }
-          });
-
-          employeesToCreate.push({
-            employeeId,
-            name: name || undefined,
-            data,
-          });
-        }
-
-        // Create all employees
-        let successCount = 0;
-        let errorCount = 0;
-        for (const emp of employeesToCreate) {
-          try {
-            await employeeApi.create({
-              tenantId,
-              ...emp,
-            });
-            successCount++;
-          } catch (err: any) {
-            console.error(`Failed to create employee ${emp.employeeId}:`, err);
-            errorCount++;
-          }
-        }
-
-        showToast("success", "Import complete", `${successCount} created, ${errorCount} failed.`);
-        await loadEmployees();
-      } catch (err: any) {
-        showToast("error", "Failed to parse CSV", err.message || "Unknown error");
+      // Determine file type and parse accordingly
+      const fileName = file.name.toLowerCase();
+      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        employeesToCreate = await parseXLSX(file);
+      } else if (fileName.endsWith('.csv')) {
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = () => reject(new Error("Failed to read file"));
+          reader.readAsText(file);
+        });
+        employeesToCreate = parseCSV(text);
+      } else {
+        showToast("error", "Unsupported file type", "Please upload a CSV or XLSX file.");
+        event.target.value = '';
+        return;
       }
-    };
-    reader.readAsText(file);
+
+      // Create all employees
+      let successCount = 0;
+      let errorCount = 0;
+      for (const emp of employeesToCreate) {
+        try {
+          await employeeApi.create({
+            tenantId,
+            ...emp,
+          });
+          successCount++;
+        } catch (err: any) {
+          console.error(`Failed to create employee ${emp.employeeId}:`, err);
+          errorCount++;
+        }
+      }
+
+      showToast("success", "Import complete", `${successCount} created, ${errorCount} failed.`);
+      await loadEmployees();
+    } catch (err: any) {
+      showToast("error", "Failed to parse file", err.message || "Unknown error");
+    }
+    
     // Reset input
     event.target.value = '';
   };
@@ -382,7 +475,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv"
+            accept=".csv,.xlsx,.xls"
             onChange={handleCsvUpload}
             style={{ display: 'none' }}
           />
@@ -391,7 +484,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="w-4 h-4 mr-2" />
-            Import CSV
+            Import CSV/XLSX
           </Button>
           <Button onClick={handleAdd}>
             <Plus className="w-4 h-4 mr-2" />
@@ -419,7 +512,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
             <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-[#1E1E1E] mb-2">No Employees</h3>
             <p className="text-gray-600 mb-6">
-              Get started by adding an employee manually or importing a CSV file
+              Get started by adding an employee manually or importing a CSV or Excel file
             </p>
             <Button onClick={handleAdd}>
               <Plus className="w-4 h-4 mr-2" />
@@ -429,58 +522,43 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         </Card>
       ) : (
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="overflow-x-auto -mx-6 px-6" style={{ width: '100%' }}>
+            <Table className="min-w-full">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Employee ID</TableHead>
-                  <TableHead>Name</TableHead>
-                  {Object.keys(requiredInputs).slice(0, 5).map(key => (
-                    <TableHead key={key}>{requiredInputs[key].label || requiredInputs[key].name}</TableHead>
+                  <TableHead className="sticky left-0 bg-white z-10 min-w-[120px]">Employee ID</TableHead>
+                  <TableHead className="sticky left-[120px] bg-white z-10 min-w-[150px]">Name</TableHead>
+                  {Object.keys(requiredInputs).map(key => (
+                    <TableHead key={key} className="min-w-[120px] whitespace-nowrap">
+                      {requiredInputs[key].label || requiredInputs[key].name}
+                    </TableHead>
                   ))}
-                  {Object.keys(requiredInputs).length > 5 && (
-                    <TableHead>More...</TableHead>
-                  )}
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="min-w-[100px]">Created</TableHead>
+                  <TableHead className="text-right min-w-[140px] sticky right-0 bg-white z-10">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {employees.map((emp) => (
                   <TableRow key={emp.employeeId}>
-                    <TableCell className="font-medium">{emp.employeeId}</TableCell>
-                    <TableCell>{emp.name || '-'}</TableCell>
-                    {Object.keys(requiredInputs).slice(0, 5).map(key => (
-                      <TableCell key={key}>
+                    <TableCell className="font-medium sticky left-0 bg-white z-10">{emp.employeeId}</TableCell>
+                    <TableCell className="sticky left-[120px] bg-white z-10">{emp.name || '-'}</TableCell>
+                    {Object.keys(requiredInputs).map(key => (
+                      <TableCell key={key} className="whitespace-nowrap">
                         {emp.data[key] !== undefined && emp.data[key] !== null && emp.data[key] !== ''
                           ? String(emp.data[key])
                           : '-'}
                       </TableCell>
                     ))}
-                    {Object.keys(requiredInputs).length > 5 && (
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {Object.keys(requiredInputs).slice(5).map(key => {
-                            const value = emp.data[key];
-                            if (value === undefined || value === null || value === '') return null;
-                            return (
-                              <span key={key} className="text-xs bg-gray-100 px-2 py-1 rounded">
-                                {requiredInputs[key].label || key}: {String(value)}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </TableCell>
-                    )}
-                    <TableCell className="text-sm text-gray-600">
+                    <TableCell className="text-sm text-gray-600 whitespace-nowrap">
                       {new Date(emp.createdAt).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right sticky right-0 bg-white z-10 min-w-[140px]">
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleEdit(emp)}
+                          className="flex-shrink-0"
                         >
                           <Edit className="w-4 h-4" />
                         </Button>
@@ -488,6 +566,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteRequest(emp)}
+                          className="flex-shrink-0"
                         >
                           <Trash2 className="w-4 h-4 text-red-600" />
                         </Button>
