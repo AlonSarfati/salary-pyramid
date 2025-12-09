@@ -440,6 +440,17 @@ export const tableApi = {
       body: JSON.stringify({ rows }),
     });
   },
+
+  // Delete a table (definition and all rows)
+  async deleteTable(
+    tenantId: string,
+    component: string,
+    tableName: string
+  ): Promise<{ status: string }> {
+    return apiCall(`/tables/${tenantId}/${encodeURIComponent(component)}/${encodeURIComponent(tableName)}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // Component Groups

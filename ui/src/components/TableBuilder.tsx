@@ -9,6 +9,7 @@ import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import { tableApi, rulesetApi } from '../services/apiService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { useToast } from './ToastProvider';
 import * as XLSX from 'xlsx';
 
 interface TableColumn {
@@ -32,6 +33,8 @@ interface TableDef {
 }
 
 export default function TableBuilder({ tenantId = 'default' }: { tenantId?: string }) {
+  const { showToast } = useToast();
+  
   // Load persisted state from localStorage
   const getStoredState = () => {
     try {
@@ -53,13 +56,14 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [showDeleteRowDialog, setShowDeleteRowDialog] = useState(false);
   const [rowIndexToDelete, setRowIndexToDelete] = useState<number | null>(null);
   const [showImportCSVDialog, setShowImportCSVDialog] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [showDeleteTableDialog, setShowDeleteTableDialog] = useState(false);
+  const [showDeleteAllRowsDialog, setShowDeleteAllRowsDialog] = useState(false);
 
   // Save state to localStorage whenever it changes
   useEffect(() => {
@@ -77,7 +81,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
   const [tableName, setTableName] = useState('');
   const [description, setDescription] = useState('');
   const [columns, setColumns] = useState<TableColumn[]>([{ name: '', type: 'string' }]);
-  const [rows, setRows] = useState<Array<{ effectiveFrom: string; effectiveTo: string; keys: Record<string, any>; value: string }>>([]);
+  const [rows, setRows] = useState<Array<{ effectiveFrom: string; effectiveTo: string; keys: Record<string, any>; value: string; _numberKeyStrings?: Record<string, string> }>>([]);
 
   // Load available components from rulesets
   const [availableComponents, setAvailableComponents] = useState<string[]>([]);
@@ -192,7 +196,18 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
         return col;
       });
       setColumns(columnsWithRanges.length > 0 ? columnsWithRanges : [{ name: '', type: 'string' }]);
-      setRows(data.rows || []);
+      // Initialize _numberKeyStrings for number columns to preserve decimal values
+      const rowsWithStrings = (data.rows || []).map((row: any) => {
+        const newRow = { ...row, _numberKeyStrings: {} };
+        // For each number column, store the string representation
+        columnsWithRanges.forEach((col: any) => {
+          if (col.type === 'number' && !col.usesRanges && row.keys[col.name] !== undefined) {
+            newRow._numberKeyStrings[col.name] = String(row.keys[col.name]);
+          }
+        });
+        return newRow;
+      });
+      setRows(rowsWithStrings);
     } catch (err: any) {
       // Only show error for actual failures, not for missing tables (which now return empty data)
       if (err.status !== 404) {
@@ -252,6 +267,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       effectiveTo: '9999-12-31',
       keys: {},
       value: '0',
+      _numberKeyStrings: {},
     };
     // Initialize keys for each column
     columns.forEach(col => {
@@ -261,6 +277,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
           newRow.keys[col.name] = { min: 0, max: null };
         } else if (col.type === 'number') {
           newRow.keys[col.name] = 0;
+          newRow._numberKeyStrings[col.name] = '0';
         } else {
           newRow.keys[col.name] = '';
         }
@@ -336,14 +353,13 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
       setSaving(true);
       setError(null);
-      setSuccess(null);
       try {
         await tableApi.saveTableDef(tenantId, selectedComponent, tableName, description, validColumns);
-      setSuccess('Table definition saved successfully!');
-      await loadTables();
-      setSelectedTable(tableName);
+        showToast("success", "Table Definition Saved", "Table definition saved successfully!");
+        await loadTables();
+        setSelectedTable(tableName);
     } catch (err: any) {
-      setError(err.message || 'Failed to save table definition');
+      showToast("error", "Save Failed", err.message || 'Failed to save table definition');
     } finally {
       setSaving(false);
     }
@@ -351,13 +367,12 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
   const handleSaveRows = async () => {
     if (!selectedComponent || !tableName.trim()) {
-      setError('Component and table name are required');
+      showToast("error", "Validation Error", "Component and table name are required");
       return;
     }
 
     setSaving(true);
     setError(null);
-    setSuccess(null);
     try {
       const rowsToSave = rows.map(row => ({
         effectiveFrom: row.effectiveFrom || '1900-01-01',
@@ -366,10 +381,58 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
         value: parseFloat(row.value) || 0,
       }));
       const result = await tableApi.saveTableRows(tenantId, selectedComponent, tableName, rowsToSave);
-      setSuccess(`Successfully saved ${result.upserted} row(s)!`);
+      showToast("success", "Rows Saved", `Successfully saved ${result.upserted} row(s)!`);
       await loadTableData();
     } catch (err: any) {
-      setError(err.message || 'Failed to save rows');
+      showToast("error", "Save Failed", err.message || 'Failed to save rows');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAllRows = async () => {
+    if (!selectedComponent || !tableName.trim()) {
+      setError('Component and table name are required');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      // Save empty rows array to delete all rows
+      await tableApi.saveTableRows(tenantId, selectedComponent, tableName, []);
+      showToast("success", "Rows Deleted", "All rows deleted successfully!");
+      setRows([]);
+      setShowDeleteAllRowsDialog(false);
+    } catch (err: any) {
+      showToast("error", "Delete Failed", err.message || 'Failed to delete rows');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteTable = async () => {
+    if (!selectedComponent || !tableName.trim()) {
+      setError('Component and table name are required');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await tableApi.deleteTable(tenantId, selectedComponent, tableName);
+      showToast("success", "Table Deleted", "Table deleted successfully!");
+      setShowDeleteTableDialog(false);
+      // Reset form and reload tables
+      await loadTables();
+      setSelectedTable(null);
+      setTableName('');
+      setDescription('');
+      setColumns([{ name: '', type: 'string' }]);
+      setRows([]);
+      setTableData(null);
+    } catch (err: any) {
+      showToast("error", "Delete Failed", err.message || 'Failed to delete table');
     } finally {
       setSaving(false);
     }
@@ -754,7 +817,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       // Replace existing rows with imported rows
       setRows(importedRows);
       setShowImportCSVDialog(false);
-      setSuccess(`Successfully imported ${importedRows.length} row(s) from ${fileName.endsWith('.xlsx') || fileName.endsWith('.xls') ? 'Excel' : 'CSV'}`);
+      showToast("success", "Import Successful", `Successfully imported ${importedRows.length} row(s) from ${fileName.endsWith('.xlsx') || fileName.endsWith('.xls') ? 'Excel' : 'CSV'}`);
     } catch (err: any) {
       setImportError(err.message || 'Failed to parse file');
     } finally {
@@ -793,11 +856,6 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
           </div>
         )}
 
-        {success && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700">
-            {success}
-          </div>
-        )}
 
         {selectedComponent && (
           <>
@@ -929,23 +987,36 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                       </div>
                     </div>
 
-                    <Button
-                      onClick={handleSaveTableDef}
-                      disabled={saving || !tableName.trim()}
-                      className="w-full"
-                    >
-                      {saving ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-4 h-4 mr-2" />
-                          Save Table Definition
-                        </>
+                    <div className="flex gap-2 mt-4">
+                      {selectedTable && (
+                        <Button
+                          onClick={() => setShowDeleteTableDialog(true)}
+                          disabled={saving}
+                          variant="destructive"
+                          className="flex-1"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Table
+                        </Button>
                       )}
-                    </Button>
+                      <Button
+                        onClick={handleSaveTableDef}
+                        disabled={saving || !tableName.trim()}
+                        className="flex-1"
+                      >
+                        {saving ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4 mr-2" />
+                            Save Table Definition
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </Card>
 
@@ -1066,30 +1137,70 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                                     ) : (
                                       <Input
                                         type={col.type === 'number' ? 'number' : 'text'}
-                                        value={typeof row.keys[col.name] === 'object' ? '' : (row.keys[col.name] || '')}
+                                        value={typeof row.keys[col.name] === 'object' ? '' : (
+                                          row._numberKeyStrings && row._numberKeyStrings[col.name] !== undefined
+                                            ? row._numberKeyStrings[col.name]
+                                            : (row.keys[col.name] !== undefined && row.keys[col.name] !== null ? String(row.keys[col.name]) : '')
+                                        )}
                                         onFocus={(e) => {
                                           if (col.type === 'number') {
                                             e.target.select();
                                           }
                                         }}
-                                        onKeyDown={(e) => {
-                                          if (col.type === 'number') {
-                                            const currentValue = row.keys[col.name] || 0;
-                                            // If value is 0 and user presses a digit, clear the input first
-                                            if (currentValue === 0 && /^[0-9]$/.test(e.key)) {
-                                              e.currentTarget.value = '';
-                                            }
-                                          }
-                                        }}
                                         onChange={(e) => {
                                           if (col.type === 'number') {
-                                            handleRowChange(rowIndex, col.name, parseFloat(e.target.value) || 0);
+                                            let val = e.target.value;
+                                            const newRows = [...rows];
+                                            // Store the string value for display (to preserve decimals like "0.0", "0.07")
+                                            if (!newRows[rowIndex]._numberKeyStrings) {
+                                              newRows[rowIndex] = { ...newRows[rowIndex], _numberKeyStrings: {} };
+                                            }
+                                            
+                                            // Normalize leading zeros only for integers (not decimals)
+                                            // This allows "0.1", "0.07", etc. to be preserved
+                                            // But "0001" will become "1" immediately
+                                            if (val && !val.includes('.') && val.match(/^0+[1-9]/)) {
+                                              // Remove leading zeros for integers (e.g., "0001" -> "1")
+                                              val = val.replace(/^0+/, '') || '0';
+                                            }
+                                            
+                                            newRows[rowIndex]._numberKeyStrings![col.name] = val;
+                                            
+                                            // Also store the numeric value for calculations
+                                            if (val === '' || val === '-') {
+                                              newRows[rowIndex].keys[col.name] = 0;
+                                            } else {
+                                              const numVal = parseFloat(val);
+                                              newRows[rowIndex].keys[col.name] = isNaN(numVal) ? 0 : numVal;
+                                            }
+                                            setRows(newRows);
                                           } else {
                                             handleRowChange(rowIndex, col.name, e.target.value);
                                           }
                                         }}
+                                        onBlur={(e) => {
+                                          if (col.type === 'number') {
+                                            // On blur, normalize the value (remove leading zeros, but preserve decimals)
+                                            const val = e.target.value;
+                                            if (val && !val.includes('.')) {
+                                              // Normalize integers: "0001" -> "1", but "0" stays "0"
+                                              const normalized = val.replace(/^0+/, '') || '0';
+                                              if (normalized !== val) {
+                                                const newRows = [...rows];
+                                                if (!newRows[rowIndex]._numberKeyStrings) {
+                                                  newRows[rowIndex] = { ...newRows[rowIndex], _numberKeyStrings: {} };
+                                                }
+                                                newRows[rowIndex]._numberKeyStrings![col.name] = normalized;
+                                                const numVal = parseFloat(normalized);
+                                                newRows[rowIndex].keys[col.name] = isNaN(numVal) ? 0 : numVal;
+                                                setRows(newRows);
+                                              }
+                                            }
+                                          }
+                                        }}
                                         className="w-full"
                                         min={col.type === 'number' ? 0 : undefined}
+                                        step={col.type === 'number' ? 'any' : undefined}
                                       />
                                     )}
                                   </td>
@@ -1097,17 +1208,33 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                                 <td className="border p-2">
                                   <Input
                                     type="number"
-                                    step="0.01"
+                                    step="any"
                                     value={row.value}
                                     onFocus={(e) => e.target.select()}
-                                    onKeyDown={(e) => {
-                                      const currentValue = row.value || '0';
-                                      // If value is 0 and user presses a digit, clear the input first
-                                      if (currentValue === '0' && /^[0-9]$/.test(e.key)) {
-                                        e.currentTarget.value = '';
+                                    onChange={(e) => {
+                                      let val = e.target.value;
+                                      // Normalize leading zeros only for integers (not decimals)
+                                      // This allows "0.1", "0.07", etc. to be preserved
+                                      // But "0001" will become "1" immediately
+                                      if (val && !val.includes('.') && val.match(/^0+[1-9]/)) {
+                                        // Remove leading zeros for integers (e.g., "0001" -> "1")
+                                        val = val.replace(/^0+/, '') || '0';
+                                      }
+                                      // Preserve the string value to allow decimal input like "0.0", "0.07", "0.073"
+                                      // The value will be parsed to number when saving
+                                      handleRowChange(rowIndex, 'value', val === '' ? '0' : val);
+                                    }}
+                                    onBlur={(e) => {
+                                      // On blur, normalize the value (remove leading zeros, but preserve decimals)
+                                      const val = e.target.value;
+                                      if (val && !val.includes('.')) {
+                                        // Normalize integers: "0001" -> "1", but "0" stays "0"
+                                        const normalized = val.replace(/^0+/, '') || '0';
+                                        if (normalized !== val) {
+                                          handleRowChange(rowIndex, 'value', normalized);
+                                        }
                                       }
                                     }}
-                                    onChange={(e) => handleRowChange(rowIndex, 'value', e.target.value)}
                                     className="w-full"
                                   />
                                 </td>
@@ -1130,23 +1257,34 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                     )}
 
                     {rows.length > 0 && (
-                      <Button
-                        onClick={handleSaveRows}
-                        disabled={saving}
-                        className="w-full mt-4"
-                      >
-                        {saving ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-4 h-4 mr-2" />
-                            Save Rows
-                          </>
-                        )}
-                      </Button>
+                      <div className="flex gap-2 mt-4">
+                        <Button
+                          onClick={() => setShowDeleteAllRowsDialog(true)}
+                          disabled={saving}
+                          variant="destructive"
+                          className="flex-1"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete All Rows
+                        </Button>
+                        <Button
+                          onClick={handleSaveRows}
+                          disabled={saving}
+                          className="flex-1"
+                        >
+                          {saving ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4 mr-2" />
+                              Save Rows
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     )}
                   </Card>
                 )}
@@ -1161,6 +1299,82 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
           </div>
         )}
       </Card>
+
+      {/* Delete Table Dialog */}
+      <Dialog open={showDeleteTableDialog} onOpenChange={setShowDeleteTableDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Table</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to delete the entire table "{tableName}"? This will permanently delete the table definition and all its rows. This action cannot be undone.
+          </p>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteTableDialog(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteTable}
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Table
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete All Rows Dialog */}
+      <Dialog open={showDeleteAllRowsDialog} onOpenChange={setShowDeleteAllRowsDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete All Rows</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mt-2">
+            Are you sure you want to delete all rows from the table "{tableName}"? The table definition will be kept, but all data will be permanently removed. This action cannot be undone.
+          </p>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteAllRowsDialog(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAllRows}
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete All Rows
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Row Dialog */}
       <Dialog open={showDeleteRowDialog} onOpenChange={setShowDeleteRowDialog}>

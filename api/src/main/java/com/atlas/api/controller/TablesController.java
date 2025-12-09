@@ -199,6 +199,30 @@ public class TablesController {
         return ResponseEntity.ok(result);
     }
 
+    // Delete a table (definition and all rows)
+    @DeleteMapping("/{tenantId}/{component}/{tableName}")
+    public ResponseEntity<?> deleteTable(@PathVariable String tenantId,
+                                       @PathVariable String component,
+                                       @PathVariable String tableName) {
+        // First delete all rows
+        jdbc.update("""
+            DELETE FROM comp_table_row
+             WHERE tenant_id=:t AND component_target=:c AND table_name=:n
+            """, Map.of("t", tenantId, "c", component, "n", tableName));
+        
+        // Then delete the table definition
+        int deleted = jdbc.update("""
+            DELETE FROM comp_table
+             WHERE tenant_id=:t AND component_target=:c AND table_name=:n
+            """, Map.of("t", tenantId, "c", component, "n", tableName));
+        
+        if (deleted == 0) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        return ResponseEntity.ok(Map.of("status", "deleted", "tableName", tableName));
+    }
+
     private String toJson(Object o) {
         try { return mapper.writeValueAsString(o); }
         catch (Exception e) { throw new RuntimeException(e); }
