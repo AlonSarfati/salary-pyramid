@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Upload, Play, Download, Users, Loader2, Plus, Trash2, X } from 'lucide-react';
 import { Card } from './ui/card';
 import { Label } from './ui/label';
@@ -15,6 +15,7 @@ import { formatCurrency as formatCurrencyUtil } from '../utils/currency';
 
 export default function SimulateBulk({ tenantId = "default" }: { tenantId?: string }) {
   const { showToast } = useToast();
+  const currency = useCurrency(tenantId);
   const [hasData, setHasData] = useState(false);
   const [comparisonMode, setComparisonMode] = useState(false);
   const [simulating, setSimulating] = useState(false);
@@ -52,6 +53,9 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const [baselineResult, setBaselineResult] = useState<SimBulkResponse | null>(null);
   const [baselineRulesetId, setBaselineRulesetId] = useState<string | null>(null);
   const [baselinePayMonth, setBaselinePayMonth] = useState<string>('');
+  
+  // Ref for scrolling to results
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Fetch rulesets
   useEffect(() => {
@@ -367,12 +371,23 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
         setBaselineResult(result);
         setBaselineRulesetId(selectedRulesetId);
         setBaselinePayMonth(payMonth);
+        showToast("success", "Baseline Simulation Complete", `Simulated ${employees.length} employee(s) successfully.`);
       } else {
         setSimulationResult(result);
         setHasData(true);
+        
+        // Format currency for toast message (currency is defined at component level)
+        const formattedTotal = formatCurrencyUtil(Number(result.grandTotal), currency);
+        showToast("success", "Simulation Complete", `Simulated ${employees.length} employee(s) successfully. Total cost: ${formattedTotal}`);
+        
+        // Scroll to results after a short delay to ensure DOM is updated
+        setTimeout(() => {
+          resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
       }
     } catch (e: any) {
       setSimulationError(e.message || 'Failed to run simulation');
+      showToast("error", "Simulation Failed", e.message || 'Failed to run simulation');
       console.error('Simulation error:', e);
     } finally {
       setSimulating(false);
@@ -433,9 +448,6 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     };
   });
 
-  // Get currency for tenant
-  const currency = useCurrency(tenantId);
-  
   // Format currency using utility
   const formatCurrency = (amount: number) => {
     return formatCurrencyUtil(amount, currency);
@@ -802,7 +814,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
       </Card>
 
       {hasData && simulationResult && (
-        <>
+        <div ref={resultsRef}>
           {/* Summary Card */}
           <Card className="p-6 bg-white rounded-xl shadow-sm border-0 mb-6">
             <div className="flex items-center justify-between">
@@ -979,7 +991,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
               </table>
             </div>
           </Card>
-        </>
+        </div>
       )}
 
       {!hasData && employees.length === 0 && (
