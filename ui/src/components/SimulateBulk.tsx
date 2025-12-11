@@ -224,6 +224,30 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     showToast("success", "Employees loaded", `Added ${uniqueNewEmployees.length} employee(s) to the simulation.`);
   };
 
+  const handleRemoveFilteredEmployees = () => {
+    const filtered = getFilteredEmployees();
+    if (filtered.length === 0) {
+      showToast("info", "No matches", "No employees match the current filters.");
+      return;
+    }
+    
+    // Get IDs of filtered employees
+    const filteredIds = new Set(filtered.map(emp => emp.employeeId));
+    
+    // Remove employees that match the filter
+    const remainingEmployees = employees.filter(emp => !filteredIds.has(emp.id));
+    
+    const removedCount = employees.length - remainingEmployees.length;
+    
+    if (removedCount === 0) {
+      showToast("info", "No matches", "No employees in the simulation list match the current filters.");
+      return;
+    }
+    
+    setEmployees(remainingEmployees);
+    showToast("success", "Employees removed", `Removed ${removedCount} employee(s) from the simulation.`);
+  };
+
   const handleAddFilter = () => {
     setFilters([...filters, { field: availableFields[0] || '', operator: 'equals', value: '' }]);
   };
@@ -663,14 +687,25 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
               </div>
             )}
             
-            <Button
-              onClick={handleLoadFilteredEmployees}
-              disabled={getFilteredEmployees().length === 0}
-              className="w-full"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Load All Matching Employees ({getFilteredEmployees().length})
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleLoadFilteredEmployees}
+                disabled={getFilteredEmployees().length === 0}
+                className="flex-1"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Load All Matching ({getFilteredEmployees().length})
+              </Button>
+              <Button
+                onClick={handleRemoveFilteredEmployees}
+                variant="destructive"
+                disabled={employees.length === 0 || getFilteredEmployees().length === 0}
+                className="flex-1"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Remove Matching
+              </Button>
+            </div>
           </Card>
         )}
 
