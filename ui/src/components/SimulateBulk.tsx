@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Play, Download, Users, Loader2, Plus, Trash2, X } from 'lucide-react';
+import { Upload, Play, Download, Users, Loader2, Plus, Trash2, X, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 import { Button } from './ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimBulkResponse, type Employee } from '../services/apiService';
 import { useToast } from "./ToastProvider";
 import { useCurrency } from '../hooks/useCurrency';
@@ -48,7 +49,16 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Array<{ field: string; operator: string; value: string }>>([]);
   const [availableFields, setAvailableFields] = useState<string[]>([]);
-
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+  
+  // Bulk edit dialog state
+  const [showBulkEditDialog, setShowBulkEditDialog] = useState(false);
+  const [bulkEditColumn, setBulkEditColumn] = useState<{ key: string; meta: { name: string; label: string; type: string; defaultValue: any; options?: string[]; min?: number } } | null>(null);
+  const [bulkEditValue, setBulkEditValue] = useState<any>('');
+  
   // Results state
   const [simulationResult, setSimulationResult] = useState<SimBulkResponse | null>(null);
   const [baselineResult, setBaselineResult] = useState<SimBulkResponse | null>(null);
@@ -293,13 +303,69 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   };
 
   const handleRemoveEmployee = (index: number) => {
-    setEmployees(employees.filter((_, i) => i !== index));
+    const updated = employees.filter((_, i) => i !== index);
+    setEmployees(updated);
+    // Reset to page 1 if current page becomes empty
+    const totalPages = Math.ceil(updated.length / itemsPerPage);
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    } else if (updated.length === 0) {
+      setCurrentPage(1);
+    }
   };
+  
+  // Pagination calculations
+  const totalPages = Math.ceil(employees.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedEmployees = employees.slice(startIndex, endIndex);
+  
+  // Reset to page 1 when employees list changes significantly
+  useEffect(() => {
+    const newTotalPages = Math.ceil(employees.length / itemsPerPage);
+    if (currentPage > newTotalPages && newTotalPages > 0) {
+      setCurrentPage(newTotalPages);
+    } else if (employees.length > 0 && currentPage < 1) {
+      setCurrentPage(1);
+    }
+  }, [employees.length, currentPage, itemsPerPage]);
 
   const handleEmployeeInputChange = (index: number, inputName: string, value: any) => {
     const updated = [...employees];
     updated[index].inputs[inputName] = value;
     setEmployees(updated);
+  };
+  
+  const handleBulkColumnEdit = (inputKey: string, value: any) => {
+    const updated = employees.map(emp => ({
+      ...emp,
+      inputs: {
+        ...emp.inputs,
+        [inputKey]: value
+      }
+    }));
+    setEmployees(updated);
+    showToast("success", "Column Updated", `Updated ${updated.length} employee(s) in this column.`);
+  };
+  
+  const handleOpenBulkEditDialog = (key: string) => {
+    const meta = requiredInputs[key];
+    setBulkEditColumn({ key, meta });
+    setBulkEditValue(meta.defaultValue || '');
+    setShowBulkEditDialog(true);
+  };
+  
+  const handleConfirmBulkEdit = () => {
+    if (!bulkEditColumn) return;
+    
+    const value = bulkEditColumn.meta.type === 'number' 
+      ? parseFloat(bulkEditValue) || 0 
+      : bulkEditValue;
+    
+    handleBulkColumnEdit(bulkEditColumn.key, value);
+    setShowBulkEditDialog(false);
+    setBulkEditColumn(null);
+    setBulkEditValue('');
   };
 
   const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -855,91 +921,225 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
             <p>No employees added. Click "Add Employee" or upload a CSV file.</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {employees.map((emp, idx) => (
-              <Card key={idx} className="p-4 border border-gray-200">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    <div>
-                      <Label>Employee ID</Label>
-                      <Input
-                        value={emp.id}
-                        onChange={(e) => {
-                          const updated = [...employees];
-                          updated[idx].id = e.target.value;
-                          setEmployees(updated);
-                        }}
-                        className="mt-1"
-                      />
-                    </div>
-                    {Object.entries(requiredInputs).map(([key, meta]) => (
-                      <div key={key}>
-                        <Label>{meta.label || meta.name}</Label>
-                        {meta.type === 'select' && meta.options ? (
-                          <Select
-                            value={String(emp.inputs[key] || '')}
-                            onValueChange={(value) => handleEmployeeInputChange(idx, key, value === '__empty__' ? '' : value)}
-                          >
-                            <SelectTrigger className="mt-1">
-                              <SelectValue placeholder={`Select ${meta.label}`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {meta.options.map((opt) => (
-                                <SelectItem key={opt} value={opt === '' ? '__empty__' : opt}>
-                                  {opt === '' ? '(Empty)' : opt}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : meta.type === 'boolean' ? (
-                          <div className="flex items-center gap-2 mt-2">
-                            <Switch
-                              checked={emp.inputs[key] === true || emp.inputs[key] === 1 || String(emp.inputs[key]).toLowerCase() === "true"}
-                              onCheckedChange={(checked) => handleEmployeeInputChange(idx, key, checked)}
-                            />
-                            <Label className="text-sm text-gray-600 cursor-pointer">
-                              {(emp.inputs[key] === true || emp.inputs[key] === 1 || String(emp.inputs[key]).toLowerCase() === "true") ? "True" : "False"}
-                            </Label>
+          <>
+            <div className="overflow-x-auto -mx-6 px-6" style={{ width: '100%' }}>
+              <Table className="min-w-full">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="sticky left-0 bg-white z-10 min-w-[120px]">Employee ID</TableHead>
+                    {Object.keys(requiredInputs).map(key => {
+                      const meta = requiredInputs[key];
+                      return (
+                        <TableHead key={key} className="min-w-[120px] whitespace-nowrap">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{meta.label || meta.name}</span>
+                            {meta.type === 'boolean' ? (
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => handleBulkColumnEdit(key, true)}
+                                  title="Set all to True"
+                                >
+                                  T
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => handleBulkColumnEdit(key, false)}
+                                  title="Set all to False"
+                                >
+                                  F
+                                </Button>
+                              </div>
+                            ) : meta.type === 'select' && meta.options ? (
+                              <Select
+                                onValueChange={(value) => handleBulkColumnEdit(key, value === '__empty__' ? '' : value)}
+                              >
+                                <SelectTrigger className="h-6 w-20 text-xs">
+                                  <Edit2 className="w-3 h-3" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {meta.options.map((opt) => (
+                                    <SelectItem key={opt} value={opt === '' ? '__empty__' : opt}>
+                                      {opt === '' ? '(Empty)' : opt}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => handleOpenBulkEditDialog(key)}
+                                title="Edit all values in this column"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </Button>
+                            )}
                           </div>
-                        ) : (
-                          <Input
-                            type={meta.type === 'number' ? 'number' : 'text'}
-                            value={emp.inputs[key] || ''}
-                            onChange={(e) => {
-                              const value = meta.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value;
-                              handleEmployeeInputChange(idx, key, value);
-                            }}
-                            min={meta.min}
-                            className="mt-1"
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex flex-col gap-2 ml-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleSaveEmployee(idx)}
-                      title="Save employee data for later use"
-                    >
-                      <Download className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleRemoveEmployee(idx)}
-                      title="Remove employee"
-                    >
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </Button>
-                  </div>
+                        </TableHead>
+                      );
+                    })}
+                    <TableHead className="text-right min-w-[140px] sticky right-0 bg-white z-10">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedEmployees.map((emp, localIdx) => {
+                    const globalIdx = startIndex + localIdx;
+                    return (
+                      <TableRow key={globalIdx}>
+                        <TableCell className="font-medium sticky left-0 bg-white z-10">
+                          <div className="w-full px-3 py-2 bg-gray-50 text-gray-700 rounded border border-gray-200">
+                            {emp.id}
+                          </div>
+                        </TableCell>
+                        {Object.keys(requiredInputs).map(key => {
+                          const meta = requiredInputs[key];
+                          return (
+                            <TableCell key={key} className="whitespace-nowrap">
+                              {meta.type === 'select' && meta.options ? (
+                                <Select
+                                  value={String(emp.inputs[key] || '')}
+                                  onValueChange={(value) => handleEmployeeInputChange(globalIdx, key, value === '__empty__' ? '' : value)}
+                                >
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder={`Select ${meta.label}`} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {meta.options.map((opt) => (
+                                      <SelectItem key={opt} value={opt === '' ? '__empty__' : opt}>
+                                        {opt === '' ? '(Empty)' : opt}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : meta.type === 'boolean' ? (
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    checked={emp.inputs[key] === true || emp.inputs[key] === 1 || String(emp.inputs[key]).toLowerCase() === "true"}
+                                    onCheckedChange={(checked) => handleEmployeeInputChange(globalIdx, key, checked)}
+                                  />
+                                  <span className="text-sm text-gray-600">
+                                    {(emp.inputs[key] === true || emp.inputs[key] === 1 || String(emp.inputs[key]).toLowerCase() === "true") ? "True" : "False"}
+                                  </span>
+                                </div>
+                              ) : (
+                                <Input
+                                  type={meta.type === 'number' ? 'number' : 'text'}
+                                  value={emp.inputs[key] || ''}
+                                  onChange={(e) => {
+                                    const value = meta.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value;
+                                    handleEmployeeInputChange(globalIdx, key, value);
+                                  }}
+                                  min={meta.min}
+                                  className="w-full"
+                                />
+                              )}
+                            </TableCell>
+                          );
+                        })}
+                        <TableCell className="text-right sticky right-0 bg-white z-10">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRemoveEmployee(globalIdx)}
+                              title="Remove employee"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-600" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                <div className="text-sm text-gray-600">
+                  Showing {startIndex + 1} to {Math.min(endIndex, employees.length)} of {employees.length} employees
                 </div>
-              </Card>
-            ))}
-          </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Previous
+                  </Button>
+                  <div className="text-sm text-gray-600">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </Card>
+
+      {/* Bulk Edit Dialog */}
+      <Dialog open={showBulkEditDialog} onOpenChange={setShowBulkEditDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk Edit Column</DialogTitle>
+          </DialogHeader>
+          {bulkEditColumn && (
+            <div className="space-y-4 py-4">
+              <div>
+                <Label>{bulkEditColumn.meta.label || bulkEditColumn.meta.name}</Label>
+                {bulkEditColumn.meta.type === 'number' ? (
+                  <Input
+                    type="number"
+                    value={bulkEditValue}
+                    onChange={(e) => setBulkEditValue(parseFloat(e.target.value) || 0)}
+                    min={bulkEditColumn.meta.min}
+                    className="mt-2"
+                    placeholder="Enter value"
+                  />
+                ) : (
+                  <Input
+                    type="text"
+                    value={bulkEditValue}
+                    onChange={(e) => setBulkEditValue(e.target.value)}
+                    className="mt-2"
+                    placeholder="Enter value"
+                  />
+                )}
+                <p className="text-sm text-gray-500 mt-2">
+                  This will update all {employees.length} employee(s) in this column.
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmBulkEdit}>
+              Apply to All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {hasData && simulationResult && (
         <div ref={resultsRef}>

@@ -821,16 +821,17 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       return (
                         <div
                           key={idx}
-                          className="grid grid-cols-12 gap-4 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                          className="grid grid-cols-12 gap-4 px-4 py-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors relative"
                         >
-                          <div className="col-span-4 flex items-center justify-between text-[#1E1E1E]">
+                          <button
+                            onClick={() => handleShowTrace(result.component)}
+                            className="absolute left-0 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 rounded -ml-8"
+                            title="Show calculation trace"
+                          >
+                            <Info className="w-4 h-4 text-[#0052CC]" />
+                          </button>
+                          <div className="col-span-4 flex items-center text-[#1E1E1E] min-w-0">
                             <span className="truncate">{result.component}</span>
-                            <button
-                              onClick={() => handleShowTrace(result.component)}
-                              className="p-1 ml-2 hover:bg-gray-200 rounded"
-                            >
-                              <Info className="w-4 h-4 text-[#0052CC]" />
-                            </button>
                           </div>
 
                           {isComparison ? (
