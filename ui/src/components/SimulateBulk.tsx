@@ -41,6 +41,11 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   // Saved employees state (from database)
   const [savedEmployees, setSavedEmployees] = useState<Employee[]>([]);
   const [savedEmployeesLoading, setSavedEmployeesLoading] = useState(false);
+  
+  // Filter state
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<Array<{ field: string; operator: string; value: string }>>([]);
+  const [availableFields, setAvailableFields] = useState<string[]>([]);
 
   // Results state
   const [simulationResult, setSimulationResult] = useState<SimBulkResponse | null>(null);
@@ -111,6 +116,32 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     return () => { cancelled = true; };
   }, [selectedRulesetId, tenantId, payMonth]);
 
+  // Load saved employees on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setSavedEmployeesLoading(true);
+        const employees = await employeeApi.list(tenantId);
+        if (!cancelled) {
+          setSavedEmployees(employees);
+          // Extract available fields from employee data
+          const fields = new Set<string>();
+          employees.forEach(emp => {
+            Object.keys(emp.data || {}).forEach(key => fields.add(key));
+          });
+          setAvailableFields(Array.from(fields).sort());
+        }
+      } catch (e: any) {
+        console.error('Failed to load employees:', e);
+        showToast("error", "Failed to load employees", e.message || "Unknown error");
+      } finally {
+        if (!cancelled) setSavedEmployeesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
   const handleAddEmployee = () => {
     const newEmployee = {
       id: `E${String(employees.length + 1).padStart(3, '0')}`,
@@ -128,6 +159,83 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
       inputs: { ...employee.data },
     };
     setEmployees([...employees, newEmployee]);
+  };
+
+  // Filter employees based on criteria
+  const getFilteredEmployees = (): Employee[] => {
+    if (filters.length === 0) return savedEmployees;
+    
+    return savedEmployees.filter(emp => {
+      return filters.every(filter => {
+        const fieldValue = emp.data?.[filter.field];
+        const filterValue = filter.value;
+        
+        if (fieldValue === undefined || fieldValue === null) {
+          return filter.operator === 'is_empty';
+        }
+        
+        switch (filter.operator) {
+          case 'equals':
+            return String(fieldValue).toLowerCase() === filterValue.toLowerCase();
+          case 'contains':
+            return String(fieldValue).toLowerCase().includes(filterValue.toLowerCase());
+          case 'greater_than':
+            return Number(fieldValue) > Number(filterValue);
+          case 'less_than':
+            return Number(fieldValue) < Number(filterValue);
+          case 'greater_equal':
+            return Number(fieldValue) >= Number(filterValue);
+          case 'less_equal':
+            return Number(fieldValue) <= Number(filterValue);
+          case 'is_empty':
+            return fieldValue === undefined || fieldValue === null || String(fieldValue).trim() === '';
+          case 'is_not_empty':
+            return fieldValue !== undefined && fieldValue !== null && String(fieldValue).trim() !== '';
+          default:
+            return true;
+        }
+      });
+    });
+  };
+
+  const handleLoadFilteredEmployees = () => {
+    const filtered = getFilteredEmployees();
+    if (filtered.length === 0) {
+      showToast("info", "No matches", "No employees match the current filters.");
+      return;
+    }
+    
+    // Convert filtered employees to simulation format
+    const newEmployees = filtered.map(emp => ({
+      id: emp.employeeId,
+      inputs: { ...emp.data },
+    }));
+    
+    // Merge with existing employees, avoiding duplicates
+    const existingIds = new Set(employees.map(e => e.id));
+    const uniqueNewEmployees = newEmployees.filter(e => !existingIds.has(e.id));
+    
+    if (uniqueNewEmployees.length === 0) {
+      showToast("info", "Already added", "All matching employees are already in the list.");
+      return;
+    }
+    
+    setEmployees([...employees, ...uniqueNewEmployees]);
+    showToast("success", "Employees loaded", `Added ${uniqueNewEmployees.length} employee(s) to the simulation.`);
+  };
+
+  const handleAddFilter = () => {
+    setFilters([...filters, { field: availableFields[0] || '', operator: 'equals', value: '' }]);
+  };
+
+  const handleRemoveFilter = (index: number) => {
+    setFilters(filters.filter((_, i) => i !== index));
+  };
+
+  const handleFilterChange = (index: number, field: 'field' | 'operator' | 'value', value: string) => {
+    const updated = [...filters];
+    updated[index] = { ...updated[index], [field]: value };
+    setFilters(updated);
   };
 
   const handleSaveEmployee = async (index: number) => {
@@ -443,26 +551,36 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
           <h3 className="text-[#1E1E1E]">Employees</h3>
           <div className="flex items-center gap-2">
             {savedEmployees.length > 0 && (
-              <Select
-                value=""
-                onValueChange={(value) => {
-                  const employee = savedEmployees.find(e => e.employeeId === value);
-                  if (employee) {
-                    handleSelectSavedEmployee(employee);
-                  }
-                }}
-              >
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Select saved employee..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {savedEmployees.map((emp) => (
-                    <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                      {emp.name || emp.employeeId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                <Button
+                  onClick={() => setShowFilters(!showFilters)}
+                  variant="outline"
+                  size="sm"
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Filter & Load
+                </Button>
+                <Select
+                  value=""
+                  onValueChange={(value) => {
+                    const employee = savedEmployees.find(e => e.employeeId === value);
+                    if (employee) {
+                      handleSelectSavedEmployee(employee);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Select saved employee..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {savedEmployees.map((emp) => (
+                      <SelectItem key={emp.employeeId} value={emp.employeeId}>
+                        {emp.name || emp.employeeId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
             )}
             <Button onClick={handleAddEmployee} size="sm">
               <Plus className="w-4 h-4 mr-2" />
@@ -470,6 +588,91 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
             </Button>
           </div>
         </div>
+
+        {/* Filter Section */}
+        {showFilters && savedEmployees.length > 0 && (
+          <Card className="p-4 mb-4 bg-gray-50 border border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-gray-700">Filter Employees</h4>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600">
+                  {getFilteredEmployees().length} of {savedEmployees.length} employees match
+                </span>
+                <Button onClick={handleAddFilter} size="sm" variant="outline">
+                  <Plus className="w-3 h-3 mr-1" />
+                  Add Filter
+                </Button>
+              </div>
+            </div>
+            
+            {filters.length === 0 ? (
+              <p className="text-sm text-gray-500 mb-3">No filters applied. Click "Add Filter" to start filtering.</p>
+            ) : (
+              <div className="space-y-2 mb-3">
+                {filters.map((filter, idx) => (
+                  <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200">
+                    <Select
+                      value={filter.field}
+                      onValueChange={(value) => handleFilterChange(idx, 'field', value)}
+                    >
+                      <SelectTrigger className="w-[150px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableFields.map(field => (
+                          <SelectItem key={field} value={field}>{field}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={filter.operator}
+                      onValueChange={(value) => handleFilterChange(idx, 'operator', value)}
+                    >
+                      <SelectTrigger className="w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="equals">Equals</SelectItem>
+                        <SelectItem value="contains">Contains</SelectItem>
+                        <SelectItem value="greater_than">Greater than</SelectItem>
+                        <SelectItem value="less_than">Less than</SelectItem>
+                        <SelectItem value="greater_equal">Greater or equal</SelectItem>
+                        <SelectItem value="less_equal">Less or equal</SelectItem>
+                        <SelectItem value="is_empty">Is empty</SelectItem>
+                        <SelectItem value="is_not_empty">Is not empty</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {filter.operator !== 'is_empty' && filter.operator !== 'is_not_empty' && (
+                      <Input
+                        value={filter.value}
+                        onChange={(e) => handleFilterChange(idx, 'value', e.target.value)}
+                        placeholder="Value..."
+                        className="flex-1"
+                      />
+                    )}
+                    <Button
+                      onClick={() => handleRemoveFilter(idx)}
+                      size="sm"
+                      variant="ghost"
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <Button
+              onClick={handleLoadFilteredEmployees}
+              disabled={getFilteredEmployees().length === 0}
+              className="w-full"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Load All Matching Employees ({getFilteredEmployees().length})
+            </Button>
+          </Card>
+        )}
 
         {employees.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
