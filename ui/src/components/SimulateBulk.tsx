@@ -1008,14 +1008,24 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
 
       {/* Employee Breakdown Dialog */}
       <Dialog open={selectedEmployee !== null} onOpenChange={(open) => !open && setSelectedEmployee(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent 
+          className="max-w-4xl flex flex-col p-0 overflow-hidden !top-[2rem] !translate-y-0"
+          style={{
+            left: '50%',
+            transform: 'translateX(-50%)',
+            maxHeight: 'calc(100vh - 4rem)',
+            height: 'auto',
+            position: 'fixed',
+            margin: 0
+          } as React.CSSProperties}
+        >
+          <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-gray-200">
             <DialogTitle className="text-[#1E1E1E]">
               Component Breakdown - {selectedEmployee?.id}
             </DialogTitle>
           </DialogHeader>
           {selectedEmployee && (
-            <div className="space-y-6">
+            <div className="space-y-6 flex-1 min-h-0 overflow-y-auto px-6 pb-6 pt-4">
               {/* Summary */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="p-4 bg-white border border-gray-200">
