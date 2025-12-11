@@ -12,6 +12,7 @@ import GlobalPayrollDashboard from './components/GlobalPayrollDashboard';
 import Optimizer from './components/Optimizer';
 import { tenantApi } from './services/apiService';
 import { ToastProvider } from './components/ToastProvider';
+import liraLogo from './assets/lira-logo.png';
 
 type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees' | 'dashboard' | 'optimizer';
 
@@ -102,7 +103,10 @@ export default function App() {
       {/* Left Sidebar */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-6 border-b border-gray-200">
-          <h1 className="text-[#0052CC]">Atlas Compensation</h1>
+          <div className="flex items-center gap-3">
+            <img src={liraLogo} alt="Lira Logo" className="h-8 w-auto" />
+            <h1 className="text-[#0052CC]">Lira Compensation</h1>
+          </div>
         </div>
         <nav className="flex-1 p-4">
           {navItems.map((item) => (
@@ -126,7 +130,7 @@ export default function App() {
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Top Bar */}
           <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-[#1E1E1E]">Atlas Compensation Simulator</h2>
+            <h2 className="text-[#1E1E1E]">Lira Compensation Simulator</h2>
             <div className="flex items-center gap-4">
               {!tenantsLoading && tenants.length > 0 && (
                 <div className="flex items-center gap-2">

@@ -44,7 +44,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto">
-      <h1 className="text-[#1E1E1E] mb-8">Welcome to Atlas Compensation Simulator</h1>
+      <h1 className="text-[#1E1E1E] mb-8">Welcome to Lira Compensation Simulator</h1>
 
       {/* Quick Actions */}
       <div className="flex gap-4 mb-8">
