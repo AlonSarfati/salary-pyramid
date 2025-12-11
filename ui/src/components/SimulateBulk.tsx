@@ -12,6 +12,7 @@ import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimBul
 import { useToast } from "./ToastProvider";
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrency as formatCurrencyUtil } from '../utils/currency';
+import * as XLSX from 'xlsx';
 
 export default function SimulateBulk({ tenantId = "default" }: { tenantId?: string }) {
   const { showToast } = useToast();
@@ -405,6 +406,133 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     // Enable comparison mode if it's not already enabled
     if (!comparisonMode) {
       setComparisonMode(true);
+    }
+  };
+
+  const handleExportResults = (format: 'xlsx' | 'csv' = 'xlsx') => {
+    if (!simulationResult) {
+      showToast("error", "No data to export", "Please run a simulation first.");
+      return;
+    }
+
+    try {
+      // Prepare employee results for export (same logic as employeeResults but computed here)
+      const exportEmployeeResults = simulationResult.results.map((r) => {
+        const baseline = baselineResult?.results.find((b) => b.employeeId === r.employeeId);
+        const baselineTotal = baseline ? Number(baseline.total) : 0;
+        const currentTotal = Number(r.total);
+        return {
+          id: r.employeeId,
+          total: currentTotal,
+          baselineTotal: comparisonMode && baselineResult ? baselineTotal : null,
+          delta: comparisonMode && baselineResult ? currentTotal - baselineTotal : 0,
+          components: r.components || {},
+          baselineComponents: baseline?.components || {},
+        };
+      });
+
+      if (exportEmployeeResults.length === 0) {
+        showToast("error", "No data to export", "No employee results available.");
+        return;
+      }
+
+      // Get all unique component names from all employees
+      const allComponentNames = new Set<string>();
+      exportEmployeeResults.forEach(emp => {
+        Object.keys(emp.components || {}).forEach(comp => allComponentNames.add(comp));
+      });
+      const sortedComponents = Array.from(allComponentNames).sort();
+
+      // Build header row
+      const headers: string[] = ['Employee ID', 'Total Compensation'];
+      if (comparisonMode && baselineResult) {
+        headers.push('Baseline Total', 'Difference');
+      }
+      sortedComponents.forEach(comp => {
+        headers.push(comp);
+        if (comparisonMode && baselineResult) {
+          headers.push(`${comp} (Baseline)`, `${comp} (Diff)`);
+        }
+      });
+
+      // Build data rows
+      const rows: any[][] = [headers];
+      exportEmployeeResults.forEach(emp => {
+        const row: any[] = [
+          emp.id,
+          emp.total
+        ];
+        
+        if (comparisonMode && baselineResult) {
+          row.push(emp.baselineTotal !== null ? emp.baselineTotal : 0);
+          row.push(emp.delta !== null ? emp.delta : 0);
+        }
+
+        sortedComponents.forEach(comp => {
+          const currentAmount = Number(emp.components[comp] || 0);
+          row.push(currentAmount);
+          
+          if (comparisonMode && baselineResult) {
+            const baselineAmount = Number(emp.baselineComponents[comp] || 0);
+            const diff = currentAmount - baselineAmount;
+            row.push(baselineAmount);
+            row.push(diff);
+          }
+        });
+
+        rows.push(row);
+      });
+
+      // Generate filename
+      const rulesetName = rulesets.find(r => r.rulesetId === selectedRulesetId)?.name || 'simulation';
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const filename = `simulation_results_${rulesetName}_${dateStr}`;
+
+      if (format === 'xlsx') {
+        // Create workbook and worksheet
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        
+        // Set column widths
+        const colWidths = headers.map((_, idx) => {
+          const maxLength = Math.max(
+            headers[idx].length,
+            ...rows.slice(1).map(r => String(r[idx] || '').length)
+          );
+          return { wch: Math.min(Math.max(maxLength + 2, 10), 50) };
+        });
+        ws['!cols'] = colWidths;
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'Results');
+        XLSX.writeFile(wb, `${filename}.xlsx`);
+        showToast("success", "Export Successful", "Results exported to Excel successfully.");
+      } else {
+        // CSV format
+        const csvContent = rows.map(row => 
+          row.map(cell => {
+            const str = String(cell || '');
+            // Escape quotes and wrap in quotes if contains comma, quote, or newline
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+              return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+          }).join(',')
+        ).join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${filename}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast("success", "Export Successful", "Results exported to CSV successfully.");
+      }
+    } catch (error: any) {
+      console.error('Export error:', error);
+      showToast("error", "Export Failed", error.message || "Failed to export results.");
     }
   };
 
@@ -846,10 +974,22 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
                   </>
                 )}
               </div>
-              <Button variant="outline">
-                <Download className="w-4 h-4 mr-2" />
-                Export Results
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="outline"
+                  onClick={() => handleExportResults('xlsx')}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export to Excel
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => handleExportResults('csv')}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export to CSV
+                </Button>
+              </div>
             </div>
           </Card>
 

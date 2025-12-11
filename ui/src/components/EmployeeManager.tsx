@@ -582,13 +582,23 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
 
       {/* Add/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent 
+          className="max-w-3xl flex flex-col p-0 overflow-hidden !top-[2rem] !translate-y-0"
+          style={{
+            left: '50%',
+            transform: 'translateX(-50%)',
+            maxHeight: 'calc(100vh - 4rem)',
+            height: 'auto',
+            position: 'fixed',
+            margin: 0
+          } as React.CSSProperties}
+        >
+          <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-gray-200">
             <DialogTitle>
               {editingEmployee ? 'Edit Employee' : 'Add Employee'}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-6 pb-6 pt-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="employeeId">Employee ID *</Label>
@@ -706,7 +716,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 px-6 pb-6 pt-4 border-t border-gray-200">
             <Button variant="outline" onClick={() => setShowDialog(false)}>
               Cancel
             </Button>
