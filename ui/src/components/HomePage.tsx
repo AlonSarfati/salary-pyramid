@@ -1,14 +1,10 @@
 import { Plus, Edit, Upload, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 
-type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'components-graph' | 'results' | 'admin';
-
-interface HomePageProps {
-  onNavigate: (page: Page) => void;
-}
-
-export default function HomePage({ onNavigate }: HomePageProps) {
+export default function HomePage() {
+  const navigate = useNavigate();
   const recentSimulations = [
     { id: 1, name: 'Q4 2024 - Engineering', period: 'Oct - Dec 2024', total: '$425,000', date: '2024-11-08' },
     { id: 2, name: 'November 2024 - All Staff', period: 'Nov 2024', total: '$1,250,000', date: '2024-11-07' },
@@ -49,14 +45,14 @@ export default function HomePage({ onNavigate }: HomePageProps) {
       {/* Quick Actions */}
       <div className="flex gap-4 mb-8">
         <button 
-          onClick={() => onNavigate('simulate-single')}
+            onClick={() => navigate('/simulate')}
           className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors shadow-sm"
         >
           <Plus className="w-5 h-5" />
           New Simulation
         </button>
         <button 
-          onClick={() => onNavigate('rule-builder')}
+          onClick={() => navigate('/rules')}
           className="flex items-center gap-2 px-6 py-3 bg-white text-[#0052CC] border border-[#0052CC] rounded-xl hover:bg-[#EEF2F8] transition-colors"
         >
           <Edit className="w-5 h-5" />
@@ -78,7 +74,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
               <div
                 key={sim.id}
                 className="flex items-center justify-between p-4 bg-[#EEF2F8] rounded-lg hover:bg-gray-100 cursor-pointer transition-colors"
-                onClick={() => onNavigate('results')}
+                  onClick={() => navigate('/results')}
               >
                 <div>
                   <div className="text-[#1E1E1E]">{sim.name}</div>
@@ -130,7 +126,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
               <div
                 key={ruleset.id}
                 className="p-4 bg-[#EEF2F8] rounded-lg hover:bg-gray-100 cursor-pointer transition-colors"
-                onClick={() => onNavigate('rule-builder')}
+                onClick={() => navigate('/rules')}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="text-[#1E1E1E]">{ruleset.name}</div>

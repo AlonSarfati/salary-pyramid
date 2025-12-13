@@ -1,20 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext } from 'react';
+import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Home, PlayCircle, Settings, BarChart3, Shield, Users, Network, HelpCircle, TrendingUp } from 'lucide-react';
 import HomePage from './components/HomePage';
 import SimulateSingle from './components/SimulateSingle';
 import SimulateBulk from './components/SimulateBulk';
 import RuleBuilder from './components/RuleBuilder';
+import TableBuilder from './components/TableBuilder';
+import ComponentGroups from './components/ComponentGroups';
 import ComponentsGraph from './components/ComponentsGraph';
 import ResultsPage from './components/ResultsPage';
 import AdminPage from './components/AdminPage';
 import EmployeeManager from './components/EmployeeManager';
 import GlobalPayrollDashboard from './components/GlobalPayrollDashboard';
 import Optimizer from './components/Optimizer';
+import RulesLayout from './components/RulesLayout';
+import SimulateLayout from './components/SimulateLayout';
 import { tenantApi } from './services/apiService';
 import { ToastProvider } from './components/ToastProvider';
 import liraLogo from './assets/lira-logo.png';
-
-type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees' | 'dashboard' | 'optimizer';
 
 type Tenant = {
   tenantId: string;
@@ -25,8 +28,24 @@ type Tenant = {
   updatedAt: string;
 };
 
-export default function App() {
-  const [currentPage, setCurrentPage] = useState<Page>('home');
+type TenantContextType = {
+  tenantId: string;
+  tenants: Tenant[];
+  setTenantId: (id: string) => void;
+  reloadTenants: () => void;
+};
+
+const TenantContext = createContext<TenantContextType>({
+  tenantId: 'default',
+  tenants: [],
+  setTenantId: () => {},
+  reloadTenants: () => {},
+});
+
+export const useTenant = () => useContext(TenantContext);
+
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState<string>('default');
   const [tenantsLoading, setTenantsLoading] = useState(true);
@@ -56,75 +75,64 @@ export default function App() {
   }, []);
 
   const navItems = [
-    { id: 'home' as Page, icon: Home, label: 'Home' },
-    { id: 'dashboard' as Page, icon: BarChart3, label: 'Dashboard' },
-    { id: 'simulate-single' as Page, icon: PlayCircle, label: 'Simulate' },
-    { id: 'optimizer' as Page, icon: TrendingUp, label: 'Optimizer' },
-    { id: 'employees' as Page, icon: Users, label: 'Employees' },
-    { id: 'rule-builder' as Page, icon: Settings, label: 'Rules' },
-    { id: 'visual' as Page, icon: Network, label: 'Visual' },
-    { id: 'results' as Page, icon: BarChart3, label: 'Results' },
-    { id: 'admin' as Page, icon: Shield, label: 'Admin' },
+    { path: '/', icon: Home, label: 'Home' },
+    { path: '/dashboard', icon: BarChart3, label: 'Dashboard' },
+    { path: '/simulate', icon: PlayCircle, label: 'Simulate' },
+    { path: '/optimizer', icon: TrendingUp, label: 'Optimizer' },
+    { path: '/employees', icon: Users, label: 'Employees' },
+    { path: '/rules', icon: Settings, label: 'Rules' },
+    { path: '/visual', icon: Network, label: 'Visual' },
+    { path: '/results', icon: BarChart3, label: 'Results' },
+    { path: '/admin', icon: Shield, label: 'Admin' },
   ];
 
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'home':
-        return <HomePage onNavigate={setCurrentPage} />;
-      case 'simulate-single':
-        return <SimulateSingle tenantId={selectedTenantId} />;
-      case 'simulate-bulk':
-        return <SimulateBulk tenantId={selectedTenantId} />;
-      case 'optimizer':
-        return <Optimizer tenantId={selectedTenantId} />;
-      case 'rule-builder':
-        return <RuleBuilder tenantId={selectedTenantId} />;
-      case 'visual':
-        return <ComponentsGraph tenantId={selectedTenantId} />;
-      case 'results':
-        return <ResultsPage tenantId={selectedTenantId} onNavigate={setCurrentPage} />;
-      case 'dashboard':
-        return <GlobalPayrollDashboard tenantId={selectedTenantId} />;
-      case 'employees':
-        return <EmployeeManager tenantId={selectedTenantId} />;
-      case 'admin':
-        return <AdminPage onTenantChange={() => {
-          // Reload tenants when admin makes changes
-          tenantApi.list().then(setTenants).catch(console.error);
-        }} />;
-      default:
-        return <HomePage onNavigate={setCurrentPage} />;
+  const isActive = (path: string) => {
+    if (path === '/') {
+      return location.pathname === '/';
     }
+    return location.pathname.startsWith(path);
+  };
+
+  const reloadTenants = () => {
+    tenantApi.list().then(setTenants).catch(console.error);
   };
 
   return (
-    <ToastProvider>
+    <TenantContext.Provider value={{
+      tenantId: selectedTenantId,
+      tenants,
+      setTenantId: setSelectedTenantId,
+      reloadTenants,
+    }}>
       <div className="flex h-screen bg-[#EEF2F8]">
-      {/* Left Sidebar */}
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            <img src={liraLogo} alt="Lira Logo" className="h-8 w-auto" />
-            <h1 className="text-[#0052CC]">Lira Compensation</h1>
+        {/* Left Sidebar */}
+        <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-3">
+              <img src={liraLogo} alt="Lira Logo" className="h-8 w-auto" />
+              <h1 className="text-[#0052CC]">Lira Compensation</h1>
+            </div>
           </div>
+          <nav className="flex-1 p-4">
+            {navItems.map((item) => {
+              const active = isActive(item.path);
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition-colors ${
+                    active
+                      ? 'bg-[#0052CC] text-white'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <item.icon className="w-5 h-5" />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
         </div>
-        <nav className="flex-1 p-4">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setCurrentPage(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition-colors ${
-                currentPage === item.id
-                  ? 'bg-[#0052CC] text-white'
-                  : 'text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-      </div>
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -158,10 +166,95 @@ export default function App() {
 
           {/* Page Content */}
           <div className="flex-1 overflow-auto">
-            {renderPage()}
+            {children}
           </div>
         </div>
       </div>
+    </TenantContext.Provider>
+  );
+}
+
+// Route components that need tenantId
+function DashboardRoute() {
+  const { tenantId } = useTenant();
+  return <GlobalPayrollDashboard tenantId={tenantId} />;
+}
+
+function SimulateSingleRoute() {
+  const { tenantId } = useTenant();
+  return <SimulateSingle tenantId={tenantId} />;
+}
+
+function SimulateBulkRoute() {
+  const { tenantId } = useTenant();
+  return <SimulateBulk tenantId={tenantId} />;
+}
+
+function OptimizerRoute() {
+  const { tenantId } = useTenant();
+  return <Optimizer tenantId={tenantId} />;
+}
+
+function EmployeesRoute() {
+  const { tenantId } = useTenant();
+  return <EmployeeManager tenantId={tenantId} />;
+}
+
+function RuleBuilderRoute() {
+  const { tenantId } = useTenant();
+  return <RuleBuilder tenantId={tenantId} />;
+}
+
+function TableBuilderRoute() {
+  const { tenantId } = useTenant();
+  return <TableBuilder tenantId={tenantId} />;
+}
+
+function ComponentGroupsRoute() {
+  const { tenantId } = useTenant();
+  return <ComponentGroups tenantId={tenantId} />;
+}
+
+function VisualRoute() {
+  const { tenantId } = useTenant();
+  return <ComponentsGraph tenantId={tenantId} />;
+}
+
+function ResultsRoute() {
+  const { tenantId, reloadTenants } = useTenant();
+  return <ResultsPage tenantId={tenantId} />;
+}
+
+function AdminRoute() {
+  const { reloadTenants } = useTenant();
+  return <AdminPage onTenantChange={reloadTenants} />;
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppLayout>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<DashboardRoute />} />
+          <Route path="/simulate" element={<SimulateLayout />}>
+            <Route index element={<SimulateSingleRoute />} />
+            <Route path="single" element={<SimulateSingleRoute />} />
+            <Route path="bulk" element={<SimulateBulkRoute />} />
+          </Route>
+          <Route path="/optimizer" element={<OptimizerRoute />} />
+          <Route path="/employees" element={<EmployeesRoute />} />
+          <Route path="/rules" element={<RulesLayout />}>
+            <Route index element={<RuleBuilderRoute />} />
+            <Route path="builder" element={<RuleBuilderRoute />} />
+            <Route path="tables" element={<TableBuilderRoute />} />
+            <Route path="groups" element={<ComponentGroupsRoute />} />
+          </Route>
+          <Route path="/visual" element={<VisualRoute />} />
+          <Route path="/results" element={<ResultsRoute />} />
+          <Route path="/admin" element={<AdminRoute />} />
+        </Routes>
+      </AppLayout>
     </ToastProvider>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Download, Play, FileText, TrendingUp, Users, DollarSign, Loader2, Trash2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -7,6 +8,7 @@ import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, formatCurrencyCompact } from '../utils/currency';
 import { useToast } from "./ToastProvider";
 import { StateScreen } from "./ui/StateScreen";
+import { useTenant } from '../App';
 
 interface Simulation {
   id: string;
@@ -20,14 +22,14 @@ interface Simulation {
   scenario: Scenario;
 }
 
-type Page = 'home' | 'simulate-single' | 'simulate-bulk' | 'rule-builder' | 'visual' | 'results' | 'admin' | 'employees';
-
 interface ResultsPageProps {
   tenantId?: string;
-  onNavigate?: (page: Page) => void;
 }
 
-export default function ResultsPage({ tenantId = 'default', onNavigate }: ResultsPageProps) {
+export default function ResultsPage({ tenantId: tenantIdProp }: ResultsPageProps) {
+  const navigate = useNavigate();
+  const { tenantId: tenantIdFromContext } = useTenant();
+  const tenantId = tenantIdProp || tenantIdFromContext;
   // Get currency for tenant
   const currency = useCurrency(tenantId);
   const { showToast } = useToast();
@@ -186,12 +188,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
     localStorage.setItem('rerunScenario', JSON.stringify(scenarioData));
     
     // Navigate to simulate page
-    if (onNavigate) {
-      onNavigate('simulate-single');
-    } else {
-      // Fallback: use window event or direct navigation
-      window.dispatchEvent(new CustomEvent('navigate', { detail: 'simulate-single' }));
-    }
+    navigate('/simulate');
   };
 
   const handleRowClick = (sim: Simulation) => {
@@ -311,7 +308,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
             title="No scenarios yet"
             description="Run a simulation and save it to see it here."
             primaryActionLabel="Go to Simulate"
-            onPrimaryAction={() => onNavigate?.('simulate-single')}
+            onPrimaryAction={() => navigate('/simulate')}
             inline
           />
         ) : (

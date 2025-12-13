@@ -5,7 +5,6 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Switch } from "./ui/switch";
 import SimulateBulk from "./SimulateBulk";
 import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
@@ -488,20 +487,9 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
         </div>
       )}
 
-      <Tabs defaultValue="single" className="w-full">
-        <TabsList className="mb-6">
-          <TabsTrigger value="single" className="flex items-center gap-2">
-            <User className="w-4 h-4" />
-            Single Employee
-          </TabsTrigger>
-          <TabsTrigger value="bulk" className="flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            Bulk / Segment
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="single">
-          <div className="flex items-center justify-between mb-6">
+      <div className="w-full">
+        {/* Single Employee Simulation Content */}
+        <div className="flex items-center justify-between mb-6">
             <h2 className="text-[#1E1E1E]">Single Employee Simulation</h2>
             <button 
               onClick={() => setShowSaveScenarioDialog(true)}
@@ -1050,12 +1038,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </TabsContent>
-
-        <TabsContent value="bulk">
-          <SimulateBulk />
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   );
 }

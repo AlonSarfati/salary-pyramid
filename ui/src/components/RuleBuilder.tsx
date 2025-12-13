@@ -11,7 +11,6 @@ import { Textarea } from './ui/textarea';
 import { Switch } from './ui/switch';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import RuleBuilderGuide from './RuleBuilderGuide';
 import TableBuilder from './TableBuilder';
@@ -1295,27 +1294,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
       {/* Main Content Area - Full Width */}
       <div>
-        <Tabs 
-          defaultValue={localStorage.getItem(`ruleBuilder_tab_${tenantId}`) || 'builder'} 
-          onValueChange={(value) => localStorage.setItem(`ruleBuilder_tab_${tenantId}`, value)}
-          className="w-full"
-        >
-          <TabsList className="mb-6">
-            <TabsTrigger value="builder" className="flex items-center gap-2">
-              <List className="w-4 h-4" />
-              Rule Builder
-            </TabsTrigger>
-            <TabsTrigger value="tables" className="flex items-center gap-2">
-              <Database className="w-4 h-4" />
-              Table Builder
-            </TabsTrigger>
-            <TabsTrigger value="groups" className="flex items-center gap-2">
-              <Layers className="w-4 h-4" />
-              Component Groups
-            </TabsTrigger>
-          </TabsList>
-
-        <TabsContent value="builder">
+        {/* Rule Builder Content */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <h2 className="text-[#1E1E1E]">Rule Builder</h2>
@@ -1834,108 +1813,6 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               </Card>
             </div>
           </div>
-        </TabsContent>
-
-            <TabsContent value="tables">
-              <TableBuilder tenantId={tenantId} />
-            </TabsContent>
-
-            <TabsContent value="groups">
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-semibold text-[#1E1E1E]">Component Groups</h2>
-                  <Button
-                    onClick={() => {
-                      setEditingGroup(null);
-                      setGroupFormData({ groupName: '', displayName: '', color: '#0052CC', displayOrder: componentGroups.length + 1 });
-                      setShowGroupDialog(true);
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Group
-                  </Button>
-                </div>
-
-                <Card className="p-6">
-                  <div className="space-y-4">
-                    {componentGroups.length === 0 ? (
-                      <StateScreen
-                        type="empty"
-                        title="No component groups yet"
-                        description="Create your first group to get started."
-                        primaryActionLabel="Create Group"
-                        onPrimaryAction={() => setShowGroupDialog(true)}
-                        inline
-                      />
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="border-b border-gray-200">
-                              <th className="text-left py-3 px-4 text-sm font-semibold text-[#1E1E1E]">Group Name</th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold text-[#1E1E1E]">Display Name</th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold text-[#1E1E1E]">Color</th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold text-[#1E1E1E]">Display Order</th>
-                              <th className="text-right py-3 px-4 text-sm font-semibold text-[#1E1E1E]">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {componentGroups.map((group) => (
-                              <tr key={group.groupName} className="border-b border-gray-100 hover:bg-gray-50">
-                                <td className="py-3 px-4 text-sm text-[#1E1E1E] font-mono">{group.groupName}</td>
-                                <td className="py-3 px-4 text-sm text-[#1E1E1E]">{group.displayName}</td>
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-2">
-                                    <div
-                                      className="w-6 h-6 rounded border border-gray-300"
-                                      style={{ backgroundColor: group.color }}
-                                    />
-                                    <span className="text-sm text-gray-600">{group.color}</span>
-                                  </div>
-                                </td>
-                                <td className="py-3 px-4 text-sm text-[#1E1E1E]">{group.displayOrder}</td>
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => {
-                                        setEditingGroup(group);
-                                        setGroupFormData({
-                                          groupName: group.groupName,
-                                          displayName: group.displayName,
-                                          color: group.color,
-                                          displayOrder: group.displayOrder,
-                                        });
-                                        setShowGroupDialog(true);
-                                      }}
-                                    >
-                                      <Edit className="w-4 h-4" />
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => {
-                                        setGroupNameToDelete(group.groupName);
-                                        setShowDeleteGroupDialog(true);
-                                      }}
-                                    >
-                                      <Trash2 className="w-4 h-4 text-red-600" />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              </div>
-            </TabsContent>
-          </Tabs>
       </div>
 
       {/* Help Guide Drawer */}
