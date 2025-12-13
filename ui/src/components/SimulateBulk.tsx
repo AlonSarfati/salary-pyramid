@@ -11,6 +11,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimBulkResponse, type Employee } from '../services/apiService';
 import { useToast } from "./ToastProvider";
+import { StateScreen } from "./ui/StateScreen";
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrency as formatCurrencyUtil } from '../utils/currency';
 import * as XLSX from 'xlsx';
@@ -21,7 +22,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const [hasData, setHasData] = useState(false);
   const [comparisonMode, setComparisonMode] = useState(false);
   const [simulating, setSimulating] = useState(false);
-  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [simulationError, setSimulationError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
 
   // Ruleset state
   const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; count: number }>>([]);
@@ -149,7 +150,8 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
         }
       } catch (e: any) {
         console.error('Failed to load employees:', e);
-        showToast("error", "Failed to load employees", e.message || "Unknown error");
+        // Small event - use toast
+        showToast("error", "Couldn't load employees", "Please try again.");
       } finally {
         if (!cancelled) setSavedEmployeesLoading(false);
       }
@@ -280,7 +282,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const handleSaveEmployee = async (index: number) => {
     const emp = employees[index];
     if (!emp.id || emp.id.trim() === '') {
-      showToast("error", "Missing Employee ID", "Please enter an Employee ID before saving.");
+      showToast("info", "Enter Employee ID", "Please enter an Employee ID before saving.");
       return;
     }
 
@@ -297,7 +299,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
       setSavedEmployees(updated);
       showToast("success", "Employee saved", `Employee ${emp.id} was saved successfully.`);
     } catch (e: any) {
-      showToast("error", "Failed to save employee", e.message || "Unknown error");
+      showToast("error", "Couldn't save employee", "Please try again.");
       console.error('Failed to save employee:', e);
     }
   };
@@ -411,7 +413,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
 
   const handleRunSimulation = async (isBaseline = false) => {
     if (employees.length === 0) {
-      showToast("error", "No employees", "Please add at least one employee before running a simulation.");
+      showToast("info", "Add employees", "Please add at least one employee before running a simulation.");
       return;
     }
 
@@ -453,8 +455,12 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
         }, 100);
       }
     } catch (e: any) {
-      setSimulationError(e.message || 'Failed to run simulation');
-      showToast("error", "Simulation Failed", e.message || 'Failed to run simulation');
+      const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+      setSimulationError({
+        type: isNetworkError ? 'network' : 'system',
+        message: e.message,
+        supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+      });
       console.error('Simulation error:', e);
     } finally {
       setSimulating(false);
@@ -463,7 +469,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
 
   const handleSetBaseline = () => {
     if (!simulationResult) {
-      showToast("error", "No run to set as baseline", "Run a simulation first, then set it as baseline.");
+      showToast("info", "No baseline available", "Run a simulation first, then set it as baseline.");
       return;
     }
     setBaselineResult(simulationResult);
@@ -477,7 +483,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
 
   const handleExportResults = (format: 'xlsx' | 'csv' = 'xlsx') => {
     if (!simulationResult) {
-      showToast("error", "No data to export", "Please run a simulation first.");
+      showToast("info", "No data to export", "Please run a simulation first.");
       return;
     }
 
@@ -598,7 +604,7 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
       }
     } catch (error: any) {
       console.error('Export error:', error);
-      showToast("error", "Export Failed", error.message || "Failed to export results.");
+      showToast("error", "Export failed", "Please try again.");
     }
   };
 
@@ -770,10 +776,19 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
       </Card>
 
       {simulationError && (
-        <Card className="p-4 bg-red-50 border border-red-200 rounded-xl mb-6">
-          <p className="text-red-700 text-sm">{simulationError}</p>
-        </Card>
+        <div className="mb-4">
+          <StateScreen
+            type={simulationError.type}
+            supportRef={simulationError.supportRef}
+            onPrimaryAction={() => {
+              setSimulationError(null);
+              handleRun();
+            }}
+            inline
+          />
+        </div>
       )}
+
 
       {/* Employees Input Section */}
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0 mb-6">

@@ -9,6 +9,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieC
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from '../utils/currency';
 import { useToast } from "./ToastProvider";
+import { StateScreen } from "./ui/StateScreen";
 
 interface GlobalPayrollDashboardProps {
   tenantId?: string;
@@ -20,7 +21,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   const [breakdown, setBreakdown] = useState<BaselineBreakdown | null>(null);
   const [simulationCount, setSimulationCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
   // Track which ruleset the current data belongs to, to prevent showing stale data
   const [dataRulesetId, setDataRulesetId] = useState<string | null>(null);
   const { showToast } = useToast();
@@ -31,6 +32,8 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   const [fullSimulationResult, setFullSimulationResult] = useState<FullSimulationResult | null>(null);
   const [runningSimulation, setRunningSimulation] = useState(false);
   const [showFullSimulation, setShowFullSimulation] = useState(false);
+  const [rulesetsLoading, setRulesetsLoading] = useState(true);
+  const [rulesetsError, setRulesetsError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
   
   // Global ruleset persistence key
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
@@ -66,6 +69,8 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     let cancelled = false;
     (async () => {
       try {
+        setRulesetsLoading(true);
+        setRulesetsError(null);
         const rulesets = await rulesetApi.getAllRulesets(tenantId);
         if (!cancelled) {
           setAllRulesets(rulesets);
@@ -95,7 +100,18 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
           }
         }
       } catch (e: any) {
-        console.error('Failed to load rulesets:', e);
+        if (!cancelled) {
+          const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+          setRulesetsError({
+            type: isNetworkError ? 'network' : 'system',
+            message: e.message,
+            supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setRulesetsLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -166,7 +182,12 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
         }
         
         if (!cancelled && selectedRulesetId && !abortController.signal.aborted) {
-          setError(e.message || 'Failed to load dashboard data');
+          const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+          setError({
+            type: isNetworkError ? 'network' : 'system',
+            message: e.message,
+            supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+          });
           setLoading(false);
           // Clear data on error to prevent showing stale data
           setBreakdown(null);
@@ -255,7 +276,12 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
       setFullSimulationResult(result);
       setShowFullSimulation(true);
     } catch (e: any) {
-      setError(e.message || 'Failed to run full simulation');
+      const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: e.message,
+        supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+      });
     } finally {
       setRunningSimulation(false);
     }
@@ -265,7 +291,22 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   // Since we no longer auto-load summary, we should allow the page to render even without summary
   const isDataLoading = loading && !trend.length && !breakdown && simulationCount === 0;
   
-  if (isDataLoading) {
+  // If ruleset loading failed, show error immediately (this is the most critical error)
+  if (rulesetsError) {
+    return (
+      <StateScreen
+        type={rulesetsError.type}
+        supportRef={rulesetsError.supportRef}
+        onPrimaryAction={() => {
+          setRulesetsError(null);
+          window.location.reload();
+        }}
+      />
+    );
+  }
+  
+  // Show loading only if rulesets are still loading or data is loading
+  if ((rulesetsLoading || isDataLoading) && !rulesetsError) {
     return (
       <div className="p-8 max-w-[1600px] mx-auto">
         <div className="flex items-center justify-center py-20">
@@ -275,13 +316,17 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     );
   }
 
+  // Show error for dashboard data loading failures
   if (error) {
     return (
-      <div className="p-8 max-w-[1600px] mx-auto">
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {error}
-        </div>
-      </div>
+      <StateScreen
+        type={error.type}
+        supportRef={error.supportRef}
+        onPrimaryAction={() => {
+          setError(null);
+          window.location.reload();
+        }}
+      />
     );
   }
 

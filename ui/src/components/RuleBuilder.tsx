@@ -18,6 +18,7 @@ import TableBuilder from './TableBuilder';
 import AIRuleAssistant from './AIRuleAssistant';
 import { rulesetApi, ruleApi, tableApi, componentGroupsApi, type RuleSet, type RuleDto, type ValidateIssue, type ComponentGroup } from '../services/apiService';
 import { useToast } from './ToastProvider';
+import { StateScreen } from './ui/StateScreen';
 
 export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: string }) {
   // Load persisted state from localStorage
@@ -83,7 +84,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   // Loading/Error state
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: 'network' | 'system' | 'validation'; message?: string; supportRef?: string } | null>(null);
   const [lastValidationStatus, setLastValidationStatus] = useState<"idle" | "success" | "error">("idle");
   const [lastValidationTime, setLastValidationTime] = useState<string | null>(null);
   
@@ -337,7 +338,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         setSelectedRulesetId(initialId || all[0].rulesetId);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load rulesets');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
     } finally {
       setLoading(false);
     }
@@ -349,7 +355,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       const data = await rulesetApi.getRuleset(tenantId, rulesetId);
       setRuleset(data);
     } catch (err: any) {
-      setError(err.message || 'Failed to load ruleset');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
     } finally {
       setLoading(false);
     }
@@ -385,7 +396,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleSave = async () => {
     if (!selectedRulesetId || !target || !expression) {
-      setError('Target and expression are required');
+      showToast("info", "Required fields", "Target and expression are required.");
       return;
     }
 
@@ -427,7 +438,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setDraftComponents(prev => ({ ...prev, [target]: true }));
       showToast('success', 'Rule saved', `Component "${target}" was updated.`);
     } catch (err: any) {
-      setError(err.message || 'Failed to save rule');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
+      showToast("error", "Couldn't save rule", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -435,7 +452,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleValidate = async () => {
     if (!selectedRulesetId) {
-      setError('Please select a ruleset');
+      showToast("info", "Select a ruleset", "Please select a ruleset before validating.");
       return;
     }
 
@@ -459,7 +476,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         setLastValidationTime(new Date().toLocaleString());
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to validate ruleset');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
       setLastValidationStatus("error");
       setLastValidationTime(new Date().toLocaleString());
     } finally {
@@ -469,7 +491,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handlePublish = async () => {
     if (!selectedRulesetId) {
-      setError('Please select a ruleset');
+      showToast("info", "Select a ruleset", "Please select a ruleset before publishing.");
       return;
     }
 
@@ -485,7 +507,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       // Clear all draft markers after publish
       setDraftComponents({});
     } catch (err: any) {
-      setError(err.message || 'Failed to publish ruleset');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
+      showToast("error", "Couldn't publish ruleset", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -493,7 +521,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleRenameRuleset = async () => {
     if (!selectedRulesetId || !newRulesetName.trim()) {
-      setError('Ruleset name is required');
+      showToast("info", "Ruleset name required", "Please enter a ruleset name.");
       return;
     }
     try {
@@ -505,7 +533,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setNewRulesetName('');
       await loadRulesets();
     } catch (err: any) {
-      setError(err.message || 'Failed to rename ruleset');
+      showToast("error", "Couldn't rename ruleset", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -513,7 +541,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleCopyRuleset = async () => {
     if (!selectedRulesetId || !newRulesetName.trim()) {
-      setError('Ruleset name is required');
+      showToast("info", "Ruleset name required", "Please enter a ruleset name.");
       return;
     }
     try {
@@ -527,7 +555,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       await loadRulesets();
       setSelectedRulesetId(res.rulesetId);
     } catch (err: any) {
-      setError(err.message || 'Failed to copy ruleset');
+      showToast("error", "Couldn't copy ruleset", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -599,7 +627,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleSaveGroup = async () => {
     if (!groupFormData.groupName.trim() || !groupFormData.displayName.trim()) {
-      showToast('error', 'Validation Error', 'Group name and display name are required.');
+      showToast('info', 'Required fields', 'Group name and display name are required.');
       return;
     }
 
@@ -642,7 +670,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setEditingGroup(null);
       setGroupFormData({ groupName: '', displayName: '', color: '#0052CC', displayOrder: 1 });
     } catch (err: any) {
-      showToast('error', 'Error', err.message || 'Failed to save group.');
+      showToast('error', "Couldn't save group", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -674,7 +702,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setShowDeleteGroupDialog(false);
       setGroupNameToDelete(null);
     } catch (err: any) {
-      showToast('error', 'Error', err.message || 'Failed to delete group.');
+      showToast('error', "Couldn't delete group", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -1250,8 +1278,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       <h1 className="text-[#1E1E1E] mb-6">Rules</h1>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {error}
+        <div className="mb-4">
+          <StateScreen
+            type={error.type}
+            supportRef={error.supportRef}
+            onPrimaryAction={() => {
+              setError(null);
+              if (error.type === 'network' || error.type === 'system') {
+                window.location.reload();
+              }
+            }}
+            inline
+          />
         </div>
       )}
 
@@ -1534,8 +1572,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                     componentSearchQuery === '' || 
                     component.name.toLowerCase().includes(componentSearchQuery.toLowerCase())
                   ).length === 0 && componentSearchQuery && (
-                    <div className="text-center text-gray-500 py-8 text-sm">
-                      No components found matching "{componentSearchQuery}"
+                    <div className="py-8">
+                      <StateScreen
+                        type="empty"
+                        title="No components found"
+                        description={`No components match "${componentSearchQuery}". Try a different search term.`}
+                        inline
+                      />
                     </div>
                   )}
                 </div>
@@ -1817,9 +1860,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 <Card className="p-6">
                   <div className="space-y-4">
                     {componentGroups.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        No component groups found. Create your first group to get started.
-                      </div>
+                      <StateScreen
+                        type="empty"
+                        title="No component groups yet"
+                        description="Create your first group to get started."
+                        primaryActionLabel="Create Group"
+                        onPrimaryAction={() => setShowGroupDialog(true)}
+                        inline
+                      />
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
@@ -1947,9 +1995,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 </SelectContent>
               </Select>
             </div>
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
+            {error && error.type === 'validation' && (
+              <div className="mb-3">
+                <StateScreen
+                  type="validation"
+                  title="Validation error"
+                  description={error.message || "Please check the form and correct any errors."}
+                  inline
+                />
               </div>
             )}
             <div className="flex gap-3 pt-4">

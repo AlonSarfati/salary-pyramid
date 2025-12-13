@@ -12,6 +12,7 @@ import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { useToast } from "./ToastProvider";
+import { StateScreen } from "./ui/StateScreen";
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, getCurrencySymbol } from '../utils/currency';
 
@@ -23,14 +24,14 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   const [showTrace, setShowTrace] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState<string>("");
   const [simulating, setSimulating] = useState(false);
-  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [simulationError, setSimulationError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
 
   // Ruleset state
   const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; count: number }>>([]);
   const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(null);
   const [selectedRulesetName, setSelectedRulesetName] = useState<string>("");
   const [rulesLoading, setRulesLoading] = useState(false);
-  const [rulesError, setRulesError] = useState<string>("");
+  const [rulesError, setRulesError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
 
   // Form state
   const [employeeId, setEmployeeId] = useState("E001");
@@ -142,7 +143,14 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
           }
         }
       } catch (e: any) {
-        if (!cancelled) setRulesError(e.message || "Failed to load rulesets");
+        if (!cancelled) {
+          const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+          setRulesError({
+            type: isNetworkError ? 'network' : 'system',
+            message: e.message,
+            supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+          });
+        }
       } finally {
         if (!cancelled) setRulesLoading(false);
       }
@@ -305,11 +313,11 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   // ---- handle save scenario ----
   const handleSaveScenario = async () => {
     if (!selectedRulesetId) {
-      showToast("error", "Missing ruleset", "Please select a ruleset before saving a scenario.");
+      showToast("info", "Select a ruleset", "Please select a ruleset before saving a scenario.");
       return;
     }
     if (!simulationResult) {
-      showToast("error", "No results to save", "Run a simulation before saving a scenario.");
+      showToast("info", "No results to save", "Run a simulation before saving a scenario.");
       return;
     }
 
@@ -333,7 +341,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
       showToast("success", "Scenario saved", "The scenario was saved to history.");
     } catch (e: any) {
       console.error("Failed to save scenario:", e);
-      showToast("error", "Failed to save scenario", e.message || "Unknown error");
+      // Small event - use toast
+      showToast("error", "Couldn't save scenario", "Please try again.");
     } finally {
       setSavingScenario(false);
     }
@@ -342,7 +351,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   // ---- handle simulation ----
   const handleRun = async () => {
     if (!selectedRulesetId) {
-      setSimulationError("Please select a ruleset");
+      showToast("info", "Select a ruleset", "Please select a ruleset before running a simulation.");
       return;
     }
 
@@ -398,7 +407,12 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
       setSimulationResult(result);
     } catch (err: any) {
-      setSimulationError(err.message || "Simulation failed");
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setSimulationError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
       setSimulationResult(null);
     } finally {
       setSimulating(false);
@@ -408,7 +422,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   // ---- handle baseline for comparison mode ----
   const handleSetBaseline = () => {
     if (!simulationResult) {
-      showToast("error", "No run to set as baseline", "Run a simulation first, then set it as baseline.");
+      showToast("info", "No baseline available", "Run a simulation first, then set it as baseline.");
       return;
     }
     setBaselineResult(simulationResult);
@@ -442,13 +456,35 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
   const totalAmount = simulationResult?.total || 0;
 
+  // Show full-page error if ruleset loading failed
+  if (rulesError) {
+    return (
+      <StateScreen
+        type={rulesError.type}
+        supportRef={rulesError.supportRef}
+        onPrimaryAction={() => {
+          setRulesError(null);
+          window.location.reload();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="p-8 max-w-[1600px] mx-auto">
       <h1 className="text-[#1E1E1E] mb-6">Simulate</h1>
 
       {simulationError && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {simulationError}
+        <div className="mb-4">
+          <StateScreen
+            type={simulationError.type}
+            supportRef={simulationError.supportRef}
+            onPrimaryAction={() => {
+              setSimulationError(null);
+              handleRun();
+            }}
+            inline
+          />
         </div>
       )}
 

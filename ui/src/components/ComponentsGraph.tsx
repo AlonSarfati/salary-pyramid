@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { rulesetApi, componentGroupsApi, type RuleSet, type RuleDto, type ComponentGroup } from '../services/apiService';
+import { StateScreen } from './ui/StateScreen';
 
 interface Node {
   id: string;
@@ -30,7 +31,7 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
   const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(null);
   const [ruleset, setRuleset] = useState<RuleSet | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
   
   // Global ruleset persistence key
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
@@ -98,7 +99,12 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
         }
       } catch (e: any) {
         if (!cancelled) {
-          setError(e.message || 'Failed to load rulesets');
+          const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+          setError({
+            type: isNetworkError ? 'network' : 'system',
+            message: e.message,
+            supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+          });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -124,7 +130,12 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
         }
       } catch (e: any) {
         if (!cancelled) {
-          setError(e.message || 'Failed to load ruleset');
+          const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+          setError({
+            type: isNetworkError ? 'network' : 'system',
+            message: e.message,
+            supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+          });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -433,9 +444,17 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
       </Card>
 
       {error && (
-        <Card className="p-4 bg-red-50 border border-red-200 rounded-xl mb-6">
-          <p className="text-red-700 text-sm">{error}</p>
-        </Card>
+        <div className="mb-4">
+          <StateScreen
+            type={error.type}
+            supportRef={error.supportRef}
+            onPrimaryAction={() => {
+              setError(null);
+              window.location.reload();
+            }}
+            inline
+          />
+        </div>
       )}
 
       {/* Graph Canvas */}

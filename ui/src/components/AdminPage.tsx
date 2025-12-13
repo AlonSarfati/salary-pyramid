@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { tenantApi } from '../services/apiService';
 import { useToast } from "./ToastProvider";
+import { StateScreen } from "./ui/StateScreen";
 
 type Tenant = {
   tenantId: string;
@@ -25,7 +26,7 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
   const [activeTab, setActiveTab] = useState('tenants');
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
   
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -42,11 +43,16 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
   const loadTenants = async () => {
     try {
       setLoading(true);
-      setError('');
+      setError(null);
       const data = await tenantApi.list();
       setTenants(data);
     } catch (e: any) {
-      setError(e.message || 'Failed to load tenants');
+      const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: e.message,
+        supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+      });
     } finally {
       setLoading(false);
     }
@@ -71,7 +77,7 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
       if (onTenantChange) onTenantChange();
       showToast("success", "Tenant deactivated", tenantId);
     } catch (e: any) {
-      showToast("error", "Failed to delete tenant", e.message || "Unknown error");
+      showToast("error", "Couldn't delete tenant", "Please try again.");
     }
   };
 
@@ -98,7 +104,7 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
       if (onTenantChange) onTenantChange();
       showToast("success", editingTenant ? "Tenant updated" : "Tenant created", formData.tenantId);
     } catch (e: any) {
-      showToast("error", "Failed to save tenant", e.message || "Unknown error");
+      showToast("error", "Couldn't save tenant", "Please try again.");
     }
   };
 
@@ -181,8 +187,16 @@ export default function AdminPage({ onTenantChange }: { onTenantChange?: () => v
             </div>
             
             {error && (
-              <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-                {error}
+              <div className="mb-4">
+                <StateScreen
+                  type={error.type}
+                  supportRef={error.supportRef}
+                  onPrimaryAction={() => {
+                    setError(null);
+                    loadTenants();
+                  }}
+                  inline
+                />
               </div>
             )}
 

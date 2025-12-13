@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { employeeApi, rulesetApi, type Employee } from '../services/apiService';
 import { useToast } from "./ToastProvider";
+import { StateScreen } from "./ui/StateScreen";
 
 type InputMetadata = {
   name: string;
@@ -24,7 +25,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
   const { showToast } = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
   
   // Required inputs state
   const [requiredInputs, setRequiredInputs] = useState<Record<string, InputMetadata>>({});
@@ -122,7 +123,12 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
       const data = await employeeApi.list(tenantId);
       setEmployees(data);
     } catch (e: any) {
-      setError(e.message || 'Failed to load employees');
+      const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: e.message,
+        supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+      });
     } finally {
       setLoading(false);
     }
@@ -157,7 +163,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
       await loadEmployees();
       showToast("success", "Employee deleted", `Employee ${employeeToDelete.employeeId} was removed.`);
     } catch (e: any) {
-      showToast("error", "Failed to delete employee", e.message || "Unknown error");
+      showToast("error", "Couldn't delete employee", "Please try again.");
     } finally {
       setEmployeeToDelete(null);
     }
@@ -190,7 +196,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         friendly = 'An employee with this ID already exists for this tenant.';
       }
       setFormError(friendly);
-      showToast("error", "Failed to save employee", friendly);
+      showToast("error", "Couldn't save employee", friendly || "Please try again.");
     }
   };
 
@@ -343,7 +349,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
         });
         employeesToCreate = parseCSV(text);
       } else {
-        showToast("error", "Unsupported file type", "Please upload a CSV or XLSX file.");
+        showToast("info", "Unsupported file type", "Please upload a CSV or XLSX file.");
         event.target.value = '';
         return;
       }
@@ -367,7 +373,7 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
       showToast("success", "Import complete", `${successCount} created, ${errorCount} failed.`);
       await loadEmployees();
     } catch (err: any) {
-      showToast("error", "Failed to parse file", err.message || "Unknown error");
+      showToast("error", "Couldn't parse file", "Please check the file format and try again.");
     }
     
     // Reset input
@@ -494,9 +500,17 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
       </div>
 
       {error && (
-        <Card className="p-4 bg-red-50 border border-red-200 rounded-xl mb-6">
-          <p className="text-red-700 text-sm">{error}</p>
-        </Card>
+        <div className="mb-4">
+          <StateScreen
+            type={error.type}
+            supportRef={error.supportRef}
+            onPrimaryAction={() => {
+              setError(null);
+              loadEmployees();
+            }}
+            inline
+          />
+        </div>
       )}
 
       {loading ? (
@@ -507,19 +521,13 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
           </div>
         </Card>
       ) : employees.length === 0 ? (
-        <Card className="p-12 bg-white rounded-xl shadow-sm border-0">
-          <div className="text-center">
-            <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-[#1E1E1E] mb-2">No Employees</h3>
-            <p className="text-gray-600 mb-6">
-              Get started by adding an employee manually or importing a CSV or Excel file
-            </p>
-            <Button onClick={handleAdd}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Employee
-            </Button>
-          </div>
-        </Card>
+        <StateScreen
+          type="empty"
+          title="No employees yet"
+          description="Get started by adding an employee manually or importing a CSV or Excel file."
+          primaryActionLabel="Add Employee"
+          onPrimaryAction={handleAdd}
+        />
       ) : (
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
           <div className="overflow-x-auto -mx-6 px-6" style={{ width: '100%' }}>

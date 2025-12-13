@@ -11,6 +11,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { Checkbox } from './ui/checkbox';
 import { optimizerApi, rulesetApi, scenarioApi, tableApi, componentGroupsApi, employeeApi, type OptimizationResult, type OptimizeRequest, type ComponentGroup, type FocusDefinition } from '../services/apiService';
 import { useToast } from './ToastProvider';
+import { StateScreen } from './ui/StateScreen';
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, getCurrencySymbol, parseFormattedNumber, formatNumberCompact } from '../utils/currency';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -27,6 +28,7 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   const [rulesets, setRulesets] = useState<Array<{ rulesetId: string; name: string; status: string }>>([]);
   const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(null);
   const [rulesetsLoading, setRulesetsLoading] = useState(false);
+  const [rulesetsError, setRulesetsError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
   
   // Form state
   const [extraBudget, setExtraBudget] = useState<string>('');
@@ -58,7 +60,7 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   // Optimization state
   const [optimizing, setOptimizing] = useState(false);
   const [result, setResult] = useState<OptimizationResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: 'network' | 'system' | 'validation'; message?: string; supportRef?: string } | null>(null);
   
   // Save scenario state
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -241,6 +243,7 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
     (async () => {
       try {
         setRulesetsLoading(true);
+        setRulesetsError(null);
         const data = await rulesetApi.getActive(tenantId);
         if (!cancelled) {
           setRulesets(data.ruleSets || []);
@@ -263,7 +266,12 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
         }
       } catch (e: any) {
         if (!cancelled) {
-          console.error('Failed to load rulesets:', e);
+          const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+          setRulesetsError({
+            type: isNetworkError ? 'network' : 'system',
+            message: e.message,
+            supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+          });
         }
       } finally {
         if (!cancelled) {
@@ -316,36 +324,36 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   
   const handleOptimize = async () => {
     if (!selectedRulesetId) {
-      setError('Please select a ruleset');
+      showToast("info", "Select a ruleset", "Please select a ruleset before running optimization.");
       return;
     }
     
     // Parse the budget - supports formatted input like "50M", "1.3M", "500K"
     const budgetValue = parseFormattedNumber(extraBudget);
     if (budgetValue === null || budgetValue <= 0) {
-      setError('Please enter a valid positive budget amount (e.g., 50M, 1.3M, 500K)');
+      showToast("info", "Enter budget", "Please enter a valid positive budget amount (e.g., 50M, 1.3M, 500K).");
       return;
     }
     
     // Validate strategy-specific fields
     if (strategy === 'ADD_NEW_COMPONENT_IN_GROUP' && !targetGroup) {
-      setError('Please select a target group');
+      showToast("info", "Select target group", "Please select a target group.");
       return;
     }
     if (
       (strategy === 'FLAT_RAISE_ON_BASE' || strategy === 'SEGMENTED_FLAT_RAISE') &&
       (!targetComponent || !availableComponents.includes(targetComponent))
     ) {
-      setError('Please select a valid target component');
+      showToast("info", "Select target component", "Please select a valid target component.");
       return;
     }
     if (strategy === 'INCREASE_TABLE_VALUES') {
       if (!tableComponent) {
-        setError('Please select a component that owns the table');
+        showToast("info", "Select component", "Please select a component that owns the table.");
         return;
       }
       if (!targetTable) {
-        setError('Please select a table');
+        showToast("info", "Select table", "Please select a table.");
         return;
       }
     }
@@ -462,11 +470,15 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
       
       const optimizationResult = await optimizerApi.optimize(request);
       setResult(optimizationResult);
-      showToast('Optimization completed successfully', 'success');
+      showToast('success', 'Optimization completed', 'Your optimization results are ready.');
     } catch (e: any) {
-      const errorMessage = e.message || 'Failed to run optimization';
-      setError(errorMessage);
-      showToast(errorMessage, 'error');
+      const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: e.message,
+        supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+      });
+      // Don't show toast for major failures - StateScreen will handle it
     } finally {
       setOptimizing(false);
     }
@@ -474,7 +486,7 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   
   const handleSaveAsScenario = async () => {
     if (!result || !scenarioName.trim()) {
-      showToast('Please enter a scenario name', 'error');
+      showToast('info', 'Enter scenario name', 'Please enter a scenario name.');
       return;
     }
     
@@ -545,8 +557,7 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
       setScenarioName('');
     } catch (e: any) {
       console.error('Failed to save scenario:', e);
-      const errorMessage = e.message || 'Failed to save scenario';
-      showToast(errorMessage, 'error');
+      showToast("error", "Couldn't save scenario", "Please try again.");
     } finally {
       setSavingScenario(false);
     }
@@ -563,6 +574,20 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   };
   
   const selectedRuleset = rulesets.find(r => r.rulesetId === selectedRulesetId);
+  
+  // If ruleset loading failed, show error immediately (this is the most critical error)
+  if (rulesetsError) {
+    return (
+      <StateScreen
+        type={rulesetsError.type}
+        supportRef={rulesetsError.supportRef}
+        onPrimaryAction={() => {
+          setRulesetsError(null);
+          window.location.reload();
+        }}
+      />
+    );
+  }
   
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-8">
@@ -1139,12 +1164,16 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
         </Button>
         
         {error && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-red-800">Error</p>
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
+          <div className="mt-4">
+            <StateScreen
+              type={error.type}
+              supportRef={error.supportRef}
+              onPrimaryAction={() => {
+                setError(null);
+                handleOptimize();
+              }}
+              inline
+            />
           </div>
         )}
       </Card>
@@ -1383,13 +1412,11 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
       
       {/* Empty State */}
       {!result && !optimizing && !error && (
-        <Card className="p-12 text-center">
-          <TrendingUp className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Ready to Optimize Raises</h3>
-          <p className="text-gray-500 max-w-md mx-auto">
-            Select a ruleset, enter your extra yearly budget, choose a strategy, and we'll find a raise structure that matches it.
-          </p>
-        </Card>
+        <StateScreen
+          type="empty"
+          title="Ready to optimize raises"
+          description="Select a ruleset, enter your extra yearly budget, choose a strategy, and we'll find a raise structure that matches it."
+        />
       )}
       
       {/* Save Scenario Dialog */}

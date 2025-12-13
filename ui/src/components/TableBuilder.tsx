@@ -10,6 +10,7 @@ import { Checkbox } from './ui/checkbox';
 import { tableApi, rulesetApi } from '../services/apiService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { useToast } from './ToastProvider';
+import { StateScreen } from './ui/StateScreen';
 import * as XLSX from 'xlsx';
 
 interface TableColumn {
@@ -55,7 +56,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
   const [tableData, setTableData] = useState<TableDef | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: 'network' | 'system' | 'validation'; message?: string; supportRef?: string } | null>(null);
   const [showDeleteRowDialog, setShowDeleteRowDialog] = useState(false);
   const [rowIndexToDelete, setRowIndexToDelete] = useState<number | null>(null);
   const [showImportCSVDialog, setShowImportCSVDialog] = useState(false);
@@ -161,7 +162,12 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       const response = await tableApi.listTables(tenantId, selectedComponent);
       setTables(response.tables || []);
     } catch (err: any) {
-      setError(err.message || 'Failed to load tables');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
     } finally {
       setLoading(false);
     }
@@ -211,7 +217,12 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
     } catch (err: any) {
       // Only show error for actual failures, not for missing tables (which now return empty data)
       if (err.status !== 404) {
-        setError(err.message || 'Failed to load table data');
+        const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+        setError({
+          type: isNetworkError ? 'network' : 'system',
+          message: err.message,
+          supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+        });
       } else {
         // Table doesn't exist - show empty form
         setTableData({
@@ -337,7 +348,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
   const handleSaveTableDef = async () => {
     if (!selectedComponent || !tableName.trim()) {
-      setError('Component and table name are required');
+      showToast("info", "Required fields", "Component and table name are required.");
       return;
     }
 
@@ -347,7 +358,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
         // Don't save usesRanges - it's inferred from row data
       }));
       if (validColumns.length === 0) {
-        setError('At least one column is required');
+        showToast("info", "Add columns", "At least one column is required.");
         return;
       }
 
@@ -359,7 +370,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
         await loadTables();
         setSelectedTable(tableName);
     } catch (err: any) {
-      showToast("error", "Save Failed", err.message || 'Failed to save table definition');
+      showToast("error", "Couldn't save table", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -367,7 +378,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
   const handleSaveRows = async () => {
     if (!selectedComponent || !tableName.trim()) {
-      showToast("error", "Validation Error", "Component and table name are required");
+      showToast("info", "Required fields", "Component and table name are required.");
       return;
     }
 
@@ -384,7 +395,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       showToast("success", "Rows Saved", `Successfully saved ${result.upserted} row(s)!`);
       await loadTableData();
     } catch (err: any) {
-      showToast("error", "Save Failed", err.message || 'Failed to save rows');
+      showToast("error", "Couldn't save rows", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -392,7 +403,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
   const handleDeleteAllRows = async () => {
     if (!selectedComponent || !tableName.trim()) {
-      setError('Component and table name are required');
+      showToast("info", "Select table", "Please select a component and table.");
       return;
     }
 
@@ -405,7 +416,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       setRows([]);
       setShowDeleteAllRowsDialog(false);
     } catch (err: any) {
-      showToast("error", "Delete Failed", err.message || 'Failed to delete rows');
+      showToast("error", "Couldn't delete rows", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -413,7 +424,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
   const handleDeleteTable = async () => {
     if (!selectedComponent || !tableName.trim()) {
-      setError('Component and table name are required');
+      showToast("info", "Select table", "Please select a component and table.");
       return;
     }
 
@@ -432,7 +443,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       setRows([]);
       setTableData(null);
     } catch (err: any) {
-      showToast("error", "Delete Failed", err.message || 'Failed to delete table');
+      showToast("error", "Couldn't delete table", "Please try again.");
     } finally {
       setSaving(false);
     }
@@ -570,7 +581,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
 
   const handleDownloadTemplate = () => {
     if (!tableName || columns.filter(col => col.name.trim()).length === 0) {
-      setError('Please define table name and columns before downloading template');
+      showToast("info", "Define table first", "Please define table name and columns before downloading template.");
       return;
     }
 
@@ -851,8 +862,18 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            {error}
+          <div className="mb-4">
+            <StateScreen
+              type={error.type}
+              supportRef={error.supportRef}
+              onPrimaryAction={() => {
+                setError(null);
+                if (error.type === 'network' || error.type === 'system') {
+                  window.location.reload();
+                }
+              }}
+              inline
+            />
           </div>
         )}
 

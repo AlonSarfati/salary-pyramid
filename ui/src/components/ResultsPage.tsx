@@ -6,6 +6,7 @@ import { scenarioApi, type Scenario } from '../services/apiService';
 import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, formatCurrencyCompact } from '../utils/currency';
 import { useToast } from "./ToastProvider";
+import { StateScreen } from "./ui/StateScreen";
 
 interface Simulation {
   id: string;
@@ -34,7 +35,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
   const [selectedSimulation, setSelectedSimulation] = useState<Simulation | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
   const [showDeleteScenarioDialog, setShowDeleteScenarioDialog] = useState(false);
   const [scenarioIdToDelete, setScenarioIdToDelete] = useState<string | null>(null);
   const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
@@ -52,7 +53,12 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
         }
       } catch (e: any) {
         if (!cancelled) {
-          setError(e.message || 'Failed to load scenarios');
+          const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+          setError({
+            type: isNetworkError ? 'network' : 'system',
+            message: e.message,
+            supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
+          });
         }
       } finally {
         if (!cancelled) {
@@ -164,7 +170,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
       }
       showToast("success", "Scenario deleted", "The scenario was removed from history.");
     } catch (e: any) {
-      showToast("error", "Failed to delete scenario", e.message || "Unknown error");
+      showToast("error", "Couldn't delete scenario", "Please try again.");
     }
   };
 
@@ -285,19 +291,29 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
       {/* Simulations Table */}
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
         <h3 className="text-[#1E1E1E] mb-4">Simulation History</h3>
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            {error}
-          </div>
-        )}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-[#0052CC]" />
           </div>
+        ) : error ? (
+          <StateScreen
+            type={error.type}
+            supportRef={error.supportRef}
+            onPrimaryAction={() => {
+              setError(null);
+              window.location.reload();
+            }}
+            inline
+          />
         ) : simulations.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            No scenarios saved yet. Run a simulation and save it to see it here.
-          </div>
+          <StateScreen
+            type="empty"
+            title="No scenarios yet"
+            description="Run a simulation and save it to see it here."
+            primaryActionLabel="Go to Simulate"
+            onPrimaryAction={() => onNavigate?.('simulate-single')}
+            inline
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -546,7 +562,7 @@ export default function ResultsPage({ tenantId = 'default', onNavigate }: Result
                   setSelectedSimulation(null);
                   showToast("success", "History cleared", "All scenarios were removed for this tenant.");
                 } catch (e: any) {
-                  showToast("error", "Failed to clear history", e.message || "Unknown error");
+                  showToast("error", "Couldn't clear history", "Please try again.");
                 } finally {
                   setShowClearHistoryDialog(false);
                 }
