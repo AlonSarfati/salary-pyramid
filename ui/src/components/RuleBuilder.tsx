@@ -97,11 +97,50 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [capFloorComponent, setCapFloorComponent] = useState<string>('');
   const [capFloorValue, setCapFloorValue] = useState<string>('');
   
-  // Population filters
-  const [employeeFilters, setEmployeeFilters] = useState<Array<{field: string; operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'in_range'; value: string; value2?: string}>>([]);
+  // Population filters - now supports multiple groups with AND/OR logic
+  type FilterCondition = {
+    field: string;
+    operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'in_range';
+    value: string;
+    value2?: string;
+    logic?: 'AND' | 'OR'; // Logic to join with next condition
+  };
+  
+  type FilterGroup = {
+    id: string;
+    filters: FilterCondition[];
+    // Rule type and parameters (HOW)
+    ruleType: 'fixed' | 'table' | 'percentage' | 'capfloor' | null;
+    fixedValue: string;
+    tableComponent: string;
+    tableName: string;
+    tableLookupField: string;
+    percentageBase: string;
+    percentageAmount: string;
+    capFloorType: 'cap' | 'floor';
+    capFloorComponent: string;
+    capFloorValue: string;
+  };
+  
+  const [filterGroups, setFilterGroups] = useState<FilterGroup[]>([
+    { 
+      id: 'group-1', 
+      filters: [], 
+      ruleType: null,
+      fixedValue: '',
+      tableComponent: '',
+      tableName: '',
+      tableLookupField: '',
+      percentageBase: '',
+      percentageAmount: '',
+      capFloorType: 'cap',
+      capFloorComponent: '',
+      capFloorValue: ''
+    }
+  ]);
   const [availableEmployeeFields, setAvailableEmployeeFields] = useState<Array<{name: string; type: 'string' | 'number'; values?: string[]; min?: number; max?: number}>>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [filteredEmployeeCount, setFilteredEmployeeCount] = useState<number | null>(null);
+  const [filteredEmployeeCounts, setFilteredEmployeeCounts] = useState<Record<string, number>>({});
   
   // Advanced options
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
@@ -110,6 +149,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ type: 'network' | 'system' | 'validation'; message?: string; supportRef?: string } | null>(null);
+  const isSavingRef = useRef(false); // Track if we're currently saving to prevent reload
   const [lastValidationStatus, setLastValidationStatus] = useState<"idle" | "success" | "error">("idle");
   const [lastValidationTime, setLastValidationTime] = useState<string | null>(null);
   
@@ -251,7 +291,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         }
       }
       
-      graph.get(rule.target)!.add(...Array.from(deps));
+      const depsArray = Array.from(deps) as string[];
+      depsArray.forEach(dep => {
+        graph.get(rule.target)!.add(dep);
+      });
     });
     
     // Topological sort (Kahn's algorithm)
@@ -332,6 +375,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   // Load rule data when component selected
   useEffect(() => {
+    // Don't reload if we're currently saving - this prevents state from being reset after save
+    if (isSavingRef.current) {
+      return;
+    }
     if (selectedComponent && ruleset) {
       loadRuleData(selectedComponent);
       loadTableNames(selectedComponent);
@@ -470,20 +517,20 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     return null;
   };
 
-  // Helper: Parse IF condition to extract employee filters
-  const parseFiltersFromExpression = (expr: string): Array<{field: string; operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'in_range'; value: string; value2?: string}> => {
-    const filters: Array<{field: string; operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'in_range'; value: string; value2?: string}> = [];
+  // Helper: Parse condition string to extract filter conditions with AND/OR logic
+  const parseConditionToFilters = (condition: string): FilterCondition[] => {
+    const filters: FilterCondition[] = [];
     
-    // Check if expression has IF condition: IF condition THEN expression ELSE 0
-    const ifMatch = expr.match(/^IF\s+(.+?)\s+THEN\s+(.+?)\s+ELSE\s+0$/);
-    if (!ifMatch) return filters;
+    // Split by AND/OR, preserving the operators
+    // This is a simplified parser - for complex nested conditions, this might need improvement
+    const parts = condition.split(/\s+(AND|OR)\s+/i);
     
-    const condition = ifMatch[1];
-    // Split by AND to get individual conditions
-    const conditions = condition.split(/\s+AND\s+/);
-    
-    for (const cond of conditions) {
-      const trimmed = cond.trim();
+    for (let i = 0; i < parts.length; i += 2) {
+      const cond = parts[i].trim();
+      const logic = i > 0 ? (parts[i - 1].toUpperCase() as 'AND' | 'OR') : undefined;
+      
+      // Remove parentheses if present
+      const trimmed = cond.replace(/^\(+|\)+$/g, '').trim();
       
       // Try to match different operators
       // Equals: field = value or field = "value"
@@ -491,15 +538,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       if (equalsMatch) {
         const field = equalsMatch[1];
         let value = equalsMatch[2].trim();
-        // Remove quotes if present
         if (value.startsWith('"') && value.endsWith('"')) {
           value = value.slice(1, -1);
         }
-        filters.push({ field, operator: 'equals', value });
+        filters.push({ field, operator: 'equals', value, logic });
         continue;
       }
       
-      // Not equals: field != value or field != "value"
+      // Not equals
       const notEqualsMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*!=\s*(.+)$/);
       if (notEqualsMatch) {
         const field = notEqualsMatch[1];
@@ -507,35 +553,34 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         if (value.startsWith('"') && value.endsWith('"')) {
           value = value.slice(1, -1);
         }
-        filters.push({ field, operator: 'not_equals', value });
+        filters.push({ field, operator: 'not_equals', value, logic });
         continue;
       }
       
-      // Greater than: field > value
+      // Greater than
       const gtMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*>\s*(.+)$/);
       if (gtMatch) {
-        const field = gtMatch[1];
-        const value = gtMatch[2].trim();
-        filters.push({ field, operator: 'greater_than', value });
+        filters.push({ field: gtMatch[1], operator: 'greater_than', value: gtMatch[2].trim(), logic });
         continue;
       }
       
-      // Less than: field < value
+      // Less than
       const ltMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*<\s*(.+)$/);
       if (ltMatch) {
-        const field = ltMatch[1];
-        const value = ltMatch[2].trim();
-        filters.push({ field, operator: 'less_than', value });
+        filters.push({ field: ltMatch[1], operator: 'less_than', value: ltMatch[2].trim(), logic });
         continue;
       }
       
       // Range: field >= value1 AND field <= value2
       const rangeMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*>=\s*(.+?)\s+AND\s+\1\s*<=\s*(.+)$/);
       if (rangeMatch) {
-        const field = rangeMatch[1];
-        const value1 = rangeMatch[2].trim();
-        const value2 = rangeMatch[3].trim();
-        filters.push({ field, operator: 'in_range', value: value1, value2 });
+        filters.push({ 
+          field: rangeMatch[1], 
+          operator: 'in_range', 
+          value: rangeMatch[2].trim(), 
+          value2: rangeMatch[3].trim(),
+          logic 
+        });
         continue;
       }
     }
@@ -553,17 +598,169 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     return expr;
   };
 
-  // Helper: Parse expression into structured inputs
-  const parseExpressionToStructured = (expr: string) => {
-    // First extract base expression (remove IF condition if present)
-    const baseExpr = extractBaseExpression(expr);
+  // Helper: Parse nested IF-THEN-ELSE to extract filter groups
+  const parseFilterGroupsFromExpression = (expr: string): FilterGroup[] => {
+    const groups: FilterGroup[] = [];
+    let remaining = expr.trim();
+    let groupId = 1;
     
-    // Parse filters from IF condition
-    const parsedFilters = parseFiltersFromExpression(expr);
-    if (parsedFilters.length > 0) {
-      setEmployeeFilters(parsedFilters);
+    // Parse nested IF conditions: IF condition THEN value ELSE ...
+    // Use a more robust parser that handles nested parentheses
+    while (remaining) {
+      // Match: IF <condition> THEN <value> ELSE <rest>
+      // We need to properly handle nested parentheses in the condition
+      if (!remaining.startsWith('IF ')) break;
+      
+      // Find the THEN keyword (after the condition)
+      let thenPos = -1;
+      let parenDepth = 0;
+      let inQuotes = false;
+      for (let i = 3; i < remaining.length - 4; i++) {
+        const char = remaining[i];
+        if (char === '"' && (i === 0 || remaining[i-1] !== '\\')) {
+          inQuotes = !inQuotes;
+        } else if (!inQuotes) {
+          if (char === '(') parenDepth++;
+          else if (char === ')') parenDepth--;
+          else if (parenDepth === 0 && remaining.substring(i, i + 5) === ' THEN') {
+            thenPos = i;
+            break;
+          }
+        }
+      }
+      
+      if (thenPos === -1) break;
+      
+      const condition = remaining.substring(3, thenPos).trim();
+      
+      // Find the ELSE keyword (after the THEN value)
+      let elsePos = -1;
+      parenDepth = 0;
+      inQuotes = false;
+      for (let i = thenPos + 5; i < remaining.length - 4; i++) {
+        const char = remaining[i];
+        if (char === '"' && (i === 0 || remaining[i-1] !== '\\')) {
+          inQuotes = !inQuotes;
+        } else if (!inQuotes) {
+          if (char === '(') parenDepth++;
+          else if (char === ')') parenDepth--;
+          else if (parenDepth === 0 && remaining.substring(i, i + 5) === ' ELSE') {
+            elsePos = i;
+            break;
+          }
+        }
+      }
+      
+      if (elsePos === -1) break;
+      
+      const thenValue = remaining.substring(thenPos + 5, elsePos).trim();
+      const elseValue = remaining.substring(elsePos + 5).trim();
+      
+      // Parse filters from condition
+      const filters = parseConditionToFilters(condition);
+      
+      // Determine rule type and parse parameters
+      let ruleType: 'fixed' | 'table' | 'percentage' | 'capfloor' | null = null;
+      let fixedValue = '';
+      let tableComponent = '';
+      let tableName = '';
+      let tableLookupField = '';
+      let percentageBase = '';
+      let percentageAmount = '';
+      let capFloorType: 'cap' | 'floor' = 'cap';
+      let capFloorComponent = '';
+      let capFloorValue = '';
+      
+      // Check if it's a percentage: Component * 0.XX
+      const percMatch = thenValue.match(/^([A-Z][a-zA-Z0-9]*)\s*\*\s*([0-9.]+)$/);
+      if (percMatch) {
+        ruleType = 'percentage';
+        percentageBase = percMatch[1];
+        const multiplier = parseFloat(percMatch[2]);
+        percentageAmount = (multiplier * 100).toString();
+      }
+      // Check if it's a table lookup: TBL("tableName", field)
+      else if (thenValue.includes('TBL(')) {
+        const tblMatch = thenValue.match(/TBL\("([^"]+)",\s*([^)]+)\)/);
+        if (tblMatch) {
+          ruleType = 'table';
+          tableName = tblMatch[1];
+          tableLookupField = tblMatch[2].trim();
+        }
+      }
+      // Check if it's a cap/floor: MIN(...) or MAX(...)
+      else if (thenValue.includes('MIN(') || thenValue.includes('MAX(')) {
+        const minMatch = thenValue.match(/MIN\(([^,]+),\s*([^)]+)\)/);
+        const maxMatch = thenValue.match(/MAX\(([^,]+),\s*([^)]+)\)/);
+        if (minMatch) {
+          ruleType = 'capfloor';
+          capFloorType = 'floor';
+          capFloorComponent = minMatch[1].trim();
+          capFloorValue = minMatch[2].trim();
+        } else if (maxMatch) {
+          ruleType = 'capfloor';
+          capFloorType = 'cap';
+          capFloorComponent = maxMatch[1].trim();
+          capFloorValue = maxMatch[2].trim();
+        }
+      }
+      // Check if it's a fixed value (simple number)
+      else if (/^-?\d+(\.\d+)?$/.test(thenValue)) {
+        ruleType = 'fixed';
+        fixedValue = thenValue;
+      }
+      
+      groups.push({
+        id: `group-${groupId++}`,
+        filters,
+        ruleType,
+        fixedValue,
+        tableComponent,
+        tableName,
+        tableLookupField,
+        percentageBase,
+        percentageAmount,
+        capFloorType,
+        capFloorComponent,
+        capFloorValue
+      });
+      
+      // Continue parsing the ELSE part
+      remaining = elseValue;
     }
     
+    return groups;
+  };
+
+  // Helper: Parse expression into structured inputs
+  const parseExpressionToStructured = (expr: string) => {
+    // Try to parse filter groups from nested IF conditions
+    const parsedGroups = parseFilterGroupsFromExpression(expr);
+    if (parsedGroups.length > 0) {
+      setFilterGroups(parsedGroups);
+      // Set main rule type based on last group (default/else value)
+      const lastGroup = parsedGroups[parsedGroups.length - 1];
+      if (lastGroup.ruleType) {
+        setRuleType(lastGroup.ruleType);
+        if (lastGroup.ruleType === 'fixed') {
+          setFixedValue(lastGroup.fixedValue);
+        } else if (lastGroup.ruleType === 'percentage') {
+          setPercentageBase(lastGroup.percentageBase);
+          setPercentageAmount(lastGroup.percentageAmount);
+        } else if (lastGroup.ruleType === 'table') {
+          setTableName(lastGroup.tableName);
+          setTableLookupField(lastGroup.tableLookupField);
+        } else if (lastGroup.ruleType === 'capfloor') {
+          setCapFloorType(lastGroup.capFloorType);
+          setCapFloorComponent(lastGroup.capFloorComponent);
+          setCapFloorValue(lastGroup.capFloorValue);
+        }
+      }
+      return;
+    }
+    
+    // Fallback: try to parse as single IF condition or simple expression
+    const baseExpr = extractBaseExpression(expr);
     const detectedType = detectRuleTypeFromExpression(baseExpr);
     if (!detectedType) return;
     
@@ -574,7 +771,6 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         setFixedValue(baseExpr.trim());
         break;
       case 'table':
-        // Try to extract table name and lookup field from TBL("tableName", field)
         const tblMatch = baseExpr.match(/TBL\("([^"]+)",\s*([^)]+)\)/);
         if (tblMatch) {
           setTableName(tblMatch[1]);
@@ -582,7 +778,6 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         }
         break;
       case 'percentage':
-        // Extract base component and percentage
         const percMatch = baseExpr.match(/^([A-Z][a-zA-Z0-9]*)\s*\*\s*([0-9.]+)$/);
         if (percMatch) {
           setPercentageBase(percMatch[1]);
@@ -591,7 +786,6 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         }
         break;
       case 'capfloor':
-        // Extract component and value from MIN/MAX
         const minMatch = baseExpr.match(/MIN\(([^,]+),\s*([^)]+)\)/);
         const maxMatch = baseExpr.match(/MAX\(([^,]+),\s*([^)]+)\)/);
         if (minMatch) {
@@ -628,14 +822,25 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setPercentageAmount('');
       setCapFloorComponent('');
       setCapFloorValue('');
-      // Don't reset employeeFilters here - let parseExpressionToStructured handle it
+      // Reset filter groups - let parseExpressionToStructured handle restoration
+      setFilterGroups([{ 
+        id: 'group-1', 
+        filters: [], 
+        ruleType: null,
+        fixedValue: '',
+        tableComponent: '',
+        tableName: '',
+        tableLookupField: '',
+        percentageBase: '',
+        percentageAmount: '',
+        capFloorType: 'cap',
+        capFloorComponent: '',
+        capFloorValue: ''
+      }]);
       
       // Try to detect and parse structured format from expression
       if (!expertMode && rule.expression) {
         parseExpressionToStructured(rule.expression);
-      } else {
-        // If expert mode or no expression, clear filters
-        setEmployeeFilters([]);
       }
       
       // Convert group name to group number for display
@@ -705,26 +910,93 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
-  // Helper: Generate expression from structured inputs (with filters applied)
+  // Helper: Generate expression for a filter group value (based on rule type)
+  const generateGroupValueExpression = (group: FilterGroup): string => {
+    if (!group.ruleType) return '0';
+    
+    switch (group.ruleType) {
+      case 'fixed':
+        return group.fixedValue || '0';
+      case 'table':
+        if (group.tableComponent && group.tableName && group.tableLookupField) {
+          return `TBL("${group.tableName}", ${group.tableLookupField})`;
+        }
+        return '0';
+      case 'percentage':
+        if (group.percentageBase && group.percentageAmount) {
+          return `${group.percentageBase} * ${parseFloat(group.percentageAmount) / 100}`;
+        }
+        return '0';
+      case 'capfloor':
+        if (group.capFloorComponent && group.capFloorValue) {
+          const func = group.capFloorType === 'cap' ? 'MIN' : 'MAX';
+          return `${func}(${group.capFloorComponent}, ${group.capFloorValue})`;
+        }
+        return '0';
+      default:
+        return '0';
+    }
+  };
+
+  // Helper: Generate condition expression from filter group
+  const generateGroupCondition = (group: FilterGroup): string => {
+    if (group.filters.length === 0) return '';
+    
+    const conditions = group.filters
+      .filter(f => f.field && f.value)
+      .map(f => filterOperatorToExpression(f.operator, f.field, f.value, f.value2))
+      .filter(c => c !== '');
+    
+    if (conditions.length === 0) return '';
+    if (conditions.length === 1) return conditions[0];
+    
+    // Join conditions with AND/OR logic
+    // Wrap each condition in parentheses and join with the appropriate operator
+    const parts: string[] = [];
+    parts.push(`(${conditions[0]})`);
+    
+    for (let i = 1; i < conditions.length; i++) {
+      const logic = group.filters[i - 1].logic || 'AND';
+      parts.push(logic);
+      parts.push(`(${conditions[i]})`);
+    }
+    
+    // Return all conditions joined together, wrapped in parentheses for proper grouping
+    return `(${parts.join(' ')})`;
+  };
+
+  // Helper: Generate expression from structured inputs (with filter groups applied)
   const generateExpressionFromStructured = (): string => {
     const baseExpression = generateBaseExpression();
     if (!baseExpression) return '';
     
-    // If there are employee filters, wrap the expression in an IF condition
-    if (employeeFilters.length > 0) {
-      // Build the condition from all filters (AND them together)
-      const conditions = employeeFilters
-        .filter(f => f.field && f.value) // Only include filters with values
-        .map(f => filterOperatorToExpression(f.operator, f.field, f.value, f.value2))
-        .filter(c => c !== ''); // Remove empty conditions
+    // Filter out groups without filters or rule type configured
+    const activeGroups = filterGroups.filter(g => 
+      g.filters.length > 0 && 
+      g.filters.some(f => f.field && f.value) && 
+      g.ruleType !== null
+    );
+    
+    // If no filter groups, return base expression
+    if (activeGroups.length === 0) {
+      return baseExpression;
+    }
+    
+    // Build nested IF-THEN-ELSE structure
+    let expression = baseExpression; // Default value
+    
+    // Build from last to first (nested ELSE IF)
+    for (let i = activeGroups.length - 1; i >= 0; i--) {
+      const group = activeGroups[i];
+      const condition = generateGroupCondition(group);
+      const value = generateGroupValueExpression(group);
       
-      if (conditions.length > 0) {
-        const condition = conditions.join(' AND ');
-        return `IF ${condition} THEN ${baseExpression} ELSE 0`;
+      if (condition) {
+        expression = `IF ${condition} THEN ${value} ELSE ${expression}`;
       }
     }
     
-    return baseExpression;
+    return expression;
   };
 
   // Helper: Generate plain-language explanation
@@ -734,59 +1006,73 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     const componentName = target || 'the component';
     let explanation = '';
     
-    // Add filter description if any
-    if (employeeFilters.length > 0) {
-      const filterDescriptions = employeeFilters
-        .filter(f => f.field && f.value)
-        .map(f => {
-          const fieldMeta = availableEmployeeFields.find(af => af.name === f.field);
-          const isNumeric = fieldMeta?.type === 'number';
-          let desc = '';
-          switch (f.operator) {
-            case 'equals':
-              desc = `${f.field} equals ${isNumeric ? f.value : `"${f.value}"`}`;
-              break;
-            case 'not_equals':
-              desc = `${f.field} does not equal ${isNumeric ? f.value : `"${f.value}"`}`;
-              break;
-            case 'greater_than':
-              desc = `${f.field} is greater than ${f.value}`;
-              break;
-            case 'less_than':
-              desc = `${f.field} is less than ${f.value}`;
-              break;
-            case 'in_range':
-              desc = `${f.field} is between ${f.value} and ${f.value2 || ''}`;
-              break;
-          }
-          return desc;
-        })
-        .filter(d => d !== '');
+    // Get active filter groups
+    const activeGroups = filterGroups.filter(g => 
+      g.filters.length > 0 && 
+      g.filters.some(f => f.field && f.value) && 
+      g.ruleType !== null
+    );
+    
+    if (activeGroups.length > 0) {
+      explanation += 'Applies different values based on employee groups:\n';
+      activeGroups.forEach((group, idx) => {
+        const filterDescriptions = group.filters
+          .filter(f => f.field && f.value)
+          .map((f, i) => {
+            const fieldMeta = availableEmployeeFields.find(af => af.name === f.field);
+            const isNumeric = fieldMeta?.type === 'number';
+            let desc = '';
+            switch (f.operator) {
+              case 'equals':
+                desc = `${f.field} equals ${isNumeric ? f.value : `"${f.value}"`}`;
+                break;
+              case 'not_equals':
+                desc = `${f.field} does not equal ${isNumeric ? f.value : `"${f.value}"`}`;
+                break;
+              case 'greater_than':
+                desc = `${f.field} > ${f.value}`;
+                break;
+              case 'less_than':
+                desc = `${f.field} < ${f.value}`;
+                break;
+              case 'in_range':
+                desc = `${f.value} <= ${f.field} <= ${f.value2 || ''}`;
+                break;
+            }
+            if (i < group.filters.length - 1 && f.logic) {
+              desc += ` ${f.logic}`;
+            }
+            return desc;
+          })
+          .filter(d => d !== '');
+        
+        if (filterDescriptions.length > 0) {
+          const valueDesc = generateGroupValueExpression(group);
+          explanation += `\n• Group ${idx + 1}: If ${filterDescriptions.join(' ')} then ${valueDesc} (${filteredEmployeeCounts[group.id] || 0} employees)`;
+        }
+      });
       
-      if (filterDescriptions.length > 0) {
-        explanation += `Only applies when ${filterDescriptions.join(' and ')}. `;
+      const baseExpr = generateBaseExpression();
+      if (baseExpr) {
+        explanation += `\n• Default: ${baseExpr}`;
       }
-    }
-    
-    switch (ruleType) {
-      case 'fixed':
-        explanation += `Sets ${componentName} to a fixed value of ${fixedValue || '0'}.`;
-        break;
-      case 'table':
-        explanation += `Looks up ${componentName} from table "${tableName}" using field ${tableLookupField}.`;
-        break;
-      case 'percentage':
-        explanation += `Calculates ${componentName} as ${percentageAmount || '0'}% of ${percentageBase || 'base'}.`;
-        break;
-      case 'capfloor':
-        const capFloorText = capFloorType === 'cap' ? 'maximum' : 'minimum';
-        explanation += `Applies a ${capFloorText} of ${capFloorValue || '0'} to ${capFloorComponent || 'the component'}.`;
-        break;
-    }
-    
-    if (employeeFilters.length > 0) {
-      explanation += ` Applies to ${filteredEmployeeCount !== null ? filteredEmployeeCount : 'filtered'} employees.`;
     } else {
+      // No filter groups, use base rule type
+      switch (ruleType) {
+        case 'fixed':
+          explanation += `Sets ${componentName} to a fixed value of ${fixedValue || '0'}.`;
+          break;
+        case 'table':
+          explanation += `Looks up ${componentName} from table "${tableName}" using field ${tableLookupField}.`;
+          break;
+        case 'percentage':
+          explanation += `Calculates ${componentName} as ${percentageAmount || '0'}% of ${percentageBase || 'base'}.`;
+          break;
+        case 'capfloor':
+          const capFloorText = capFloorType === 'cap' ? 'maximum' : 'minimum';
+          explanation += `Applies a ${capFloorText} of ${capFloorValue || '0'} to ${capFloorComponent || 'the component'}.`;
+          break;
+      }
       explanation += ' Applies to all employees.';
     }
     
@@ -855,76 +1141,75 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     return () => { cancelled = true; };
   }, [tenantId, selectedRulesetId]);
 
-  // Calculate filtered employee count
-  useEffect(() => {
-    if (employeeFilters.length === 0) {
-      setFilteredEmployeeCount(employees.length);
-      return;
+  // Helper: Check if employee matches a filter condition
+  const matchesFilter = (emp: Employee, filter: FilterCondition): boolean => {
+    const data = emp.data || {};
+    const fieldValue = data[filter.field];
+    if (fieldValue === null || fieldValue === undefined) {
+      return false;
     }
     
-    let count = 0;
-    for (const emp of employees) {
-      const data = emp.data || {};
-      let matches = true;
+    const fieldMeta = availableEmployeeFields.find(f => f.name === filter.field);
+    const isNumeric = fieldMeta?.type === 'number';
+    const numValue = isNumeric ? Number(fieldValue) : null;
+    const strValue = String(fieldValue).trim();
+    
+    switch (filter.operator) {
+      case 'equals':
+        return isNumeric ? numValue === Number(filter.value) : strValue === filter.value;
+      case 'not_equals':
+        return isNumeric ? numValue !== Number(filter.value) : strValue !== filter.value;
+      case 'greater_than':
+        return isNumeric && numValue !== null ? numValue > Number(filter.value) : false;
+      case 'less_than':
+        return isNumeric && numValue !== null ? numValue < Number(filter.value) : false;
+      case 'in_range':
+        return isNumeric && numValue !== null && filter.value2
+          ? numValue >= Number(filter.value) && numValue <= Number(filter.value2)
+          : false;
+      default:
+        return false;
+    }
+  };
+
+  // Helper: Check if employee matches a filter group
+  const matchesFilterGroup = (emp: Employee, group: FilterGroup): boolean => {
+    if (group.filters.length === 0) return true;
+    
+    // Evaluate filters with AND/OR logic
+    let result = matchesFilter(emp, group.filters[0]);
+    
+    for (let i = 1; i < group.filters.length; i++) {
+      const filter = group.filters[i];
+      const filterResult = matchesFilter(emp, filter);
+      const logic = group.filters[i - 1].logic || 'AND';
       
-      for (const filter of employeeFilters) {
-        const fieldValue = data[filter.field];
-        if (fieldValue === null || fieldValue === undefined) {
-          matches = false;
-          break;
-        }
-        
-        const fieldMeta = availableEmployeeFields.find(f => f.name === filter.field);
-        const isNumeric = fieldMeta?.type === 'number';
-        const numValue = isNumeric ? Number(fieldValue) : null;
-        const strValue = String(fieldValue).trim();
-        
-        switch (filter.operator) {
-          case 'equals':
-            if (isNumeric) {
-              matches = numValue === Number(filter.value);
-            } else {
-              matches = strValue === filter.value;
-            }
-            break;
-          case 'not_equals':
-            if (isNumeric) {
-              matches = numValue !== Number(filter.value);
-            } else {
-              matches = strValue !== filter.value;
-            }
-            break;
-          case 'greater_than':
-            if (isNumeric && numValue !== null) {
-              matches = numValue > Number(filter.value);
-            } else {
-              matches = false;
-            }
-            break;
-          case 'less_than':
-            if (isNumeric && numValue !== null) {
-              matches = numValue < Number(filter.value);
-            } else {
-              matches = false;
-            }
-            break;
-          case 'in_range':
-            if (isNumeric && numValue !== null && filter.value2) {
-              matches = numValue >= Number(filter.value) && numValue <= Number(filter.value2);
-            } else {
-              matches = false;
-            }
-            break;
-        }
-        
-        if (!matches) break;
+      if (logic === 'AND') {
+        result = result && filterResult;
+      } else {
+        result = result || filterResult;
       }
-      
-      if (matches) count++;
     }
     
-    setFilteredEmployeeCount(count);
-  }, [employeeFilters, employees, availableEmployeeFields]);
+    return result;
+  };
+
+  // Calculate filtered employee count for each group
+  useEffect(() => {
+    const counts: Record<string, number> = {};
+    
+    for (const group of filterGroups) {
+      let count = 0;
+      for (const emp of employees) {
+        if (matchesFilterGroup(emp, group)) {
+          count++;
+        }
+      }
+      counts[group.id] = count;
+    }
+    
+    setFilteredEmployeeCounts(counts);
+  }, [filterGroups, employees, availableEmployeeFields]);
 
   // Auto-generate expression when structured inputs change
   useEffect(() => {
@@ -934,7 +1219,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         setExpression(generated);
       }
     }
-  }, [ruleType, fixedValue, tableComponent, tableName, tableLookupField, percentageBase, percentageAmount, capFloorType, capFloorComponent, capFloorValue, expertMode]);
+  }, [ruleType, fixedValue, tableComponent, tableName, tableLookupField, percentageBase, percentageAmount, capFloorType, capFloorComponent, capFloorValue, filterGroups, expertMode]);
 
   // When expert mode is turned off, try to parse existing expression
   useEffect(() => {
@@ -966,6 +1251,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
     try {
       setSaving(true);
+      isSavingRef.current = true; // Set flag to prevent reload
       setError(null);
       
       // Convert group number back to group name for saving
@@ -996,10 +1282,21 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         workPercent: workPercentFlag,
       });
 
-      // Reload ruleset
-      await loadRuleset(selectedRulesetId);
+      // Reload ruleset to get updated data
+      const updatedRuleset = await rulesetApi.getRuleset(tenantId, selectedRulesetId);
+      
       // Mark this component as draft (has unpublished changes)
       setDraftComponents(prev => ({ ...prev, [target]: true }));
+      
+      // Update ruleset state, but delay it slightly to ensure isSavingRef is still set
+      // This prevents the useEffect from triggering loadRuleData
+      setRuleset(updatedRuleset);
+      
+      // Clear the saving flag after a brief delay to allow state to settle
+      setTimeout(() => {
+        isSavingRef.current = false;
+      }, 200);
+      
       showToast('success', 'Rule saved', `Component "${target}" was updated.`);
     } catch (err: any) {
       const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
@@ -1011,6 +1308,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       showToast("error", "Couldn't save rule", "Please try again.");
     } finally {
       setSaving(false);
+      // Clear the saving flag even on error
+      setTimeout(() => {
+        isSavingRef.current = false;
+      }, 100);
     }
   };
 
@@ -1310,20 +1611,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         showToast('success', 'Group Created', `"${groupFormData.displayName}" was created successfully.`);
       }
       
-      // Reload groups
+      // Reload groups (mappings will be automatically recomputed by useMemo)
       const groups = await componentGroupsApi.getAll();
       setComponentGroups(groups);
-      
-      // Update mappings
-      const nameToNumber: Record<string, string> = {};
-      const numberToName: Record<string, string> = {};
-      groups.forEach((g, idx) => {
-        const num = `group${idx + 1}`;
-        nameToNumber[g.groupName.toLowerCase()] = num;
-        numberToName[num] = g.groupName.toLowerCase();
-      });
-      setGroupNameToNumber(nameToNumber);
-      setGroupNumberToName(numberToName);
       
       setShowGroupDialog(false);
       setEditingGroup(null);
@@ -1343,20 +1633,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       await componentGroupsApi.delete(groupNameToDelete);
       showToast('success', 'Group Deleted', `Group was deleted successfully.`);
       
-      // Reload groups
+      // Reload groups (mappings will be automatically recomputed by useMemo)
       const groups = await componentGroupsApi.getAll();
       setComponentGroups(groups);
-      
-      // Update mappings
-      const nameToNumber: Record<string, string> = {};
-      const numberToName: Record<string, string> = {};
-      groups.forEach((g, idx) => {
-        const num = `group${idx + 1}`;
-        nameToNumber[g.groupName.toLowerCase()] = num;
-        numberToName[num] = g.groupName.toLowerCase();
-      });
-      setGroupNameToNumber(nameToNumber);
-      setGroupNumberToName(numberToName);
       
       setShowDeleteGroupDialog(false);
       setGroupNameToDelete(null);
@@ -1818,7 +2097,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         showToast('success', 'Import successful', `Successfully imported ${successCount} rule(s).`);
         setShowImportDialog(false);
       } else if (successCount > 0) {
-        showToast('warning', 'Partial import', `Imported ${successCount} rule(s), ${errorCount} failed. Check console for details.`);
+        showToast('info', 'Partial import', `Imported ${successCount} rule(s), ${errorCount} failed. Check console for details.`);
         console.error('Import errors:', errors);
         setImportError(`Imported ${successCount} rule(s), ${errorCount} failed:\n${errors.join('\n')}`);
       } else {
@@ -2663,102 +2942,378 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                     {/* Section 2: Population (WHO) */}
                     <div className="border-b border-gray-200 pb-6">
                       <h4 className="text-[#1E1E1E] font-semibold mb-4">2. Population (WHO)</h4>
-                      <div className="space-y-3">
-                        {employeeFilters.map((filter, idx) => (
-                          <div key={idx} className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                            <Select
-                              value={filter.field}
-                              onValueChange={(value) => {
-                                const updated = [...employeeFilters];
-                                updated[idx].field = value;
-                                const fieldMeta = availableEmployeeFields.find(f => f.name === value);
-                                if (fieldMeta) {
-                                  updated[idx].operator = fieldMeta.type === 'number' ? 'greater_than' : 'equals';
-                                }
-                                setEmployeeFilters(updated);
-                              }}
-                            >
-                              <SelectTrigger className="w-40">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableEmployeeFields.map((f) => (
-                                  <SelectItem key={f.name} value={f.name}>
-                                    {f.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            
-                            <Select
-                              value={filter.operator}
-                              onValueChange={(value) => {
-                                const updated = [...employeeFilters];
-                                updated[idx].operator = value as typeof filter.operator;
-                                setEmployeeFilters(updated);
-                              }}
-                            >
-                              <SelectTrigger className="w-32">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="equals">Equals</SelectItem>
-                                <SelectItem value="not_equals">Not Equals</SelectItem>
-                                <SelectItem value="greater_than">Greater Than</SelectItem>
-                                <SelectItem value="less_than">Less Than</SelectItem>
-                                <SelectItem value="in_range">In Range</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            
-                            {filter.operator === 'in_range' ? (
-                              <>
-                                <Input
-                                  type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
-                                  value={filter.value}
-                                  onChange={(e) => {
-                                    const updated = [...employeeFilters];
-                                    updated[idx].value = e.target.value;
-                                    setEmployeeFilters(updated);
+                      <p className="text-sm text-gray-600 mb-4">
+                        Create filter groups with AND/OR logic. Each group can have a different value.
+                      </p>
+                      
+                      <div className="space-y-4">
+                        {filterGroups.map((group, groupIdx) => (
+                          <div key={group.id} className="p-4 bg-gray-50 rounded-lg border border-gray-300">
+                            <div className="flex items-center justify-between mb-3">
+                              <h5 className="font-medium text-gray-900">Group {groupIdx + 1}</h5>
+                              {filterGroups.length > 1 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setFilterGroups(filterGroups.filter((_, i) => i !== groupIdx));
                                   }}
-                                  placeholder="Min"
-                                  className="w-24"
-                                />
-                                <span className="text-gray-500">to</span>
-                                <Input
-                                  type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
-                                  value={filter.value2 || ''}
-                                  onChange={(e) => {
-                                    const updated = [...employeeFilters];
-                                    updated[idx].value2 = e.target.value;
-                                    setEmployeeFilters(updated);
-                                  }}
-                                  placeholder="Max"
-                                  className="w-24"
-                                />
-                              </>
-                            ) : (
-                              <Input
-                                type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
-                                value={filter.value}
-                                onChange={(e) => {
-                                  const updated = [...employeeFilters];
-                                  updated[idx].value = e.target.value;
-                                  setEmployeeFilters(updated);
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                            
+                            {/* Filters for this group */}
+                            <div className="space-y-2 mb-4">
+                              {group.filters.map((filter, filterIdx) => (
+                                <div key={filterIdx} className="flex items-center gap-2">
+                                  {filterIdx > 0 && (
+                                    <Select
+                                      value={group.filters[filterIdx - 1].logic || 'AND'}
+                                      onValueChange={(value) => {
+                                        const updated = [...filterGroups];
+                                        updated[groupIdx].filters[filterIdx - 1].logic = value as 'AND' | 'OR';
+                                        setFilterGroups(updated);
+                                      }}
+                                    >
+                                      <SelectTrigger className="w-16">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="AND">AND</SelectItem>
+                                        <SelectItem value="OR">OR</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                  
+                                  <Select
+                                    value={filter.field}
+                                    onValueChange={(value) => {
+                                      const updated = [...filterGroups];
+                                      updated[groupIdx].filters[filterIdx].field = value;
+                                      const fieldMeta = availableEmployeeFields.find(f => f.name === value);
+                                      if (fieldMeta) {
+                                        updated[groupIdx].filters[filterIdx].operator = fieldMeta.type === 'number' ? 'greater_than' : 'equals';
+                                      }
+                                      setFilterGroups(updated);
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-40">
+                                      <SelectValue placeholder="Field" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {availableEmployeeFields.map((f) => (
+                                        <SelectItem key={f.name} value={f.name}>
+                                          {f.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  
+                                  <Select
+                                    value={filter.operator}
+                                    onValueChange={(value) => {
+                                      const updated = [...filterGroups];
+                                      updated[groupIdx].filters[filterIdx].operator = value as typeof filter.operator;
+                                      setFilterGroups(updated);
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-32">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="equals">Equals</SelectItem>
+                                      <SelectItem value="not_equals">Not Equals</SelectItem>
+                                      <SelectItem value="greater_than">Greater Than</SelectItem>
+                                      <SelectItem value="less_than">Less Than</SelectItem>
+                                      <SelectItem value="in_range">In Range</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  
+                                  {filter.operator === 'in_range' ? (
+                                    <>
+                                      <Input
+                                        type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
+                                        value={filter.value}
+                                        onChange={(e) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].filters[filterIdx].value = e.target.value;
+                                          setFilterGroups(updated);
+                                        }}
+                                        placeholder="Min"
+                                        className="w-24"
+                                      />
+                                      <span className="text-gray-500 text-sm">to</span>
+                                      <Input
+                                        type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
+                                        value={filter.value2 || ''}
+                                        onChange={(e) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].filters[filterIdx].value2 = e.target.value;
+                                          setFilterGroups(updated);
+                                        }}
+                                        placeholder="Max"
+                                        className="w-24"
+                                      />
+                                    </>
+                                  ) : (
+                                    <Input
+                                      type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
+                                      value={filter.value}
+                                      onChange={(e) => {
+                                        const updated = [...filterGroups];
+                                        updated[groupIdx].filters[filterIdx].value = e.target.value;
+                                        setFilterGroups(updated);
+                                      }}
+                                      placeholder="Value"
+                                      className="w-32"
+                                    />
+                                  )}
+                                  
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      const updated = [...filterGroups];
+                                      updated[groupIdx].filters = updated[groupIdx].filters.filter((_, i) => i !== filterIdx);
+                                      setFilterGroups(updated);
+                                    }}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                              
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  if (availableEmployeeFields.length > 0) {
+                                    const updated = [...filterGroups];
+                                    updated[groupIdx].filters.push({
+                                      field: availableEmployeeFields[0].name,
+                                      operator: availableEmployeeFields[0].type === 'number' ? 'greater_than' : 'equals',
+                                      value: '',
+                                      logic: 'AND'
+                                    });
+                                    setFilterGroups(updated);
+                                  }
                                 }}
-                                placeholder="Value"
-                                className="w-32"
-                              />
-                            )}
+                              >
+                                <Plus className="w-4 h-4 mr-1" />
+                                Add Condition
+                              </Button>
+                            </div>
                             
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEmployeeFilters(employeeFilters.filter((_, i) => i !== idx));
-                              }}
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
+                            {/* HOW: Rule type and parameters for this group */}
+                            <div className="border-t border-gray-300 pt-3 mt-3">
+                              <Label className="text-sm font-medium mb-2 block">3. Parameters (HOW) for this group:</Label>
+                              <div className="space-y-4">
+                                <div>
+                                  <Label htmlFor={`group-rule-type-${groupIdx}`}>Rule Type</Label>
+                                  <Select
+                                    value={group.ruleType || ''}
+                                    onValueChange={(value) => {
+                                      const updated = [...filterGroups];
+                                      updated[groupIdx].ruleType = value as typeof group.ruleType;
+                                      setFilterGroups(updated);
+                                    }}
+                                  >
+                                    <SelectTrigger id={`group-rule-type-${groupIdx}`} className="mt-1">
+                                      <SelectValue placeholder="Select rule type..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="fixed">Fixed Value</SelectItem>
+                                      <SelectItem value="table">Table Lookup</SelectItem>
+                                      <SelectItem value="percentage">Percentage Adjustment</SelectItem>
+                                      <SelectItem value="capfloor">Cap / Floor</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                
+                                {group.ruleType === 'fixed' && (
+                                  <div>
+                                    <Label htmlFor={`group-fixed-${groupIdx}`}>Fixed Value</Label>
+                                    <Input
+                                      id={`group-fixed-${groupIdx}`}
+                                      type="number"
+                                      value={group.fixedValue}
+                                      onChange={(e) => {
+                                        const updated = [...filterGroups];
+                                        updated[groupIdx].fixedValue = e.target.value;
+                                        setFilterGroups(updated);
+                                      }}
+                                      placeholder="Enter value"
+                                      className="mt-1"
+                                    />
+                                  </div>
+                                )}
+                                
+                                {group.ruleType === 'table' && (
+                                  <div className="space-y-4">
+                                    <div>
+                                      <Label htmlFor={`group-table-component-${groupIdx}`}>Table Component</Label>
+                                      <Select
+                                        value={group.tableComponent}
+                                        onValueChange={(value) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].tableComponent = value;
+                                          setFilterGroups(updated);
+                                        }}
+                                      >
+                                        <SelectTrigger id={`group-table-component-${groupIdx}`} className="mt-1">
+                                          <SelectValue placeholder="Select component..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {availableDependencies.map((comp) => (
+                                            <SelectItem key={comp} value={comp}>
+                                              {comp}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor={`group-table-name-${groupIdx}`}>Table Name</Label>
+                                      <Input
+                                        id={`group-table-name-${groupIdx}`}
+                                        value={group.tableName}
+                                        onChange={(e) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].tableName = e.target.value;
+                                          setFilterGroups(updated);
+                                        }}
+                                        placeholder="Enter table name"
+                                        className="mt-1"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label htmlFor={`group-table-lookup-${groupIdx}`}>Lookup Field</Label>
+                                      <Input
+                                        id={`group-table-lookup-${groupIdx}`}
+                                        value={group.tableLookupField}
+                                        onChange={(e) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].tableLookupField = e.target.value;
+                                          setFilterGroups(updated);
+                                        }}
+                                        placeholder="Enter lookup field"
+                                        className="mt-1"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {group.ruleType === 'percentage' && (
+                                  <div className="space-y-4">
+                                    <div>
+                                      <Label htmlFor={`group-percentage-base-${groupIdx}`}>Base Component</Label>
+                                      <Select
+                                        value={group.percentageBase}
+                                        onValueChange={(value) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].percentageBase = value;
+                                          setFilterGroups(updated);
+                                        }}
+                                      >
+                                        <SelectTrigger id={`group-percentage-base-${groupIdx}`} className="mt-1">
+                                          <SelectValue placeholder="Select base component..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {availableDependencies.map((comp) => (
+                                            <SelectItem key={comp} value={comp}>
+                                              {comp}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor={`group-percentage-amount-${groupIdx}`}>Percentage</Label>
+                                      <Input
+                                        id={`group-percentage-amount-${groupIdx}`}
+                                        type="number"
+                                        value={group.percentageAmount}
+                                        onChange={(e) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].percentageAmount = e.target.value;
+                                          setFilterGroups(updated);
+                                        }}
+                                        placeholder="e.g., 15 for 15%"
+                                        className="mt-1"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {group.ruleType === 'capfloor' && (
+                                  <div className="space-y-4">
+                                    <div>
+                                      <Label htmlFor={`group-capfloor-type-${groupIdx}`}>Type</Label>
+                                      <Select
+                                        value={group.capFloorType}
+                                        onValueChange={(value) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].capFloorType = value as 'cap' | 'floor';
+                                          setFilterGroups(updated);
+                                        }}
+                                      >
+                                        <SelectTrigger id={`group-capfloor-type-${groupIdx}`} className="mt-1">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="cap">Cap (Maximum)</SelectItem>
+                                          <SelectItem value="floor">Floor (Minimum)</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor={`group-capfloor-component-${groupIdx}`}>Component</Label>
+                                      <Select
+                                        value={group.capFloorComponent}
+                                        onValueChange={(value) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].capFloorComponent = value;
+                                          setFilterGroups(updated);
+                                        }}
+                                      >
+                                        <SelectTrigger id={`group-capfloor-component-${groupIdx}`} className="mt-1">
+                                          <SelectValue placeholder="Select component..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {availableDependencies.map((comp) => (
+                                            <SelectItem key={comp} value={comp}>
+                                              {comp}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div>
+                                      <Label htmlFor={`group-capfloor-value-${groupIdx}`}>Value</Label>
+                                      <Input
+                                        id={`group-capfloor-value-${groupIdx}`}
+                                        type="number"
+                                        value={group.capFloorValue}
+                                        onChange={(e) => {
+                                          const updated = [...filterGroups];
+                                          updated[groupIdx].capFloorValue = e.target.value;
+                                          setFilterGroups(updated);
+                                        }}
+                                        placeholder="Enter cap/floor value"
+                                        className="mt-1"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <div className="text-xs text-gray-600 mt-2">
+                                Applies to {filteredEmployeeCounts[group.id] || 0} employee{filteredEmployeeCounts[group.id] !== 1 ? 's' : ''}
+                              </div>
+                            </div>
                           </div>
                         ))}
                         
@@ -2766,26 +3321,25 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            if (availableEmployeeFields.length > 0) {
-                              setEmployeeFilters([...employeeFilters, {
-                                field: availableEmployeeFields[0].name,
-                                operator: availableEmployeeFields[0].type === 'number' ? 'greater_than' : 'equals',
-                                value: ''
-                              }]);
-                            }
+                            setFilterGroups([...filterGroups, {
+                              id: `group-${Date.now()}`,
+                              filters: [],
+                              ruleType: null,
+                              fixedValue: '',
+                              tableComponent: '',
+                              tableName: '',
+                              tableLookupField: '',
+                              percentageBase: '',
+                              percentageAmount: '',
+                              capFloorType: 'cap',
+                              capFloorComponent: '',
+                              capFloorValue: ''
+                            }]);
                           }}
                         >
                           <Plus className="w-4 h-4 mr-1" />
-                          Add Filter
+                          Add Filter Group
                         </Button>
-                        
-                        <div className="text-sm text-gray-600 mt-2">
-                          {filteredEmployeeCount !== null ? (
-                            <span className="font-medium">Applies to {filteredEmployeeCount} employee{filteredEmployeeCount !== 1 ? 's' : ''}</span>
-                          ) : (
-                            <span>Loading employee count...</span>
-                          )}
-                        </div>
                       </div>
                     </div>
 
@@ -3772,11 +4326,24 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             {target && ruleType && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm font-medium text-gray-900 mb-2">Rule Summary:</p>
-                <p className="text-sm text-gray-700">{generateRuleExplanation()}</p>
-                {filteredEmployeeCount !== null && (
-                  <p className="text-sm text-gray-700 mt-2">
-                    <strong>Affected employees:</strong> {filteredEmployeeCount}
-                  </p>
+                <p className="text-sm text-gray-700 whitespace-pre-line">{generateRuleExplanation()}</p>
+                {filterGroups.length > 0 && filterGroups.some(g => g.filters.length > 0) && (
+                  <div className="text-sm text-gray-700 mt-3">
+                    <strong>Affected employees by group:</strong>
+                    <ul className="list-disc list-inside mt-1 space-y-1">
+                      {filterGroups.map((group, idx) => {
+                        const count = filteredEmployeeCounts[group.id] || 0;
+                        if (count > 0 || group.filters.length > 0) {
+                          return (
+                            <li key={group.id}>
+                              Group {idx + 1}: {count} employee{count !== 1 ? 's' : ''}
+                            </li>
+                          );
+                        }
+                        return null;
+                      })}
+                    </ul>
+                  </div>
                 )}
               </div>
             )}
