@@ -951,26 +951,44 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const generateExpressionFromStructured = (): string => {
     if (!target) return '';
     
-    // Filter out groups without filters or rule type configured
-    const activeGroups = filterGroups.filter(g => 
-      g.filters.length > 0 && 
-      g.filters.some(f => f.field && f.value) && 
-      g.ruleType !== null
-    );
+    // Find groups with rule types configured (filters are optional - if no filters, applies to all employees)
+    const groupsWithRuleTypes = filterGroups.filter(g => g.ruleType !== null);
     
-    // Require at least one active group
-    if (activeGroups.length === 0) {
+    // Require at least one group with a rule type
+    if (groupsWithRuleTypes.length === 0) {
       return '';
     }
     
-    const baseExpression = generateBaseExpression(); // Returns '0' as default/else case
+    // Separate groups with filters vs groups without filters
+    const groupsWithFilters = groupsWithRuleTypes.filter(g => 
+      g.filters.length > 0 && 
+      g.filters.some(f => f.field && f.value)
+    );
     
-    // Build nested IF-THEN-ELSE structure
-    let expression = baseExpression; // Default value
+    const groupsWithoutFilters = groupsWithRuleTypes.filter(g => 
+      g.filters.length === 0 || 
+      !g.filters.some(f => f.field && f.value)
+    );
+    
+    // If there are groups without filters, use the first one's value as the base expression
+    // (applies to all employees not matching any filtered group)
+    let baseExpression = '0'; // Default fallback
+    if (groupsWithoutFilters.length > 0) {
+      const firstUnfilteredGroup = groupsWithoutFilters[0];
+      baseExpression = generateGroupValueExpression(firstUnfilteredGroup);
+    }
+    
+    // If no groups with filters, just return the base expression (applies to all)
+    if (groupsWithFilters.length === 0) {
+      return baseExpression;
+    }
+    
+    // Build nested IF-THEN-ELSE structure for groups with filters
+    let expression = baseExpression; // Default value (from unfiltered group or '0')
     
     // Build from last to first (nested ELSE IF)
-    for (let i = activeGroups.length - 1; i >= 0; i--) {
-      const group = activeGroups[i];
+    for (let i = groupsWithFilters.length - 1; i >= 0; i--) {
+      const group = groupsWithFilters[i];
       const condition = generateGroupCondition(group);
       const value = generateGroupValueExpression(group);
       
@@ -1464,23 +1482,19 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     
     // If using structured builder, generate expression from filter groups
     if (!expertMode) {
-      // Check if there are any active filter groups with rule types configured
-      const hasActiveGroups = filterGroups.some(g => 
-        g.filters.length > 0 && 
-        g.filters.some(f => f.field && f.value) && 
-        g.ruleType !== null
-      );
+      // Check if there are any groups with rule types configured (filters are optional)
+      const hasGroupsWithRuleTypes = filterGroups.some(g => g.ruleType !== null);
       
-      if (hasActiveGroups) {
+      if (hasGroupsWithRuleTypes) {
         const generated = generateExpressionFromStructured();
         if (!generated) {
-          showToast("info", "Incomplete rule", "Please complete all required fields for the filter groups.");
+          showToast("info", "Incomplete rule", "Please complete all required fields for the calculation method.");
           return;
         }
         setExpression(generated);
       } else {
-        // No filter groups configured - need at least one group with filters and rule type
-        showToast("info", "Incomplete rule", "Please create at least one filter group with filters and a calculation method.");
+        // No groups with rule types configured
+        showToast("info", "Incomplete rule", "Please select a calculation method for at least one filter group.");
         return;
       }
     }
@@ -3979,7 +3993,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       <div className="flex items-center gap-3">
                         <Button
                           onClick={handleSave}
-                          disabled={saving || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null && g.filters.length > 0)) || (expertMode && !expression)}
+                          disabled={saving || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null)) || (expertMode && !expression)}
                           variant="outline"
                         >
                           {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
@@ -3987,7 +4001,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                         </Button>
                         <Button
                           onClick={handleValidate}
-                          disabled={loading || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null && g.filters.length > 0)) || (expertMode && !expression)}
+                          disabled={loading || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null)) || (expertMode && !expression)}
                           variant="outline"
                         >
                           {loading ? (
@@ -4001,7 +4015,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                         </Button>
                         <Button
                           onClick={handlePublish}
-                          disabled={saving || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null && g.filters.length > 0)) || (expertMode && !expression)}
+                          disabled={saving || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null)) || (expertMode && !expression)}
                         >
                           {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
                           Publish
