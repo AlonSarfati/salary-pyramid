@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles, Layers, Edit, Search } from 'lucide-react';
+import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles, Layers, Edit, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
@@ -16,7 +16,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import RuleBuilderGuide from './RuleBuilderGuide';
 import TableBuilder from './TableBuilder';
 import AIRuleAssistant from './AIRuleAssistant';
-import { rulesetApi, ruleApi, tableApi, componentGroupsApi, type RuleSet, type RuleDto, type ValidateIssue, type ComponentGroup } from '../services/apiService';
+import { rulesetApi, ruleApi, tableApi, componentGroupsApi, employeeApi, type RuleSet, type RuleDto, type ValidateIssue, type ComponentGroup, type Employee } from '../services/apiService';
 import { useToast } from './ToastProvider';
 import { StateScreen } from './ui/StateScreen';
 
@@ -82,6 +82,30 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [educationFund, setEducationFund] = useState(false);
   const [workPercentFlag, setWorkPercentFlag] = useState(false);
   
+  // Structured Rule Builder state
+  const [expertMode, setExpertMode] = useState(false);
+  const [ruleType, setRuleType] = useState<'fixed' | 'table' | 'percentage' | 'capfloor' | null>(null);
+  
+  // Rule type parameters
+  const [fixedValue, setFixedValue] = useState<string>('');
+  const [tableComponent, setTableComponent] = useState<string>('');
+  const [tableName, setTableName] = useState<string>('');
+  const [tableLookupField, setTableLookupField] = useState<string>('');
+  const [percentageBase, setPercentageBase] = useState<string>('');
+  const [percentageAmount, setPercentageAmount] = useState<string>('');
+  const [capFloorType, setCapFloorType] = useState<'cap' | 'floor'>('cap');
+  const [capFloorComponent, setCapFloorComponent] = useState<string>('');
+  const [capFloorValue, setCapFloorValue] = useState<string>('');
+  
+  // Population filters
+  const [employeeFilters, setEmployeeFilters] = useState<Array<{field: string; operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'in_range'; value: string; value2?: string}>>([]);
+  const [availableEmployeeFields, setAvailableEmployeeFields] = useState<Array<{name: string; type: 'string' | 'number'; values?: string[]; min?: number; max?: number}>>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [filteredEmployeeCount, setFilteredEmployeeCount] = useState<number | null>(null);
+  
+  // Advanced options
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  
   // Loading/Error state
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -100,6 +124,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showDeleteComponentDialog, setShowDeleteComponentDialog] = useState(false);
   const [componentToDelete, setComponentToDelete] = useState<string | null>(null);
   const [newRulesetName, setNewRulesetName] = useState('');
+  const [showPublishConfirmDialog, setShowPublishConfirmDialog] = useState(false);
   const [rulesetNameError, setRulesetNameError] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -416,6 +441,172 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
+  // Helper: Try to detect rule type from expression
+  const detectRuleTypeFromExpression = (expr: string): 'fixed' | 'table' | 'percentage' | 'capfloor' | null => {
+    if (!expr) return null;
+    
+    // Check for TBL function (table lookup)
+    if (expr.includes('TBL(') || expr.includes('TBL("')) {
+      return 'table';
+    }
+    
+    // Check for MIN/MAX (cap/floor)
+    if (expr.includes('MIN(') || expr.includes('MAX(')) {
+      return 'capfloor';
+    }
+    
+    // Check for percentage pattern (Component * 0.XX or Component * XX/100)
+    const percentagePattern = /^([A-Z][a-zA-Z0-9]*)\s*\*\s*([0-9.]+)$/;
+    if (percentagePattern.test(expr.trim())) {
+      return 'percentage';
+    }
+    
+    // Check for simple number (fixed value)
+    const fixedPattern = /^-?\d+(\.\d+)?$/;
+    if (fixedPattern.test(expr.trim())) {
+      return 'fixed';
+    }
+    
+    return null;
+  };
+
+  // Helper: Parse IF condition to extract employee filters
+  const parseFiltersFromExpression = (expr: string): Array<{field: string; operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'in_range'; value: string; value2?: string}> => {
+    const filters: Array<{field: string; operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'in_range'; value: string; value2?: string}> = [];
+    
+    // Check if expression has IF condition: IF condition THEN expression ELSE 0
+    const ifMatch = expr.match(/^IF\s+(.+?)\s+THEN\s+(.+?)\s+ELSE\s+0$/);
+    if (!ifMatch) return filters;
+    
+    const condition = ifMatch[1];
+    // Split by AND to get individual conditions
+    const conditions = condition.split(/\s+AND\s+/);
+    
+    for (const cond of conditions) {
+      const trimmed = cond.trim();
+      
+      // Try to match different operators
+      // Equals: field = value or field = "value"
+      const equalsMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+      if (equalsMatch) {
+        const field = equalsMatch[1];
+        let value = equalsMatch[2].trim();
+        // Remove quotes if present
+        if (value.startsWith('"') && value.endsWith('"')) {
+          value = value.slice(1, -1);
+        }
+        filters.push({ field, operator: 'equals', value });
+        continue;
+      }
+      
+      // Not equals: field != value or field != "value"
+      const notEqualsMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*!=\s*(.+)$/);
+      if (notEqualsMatch) {
+        const field = notEqualsMatch[1];
+        let value = notEqualsMatch[2].trim();
+        if (value.startsWith('"') && value.endsWith('"')) {
+          value = value.slice(1, -1);
+        }
+        filters.push({ field, operator: 'not_equals', value });
+        continue;
+      }
+      
+      // Greater than: field > value
+      const gtMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*>\s*(.+)$/);
+      if (gtMatch) {
+        const field = gtMatch[1];
+        const value = gtMatch[2].trim();
+        filters.push({ field, operator: 'greater_than', value });
+        continue;
+      }
+      
+      // Less than: field < value
+      const ltMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*<\s*(.+)$/);
+      if (ltMatch) {
+        const field = ltMatch[1];
+        const value = ltMatch[2].trim();
+        filters.push({ field, operator: 'less_than', value });
+        continue;
+      }
+      
+      // Range: field >= value1 AND field <= value2
+      const rangeMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*>=\s*(.+?)\s+AND\s+\1\s*<=\s*(.+)$/);
+      if (rangeMatch) {
+        const field = rangeMatch[1];
+        const value1 = rangeMatch[2].trim();
+        const value2 = rangeMatch[3].trim();
+        filters.push({ field, operator: 'in_range', value: value1, value2 });
+        continue;
+      }
+    }
+    
+    return filters;
+  };
+
+  // Helper: Extract base expression from IF condition
+  const extractBaseExpression = (expr: string): string => {
+    // Check if expression has IF condition: IF condition THEN expression ELSE 0
+    const ifMatch = expr.match(/^IF\s+.+?\s+THEN\s+(.+?)\s+ELSE\s+0$/);
+    if (ifMatch) {
+      return ifMatch[1].trim();
+    }
+    return expr;
+  };
+
+  // Helper: Parse expression into structured inputs
+  const parseExpressionToStructured = (expr: string) => {
+    // First extract base expression (remove IF condition if present)
+    const baseExpr = extractBaseExpression(expr);
+    
+    // Parse filters from IF condition
+    const parsedFilters = parseFiltersFromExpression(expr);
+    if (parsedFilters.length > 0) {
+      setEmployeeFilters(parsedFilters);
+    }
+    
+    const detectedType = detectRuleTypeFromExpression(baseExpr);
+    if (!detectedType) return;
+    
+    setRuleType(detectedType);
+    
+    switch (detectedType) {
+      case 'fixed':
+        setFixedValue(baseExpr.trim());
+        break;
+      case 'table':
+        // Try to extract table name and lookup field from TBL("tableName", field)
+        const tblMatch = baseExpr.match(/TBL\("([^"]+)",\s*([^)]+)\)/);
+        if (tblMatch) {
+          setTableName(tblMatch[1]);
+          setTableLookupField(tblMatch[2].trim());
+        }
+        break;
+      case 'percentage':
+        // Extract base component and percentage
+        const percMatch = baseExpr.match(/^([A-Z][a-zA-Z0-9]*)\s*\*\s*([0-9.]+)$/);
+        if (percMatch) {
+          setPercentageBase(percMatch[1]);
+          const multiplier = parseFloat(percMatch[2]);
+          setPercentageAmount((multiplier * 100).toString());
+        }
+        break;
+      case 'capfloor':
+        // Extract component and value from MIN/MAX
+        const minMatch = baseExpr.match(/MIN\(([^,]+),\s*([^)]+)\)/);
+        const maxMatch = baseExpr.match(/MAX\(([^,]+),\s*([^)]+)\)/);
+        if (minMatch) {
+          setCapFloorType('floor');
+          setCapFloorComponent(minMatch[1].trim());
+          setCapFloorValue(minMatch[2].trim());
+        } else if (maxMatch) {
+          setCapFloorType('cap');
+          setCapFloorComponent(maxMatch[1].trim());
+          setCapFloorValue(maxMatch[2].trim());
+        }
+        break;
+    }
+  };
+
   const loadRuleData = (targetName: string) => {
     if (!ruleset) return;
     
@@ -426,6 +617,27 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setDependsOn(rule.dependsOn || []);
       setEffectiveFrom(rule.effectiveFrom || '');
       setEffectiveTo(rule.effectiveTo || '');
+      
+      // Reset structured state
+      setRuleType(null);
+      setFixedValue('');
+      setTableComponent('');
+      setTableName('');
+      setTableLookupField('');
+      setPercentageBase('');
+      setPercentageAmount('');
+      setCapFloorComponent('');
+      setCapFloorValue('');
+      // Don't reset employeeFilters here - let parseExpressionToStructured handle it
+      
+      // Try to detect and parse structured format from expression
+      if (!expertMode && rule.expression) {
+        parseExpressionToStructured(rule.expression);
+      } else {
+        // If expert mode or no expression, clear filters
+        setEmployeeFilters([]);
+      }
+      
       // Convert group name to group number for display
       const actualGroupName = rule.meta?.group || 'core';
       const groupNumber = groupNameToNumber[actualGroupName] || 'group1';
@@ -444,9 +656,311 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
+  // Helper: Convert filter operator to expression operator
+  const filterOperatorToExpression = (operator: string, field: string, value: string, value2?: string): string => {
+    const fieldMeta = availableEmployeeFields.find(f => f.name === field);
+    const isNumeric = fieldMeta?.type === 'number';
+    
+    switch (operator) {
+      case 'equals':
+        return isNumeric ? `${field} = ${value}` : `${field} = "${value}"`;
+      case 'not_equals':
+        return isNumeric ? `${field} != ${value}` : `${field} != "${value}"`;
+      case 'greater_than':
+        return `${field} > ${value}`;
+      case 'less_than':
+        return `${field} < ${value}`;
+      case 'in_range':
+        return value2 ? `${field} >= ${value} AND ${field} <= ${value2}` : '';
+      default:
+        return '';
+    }
+  };
+
+  // Helper: Generate base expression from rule type (without filters)
+  const generateBaseExpression = (): string => {
+    if (!ruleType || !target) return '';
+    
+    switch (ruleType) {
+      case 'fixed':
+        return fixedValue || '0';
+      case 'table':
+        if (tableComponent && tableName && tableLookupField) {
+          return `TBL("${tableName}", ${tableLookupField})`;
+        }
+        return '';
+      case 'percentage':
+        if (percentageBase && percentageAmount) {
+          return `${percentageBase} * ${parseFloat(percentageAmount) / 100}`;
+        }
+        return '';
+      case 'capfloor':
+        if (capFloorComponent && capFloorValue) {
+          const func = capFloorType === 'cap' ? 'MIN' : 'MAX';
+          return `${func}(${capFloorComponent}, ${capFloorValue})`;
+        }
+        return '';
+      default:
+        return '';
+    }
+  };
+
+  // Helper: Generate expression from structured inputs (with filters applied)
+  const generateExpressionFromStructured = (): string => {
+    const baseExpression = generateBaseExpression();
+    if (!baseExpression) return '';
+    
+    // If there are employee filters, wrap the expression in an IF condition
+    if (employeeFilters.length > 0) {
+      // Build the condition from all filters (AND them together)
+      const conditions = employeeFilters
+        .filter(f => f.field && f.value) // Only include filters with values
+        .map(f => filterOperatorToExpression(f.operator, f.field, f.value, f.value2))
+        .filter(c => c !== ''); // Remove empty conditions
+      
+      if (conditions.length > 0) {
+        const condition = conditions.join(' AND ');
+        return `IF ${condition} THEN ${baseExpression} ELSE 0`;
+      }
+    }
+    
+    return baseExpression;
+  };
+
+  // Helper: Generate plain-language explanation
+  const generateRuleExplanation = (): string => {
+    if (!ruleType || !target) return 'Configure the rule to see explanation.';
+    
+    const componentName = target || 'the component';
+    let explanation = '';
+    
+    // Add filter description if any
+    if (employeeFilters.length > 0) {
+      const filterDescriptions = employeeFilters
+        .filter(f => f.field && f.value)
+        .map(f => {
+          const fieldMeta = availableEmployeeFields.find(af => af.name === f.field);
+          const isNumeric = fieldMeta?.type === 'number';
+          let desc = '';
+          switch (f.operator) {
+            case 'equals':
+              desc = `${f.field} equals ${isNumeric ? f.value : `"${f.value}"`}`;
+              break;
+            case 'not_equals':
+              desc = `${f.field} does not equal ${isNumeric ? f.value : `"${f.value}"`}`;
+              break;
+            case 'greater_than':
+              desc = `${f.field} is greater than ${f.value}`;
+              break;
+            case 'less_than':
+              desc = `${f.field} is less than ${f.value}`;
+              break;
+            case 'in_range':
+              desc = `${f.field} is between ${f.value} and ${f.value2 || ''}`;
+              break;
+          }
+          return desc;
+        })
+        .filter(d => d !== '');
+      
+      if (filterDescriptions.length > 0) {
+        explanation += `Only applies when ${filterDescriptions.join(' and ')}. `;
+      }
+    }
+    
+    switch (ruleType) {
+      case 'fixed':
+        explanation += `Sets ${componentName} to a fixed value of ${fixedValue || '0'}.`;
+        break;
+      case 'table':
+        explanation += `Looks up ${componentName} from table "${tableName}" using field ${tableLookupField}.`;
+        break;
+      case 'percentage':
+        explanation += `Calculates ${componentName} as ${percentageAmount || '0'}% of ${percentageBase || 'base'}.`;
+        break;
+      case 'capfloor':
+        const capFloorText = capFloorType === 'cap' ? 'maximum' : 'minimum';
+        explanation += `Applies a ${capFloorText} of ${capFloorValue || '0'} to ${capFloorComponent || 'the component'}.`;
+        break;
+    }
+    
+    if (employeeFilters.length > 0) {
+      explanation += ` Applies to ${filteredEmployeeCount !== null ? filteredEmployeeCount : 'filtered'} employees.`;
+    } else {
+      explanation += ' Applies to all employees.';
+    }
+    
+    return explanation;
+  };
+
+  // Load employees and calculate available fields
+  useEffect(() => {
+    if (!selectedRulesetId) return;
+    
+    let cancelled = false;
+    (async () => {
+      try {
+        const empList = await employeeApi.list(tenantId);
+        if (cancelled) return;
+        
+        setEmployees(empList);
+        
+        // Extract field metadata
+        const fieldMeta = new Map<string, {type: 'string' | 'number'; values: Set<string>; min?: number; max?: number}>();
+        
+        for (const emp of empList) {
+          const data = emp.data || {};
+          for (const [key, rawVal] of Object.entries<any>(data)) {
+            if (rawVal === null || rawVal === undefined) continue;
+            const meta = fieldMeta.get(key) || {type: 'string', values: new Set<string>(), min: undefined, max: undefined};
+            
+            const str = String(rawVal).trim();
+            const isNumeric = str !== '' && !Number.isNaN(Number(str));
+            
+            if (isNumeric) {
+              const num = Number(str);
+              if (meta.values.size === 0 || meta.type === 'number') {
+                meta.type = 'number';
+                meta.min = meta.min !== undefined ? Math.min(meta.min, num) : num;
+                meta.max = meta.max !== undefined ? Math.max(meta.max, num) : num;
+              }
+            } else if (str !== '') {
+              meta.type = 'string';
+              meta.values.add(str);
+            }
+            fieldMeta.set(key, meta);
+          }
+        }
+        
+        const fields: Array<{name: string; type: 'string' | 'number'; values?: string[]; min?: number; max?: number}> = [];
+        for (const [name, meta] of fieldMeta.entries()) {
+          if (!name) continue;
+          if (meta.type === 'number') {
+            fields.push({name, type: 'number', values: [], min: meta.min, max: meta.max});
+          } else {
+            const values = Array.from(meta.values).filter(v => v !== '').sort();
+            if (values.length > 0) {
+              fields.push({name, type: 'string', values});
+            }
+          }
+        }
+        
+        fields.sort((a, b) => a.name.localeCompare(b.name));
+        setAvailableEmployeeFields(fields);
+      } catch (e) {
+        console.error('Failed to load employees:', e);
+      }
+    })();
+    
+    return () => { cancelled = true; };
+  }, [tenantId, selectedRulesetId]);
+
+  // Calculate filtered employee count
+  useEffect(() => {
+    if (employeeFilters.length === 0) {
+      setFilteredEmployeeCount(employees.length);
+      return;
+    }
+    
+    let count = 0;
+    for (const emp of employees) {
+      const data = emp.data || {};
+      let matches = true;
+      
+      for (const filter of employeeFilters) {
+        const fieldValue = data[filter.field];
+        if (fieldValue === null || fieldValue === undefined) {
+          matches = false;
+          break;
+        }
+        
+        const fieldMeta = availableEmployeeFields.find(f => f.name === filter.field);
+        const isNumeric = fieldMeta?.type === 'number';
+        const numValue = isNumeric ? Number(fieldValue) : null;
+        const strValue = String(fieldValue).trim();
+        
+        switch (filter.operator) {
+          case 'equals':
+            if (isNumeric) {
+              matches = numValue === Number(filter.value);
+            } else {
+              matches = strValue === filter.value;
+            }
+            break;
+          case 'not_equals':
+            if (isNumeric) {
+              matches = numValue !== Number(filter.value);
+            } else {
+              matches = strValue !== filter.value;
+            }
+            break;
+          case 'greater_than':
+            if (isNumeric && numValue !== null) {
+              matches = numValue > Number(filter.value);
+            } else {
+              matches = false;
+            }
+            break;
+          case 'less_than':
+            if (isNumeric && numValue !== null) {
+              matches = numValue < Number(filter.value);
+            } else {
+              matches = false;
+            }
+            break;
+          case 'in_range':
+            if (isNumeric && numValue !== null && filter.value2) {
+              matches = numValue >= Number(filter.value) && numValue <= Number(filter.value2);
+            } else {
+              matches = false;
+            }
+            break;
+        }
+        
+        if (!matches) break;
+      }
+      
+      if (matches) count++;
+    }
+    
+    setFilteredEmployeeCount(count);
+  }, [employeeFilters, employees, availableEmployeeFields]);
+
+  // Auto-generate expression when structured inputs change
+  useEffect(() => {
+    if (!expertMode && ruleType) {
+      const generated = generateExpressionFromStructured();
+      if (generated) {
+        setExpression(generated);
+      }
+    }
+  }, [ruleType, fixedValue, tableComponent, tableName, tableLookupField, percentageBase, percentageAmount, capFloorType, capFloorComponent, capFloorValue, expertMode]);
+
+  // When expert mode is turned off, try to parse existing expression
+  useEffect(() => {
+    if (!expertMode && expression && !ruleType) {
+      parseExpressionToStructured(expression);
+    }
+  }, [expertMode]);
+
   const handleSave = async () => {
-    if (!selectedRulesetId || !target || !expression) {
-      showToast("info", "Required fields", "Target and expression are required.");
+    if (!selectedRulesetId || !target) {
+      showToast("info", "Required fields", "Target component is required.");
+      return;
+    }
+    
+    // If using structured builder, generate expression
+    if (!expertMode && ruleType) {
+      const generated = generateExpressionFromStructured();
+      if (!generated) {
+        showToast("info", "Incomplete rule", "Please complete all required fields for the selected rule type.");
+        return;
+      }
+      setExpression(generated);
+    }
+    
+    if (!expression) {
+      showToast("info", "Required fields", "Expression is required.");
       return;
     }
 
@@ -545,9 +1059,17 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       return;
     }
 
+    // Show confirmation dialog with impact summary
+    setShowPublishConfirmDialog(true);
+  };
+
+  const confirmPublish = async () => {
+    if (!selectedRulesetId) return;
+
     try {
       setSaving(true);
       setError(null);
+      setShowPublishConfirmDialog(false);
       
       await rulesetApi.publish(tenantId, selectedRulesetId);
       showToast('success', 'Ruleset published', 'The active ruleset is now updated.');
@@ -1420,6 +1942,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const availableDependencies = ruleset?.rules
     .map(r => r.target)
     .filter(t => t !== target) || [];
+  
+  const availableComponents = components.map(c => c.name);
 
   // Show empty state if no rulesets (but not an error - API call succeeded)
   if (!loading && !error && rulesets.length === 0) {
@@ -1824,213 +2348,824 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             {/* Right - Rule Editor */}
             <div className="lg:col-span-2">
               <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
-                <h3 className="text-[#1E1E1E] mb-6">Rule Editor</h3>
-
-                <div className="space-y-6">
-                  {/* Target */}
-                  <div>
-                    <Label htmlFor="target">Target Component</Label>
-                    <Input
-                      id="target"
-                      value={target}
-                      onChange={(e) => setTarget(e.target.value)}
-                      placeholder="e.g., Base Salary"
-                      className="mt-1"
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-[#1E1E1E]">Rule Editor</h3>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="expert-mode" className="text-sm text-gray-600 cursor-pointer">Expert Mode</Label>
+                    <Switch
+                      id="expert-mode"
+                      checked={expertMode}
+                      onCheckedChange={setExpertMode}
                     />
                   </div>
+                </div>
 
-                  {/* Expression Editor */}
-                  <div className="relative">
-                    <Label htmlFor="expression">Expression</Label>
-                    <Textarea
-                      ref={expressionTextareaRef}
-                      id="expression"
-                      value={expression}
-                      onChange={(e) => {
-                        setExpression(e.target.value);
-                        handleExpressionChange(e.target.value, e.target.selectionStart);
-                      }}
-                      onKeyDown={(e) => handleExpressionKeyDown(e)}
-                      onBlur={() => {
-                        // Delay hiding autocomplete to allow click events
-                        setTimeout(() => {
-                          setAutocompleteSuggestions([]);
-                          setAutocompletePosition(null);
-                        }, 200);
-                      }}
-                      placeholder="e.g., BaseSalary * 1.05 or IF BaseSalary > 50000 THEN BaseSalary * 0.15 ELSE BaseSalary * 0.10"
-                      className="mt-1 font-mono h-32"
-                    />
-                    {/* Autocomplete dropdown */}
-                    {autocompleteSuggestions.length > 0 && autocompletePosition && (
-                      <div
-                        className="absolute z-50 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto"
-                        style={{
-                          top: `${autocompletePosition.top}px`,
-                          left: `${autocompletePosition.left}px`,
-                          minWidth: '200px',
+                {expertMode ? (
+                  /* Expert Mode - Original Expression Editor */
+                  <div className="space-y-6">
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-yellow-900">Expert Mode Active</p>
+                          <p className="text-xs text-yellow-800 mt-1">
+                            You are bypassing the structured rule builder. Changes here may affect rule behavior. Use with caution.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="target">Target Component</Label>
+                      <Input
+                        id="target"
+                        value={target}
+                        onChange={(e) => setTarget(e.target.value)}
+                        placeholder="e.g., Base Salary"
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div className="relative">
+                      <Label htmlFor="expression">Expression</Label>
+                      <Textarea
+                        ref={expressionTextareaRef}
+                        id="expression"
+                        value={expression}
+                        onChange={(e) => {
+                          setExpression(e.target.value);
+                          handleExpressionChange(e.target.value, e.target.selectionStart);
                         }}
-                      >
-                        {autocompleteSuggestions.map((suggestion, index) => (
-                          <div
-                            key={suggestion}
-                            onMouseDown={(e) => {
-                              e.preventDefault(); // Prevent textarea blur
-                              insertAutocompleteSuggestion(suggestion);
-                            }}
-                            className={`px-3 py-2 cursor-pointer hover:bg-gray-100 ${
-                              index === autocompleteSelectedIndex ? 'bg-blue-50' : ''
-                            }`}
+                        onKeyDown={(e) => handleExpressionKeyDown(e)}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setAutocompleteSuggestions([]);
+                            setAutocompletePosition(null);
+                          }, 200);
+                        }}
+                        placeholder="e.g., BaseSalary * 1.05 or IF BaseSalary > 50000 THEN BaseSalary * 0.15 ELSE BaseSalary * 0.10"
+                        className="mt-1 font-mono h-32"
+                      />
+                      {autocompleteSuggestions.length > 0 && autocompletePosition && (
+                        <div
+                          className="absolute z-50 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+                          style={{
+                            top: `${autocompletePosition.top}px`,
+                            left: `${autocompletePosition.left}px`,
+                            minWidth: '200px',
+                          }}
+                        >
+                          {autocompleteSuggestions.map((suggestion, index) => (
+                            <div
+                              key={suggestion}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                insertAutocompleteSuggestion(suggestion);
+                              }}
+                              className={`px-3 py-2 cursor-pointer hover:bg-gray-100 ${
+                                index === autocompleteSelectedIndex ? 'bg-blue-50' : ''
+                              }`}
+                            >
+                              <span className="font-mono text-sm">{suggestion}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-sm text-gray-600 mt-2">
+                        Supports: CamelCase components, IF-THEN-ELSE, MIN/MAX, ROUND, TBL, operators (+, -, *, /, =, !=, &gt;, &lt;, AND, OR, NOT)
+                      </p>
+                    </div>
+                    
+                    {/* Dependencies, Toggles, Group, Dates - shown in expert mode */}
+                    <div>
+                      <Label htmlFor="depends">Depends On</Label>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {dependsOn.map((dep) => (
+                          <Badge
+                            key={dep}
+                            className="bg-[#0052CC] text-white px-3 py-1 cursor-pointer"
+                            onClick={() => handleRemoveDependency(dep)}
                           >
-                            <span className="font-mono text-sm">{suggestion}</span>
-                          </div>
+                            {dep} ×
+                          </Badge>
                         ))}
+                        <Select onValueChange={handleAddDependency}>
+                          <SelectTrigger className="w-auto border-dashed">
+                            <SelectValue placeholder="+ Add dependency" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableDependencies.map((dep) => (
+                              <SelectItem key={dep} value={dep}>
+                                {dep}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="incomeTax">Income Tax</Label>
+                          <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="socialSecurity">Social Security</Label>
+                          <Switch
+                            id="socialSecurity"
+                            checked={socialSecurity}
+                            onCheckedChange={setSocialSecurity}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="workPercentFlag">Apply Work %</Label>
+                          <Switch
+                            id="workPercentFlag"
+                            checked={workPercentFlag}
+                            onCheckedChange={setWorkPercentFlag}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="pensionFlag">Pension</Label>
+                          <Switch
+                            id="pensionFlag"
+                            checked={pensionFlag}
+                            onCheckedChange={setPensionFlag}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="workPension">Work Pension</Label>
+                          <Switch
+                            id="workPension"
+                            checked={workPension}
+                            onCheckedChange={setWorkPension}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="expensesPension">Expenses Pension</Label>
+                          <Switch
+                            id="expensesPension"
+                            checked={expensesPension}
+                            onCheckedChange={setExpensesPension}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="educationFund">Education Fund</Label>
+                          <Switch
+                            id="educationFund"
+                            checked={educationFund}
+                            onCheckedChange={setEducationFund}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="group">Group</Label>
+                        <Select value={group} onValueChange={setGroup}>
+                          <SelectTrigger className="w-40">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {componentGroups
+                              .sort((a, b) => a.displayOrder - b.displayOrder)
+                              .map((group, index) => {
+                                const groupNumber = `group${index + 1}`;
+                                return (
+                                  <SelectItem key={group.groupName} value={groupNumber}>
+                                    {groupNumber}
+                                  </SelectItem>
+                                );
+                              })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="effectiveFrom">Effective From</Label>
+                        <Input
+                          id="effectiveFrom"
+                          type="date"
+                          value={effectiveFrom}
+                          onChange={(e) => setEffectiveFrom(e.target.value)}
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="effectiveTo">Effective To</Label>
+                        <Input
+                          id="effectiveTo"
+                          type="date"
+                          value={effectiveTo}
+                          onChange={(e) => setEffectiveTo(e.target.value)}
+                          placeholder="Optional"
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+
+                    {validationResults.length > 0 && (
+                      <div>
+                        <h4 className="text-[#1E1E1E] mb-3">Validation Results</h4>
+                        <div className="space-y-2">
+                          {validationResults.map((result, idx) => (
+                            <div
+                              key={idx}
+                              className={`flex items-start gap-3 p-3 rounded-lg ${
+                                result.severity === 'error'
+                                  ? 'bg-red-50 border border-red-200'
+                                  : result.severity === 'warning'
+                                  ? 'bg-yellow-50 border border-yellow-200'
+                                  : 'bg-blue-50 border border-blue-200'
+                              }`}
+                            >
+                              <AlertCircle
+                                className={`w-5 h-5 mt-0.5 ${
+                                  result.severity === 'error'
+                                    ? 'text-red-600'
+                                    : result.severity === 'warning'
+                                    ? 'text-yellow-600'
+                                    : 'text-blue-600'
+                                }`}
+                              />
+                              <div className="flex-1 text-sm text-[#1E1E1E]">
+                                {result.component && <strong>{result.component}: </strong>}
+                                {result.message}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
-                    <p className="text-sm text-gray-600 mt-2">
-                      Supports: CamelCase components (e.g., BaseSalary, PerformanceBonus), IF-THEN-ELSE, MIN/MAX, ROUND, TBL, operators (+, -, *, /, =, !=, &gt;, &lt;, AND, OR, NOT)
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      💡 Tip: Start typing a component name (CamelCase) to see autocomplete suggestions
-                    </p>
                   </div>
+                ) : (
+                  /* Structured Rule Builder */
+                  <div className="space-y-6">
+                    {/* Section 1: Rule Target (WHAT) */}
+                    <div className="border-b border-gray-200 pb-6">
+                      <h4 className="text-[#1E1E1E] font-semibold mb-4">1. Rule Target (WHAT)</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="target">Target Component</Label>
+                          {availableComponents.length > 0 ? (
+                            <Select
+                              value={target}
+                              onValueChange={setTarget}
+                            >
+                              <SelectTrigger id="target" className="mt-1">
+                                <SelectValue placeholder="Select component..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableComponents.map((comp) => (
+                                  <SelectItem key={comp} value={comp}>
+                                    {comp}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              id="target"
+                              value={target}
+                              onChange={(e) => setTarget(e.target.value)}
+                              placeholder="e.g., Base Salary"
+                              className="mt-1"
+                            />
+                          )}
+                        </div>
+                        
+                        <div>
+                          <Label htmlFor="rule-type">Rule Type</Label>
+                          <Select
+                            value={ruleType || ''}
+                            onValueChange={(value) => setRuleType(value as typeof ruleType)}
+                          >
+                            <SelectTrigger id="rule-type" className="mt-1">
+                              <SelectValue placeholder="Select rule type..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="fixed">Fixed Value</SelectItem>
+                              <SelectItem value="table">Table Lookup</SelectItem>
+                              <SelectItem value="percentage">Percentage Adjustment</SelectItem>
+                              <SelectItem value="capfloor">Cap / Floor</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
 
-                  {/* Dependencies */}
-                  <div>
-                    <Label htmlFor="depends">Depends On</Label>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {dependsOn.map((dep) => (
-                        <Badge
-                          key={dep}
-                          className="bg-[#0052CC] text-white px-3 py-1 cursor-pointer"
-                          onClick={() => handleRemoveDependency(dep)}
+                    {/* Section 2: Population (WHO) */}
+                    <div className="border-b border-gray-200 pb-6">
+                      <h4 className="text-[#1E1E1E] font-semibold mb-4">2. Population (WHO)</h4>
+                      <div className="space-y-3">
+                        {employeeFilters.map((filter, idx) => (
+                          <div key={idx} className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <Select
+                              value={filter.field}
+                              onValueChange={(value) => {
+                                const updated = [...employeeFilters];
+                                updated[idx].field = value;
+                                const fieldMeta = availableEmployeeFields.find(f => f.name === value);
+                                if (fieldMeta) {
+                                  updated[idx].operator = fieldMeta.type === 'number' ? 'greater_than' : 'equals';
+                                }
+                                setEmployeeFilters(updated);
+                              }}
+                            >
+                              <SelectTrigger className="w-40">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableEmployeeFields.map((f) => (
+                                  <SelectItem key={f.name} value={f.name}>
+                                    {f.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            
+                            <Select
+                              value={filter.operator}
+                              onValueChange={(value) => {
+                                const updated = [...employeeFilters];
+                                updated[idx].operator = value as typeof filter.operator;
+                                setEmployeeFilters(updated);
+                              }}
+                            >
+                              <SelectTrigger className="w-32">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="equals">Equals</SelectItem>
+                                <SelectItem value="not_equals">Not Equals</SelectItem>
+                                <SelectItem value="greater_than">Greater Than</SelectItem>
+                                <SelectItem value="less_than">Less Than</SelectItem>
+                                <SelectItem value="in_range">In Range</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            
+                            {filter.operator === 'in_range' ? (
+                              <>
+                                <Input
+                                  type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
+                                  value={filter.value}
+                                  onChange={(e) => {
+                                    const updated = [...employeeFilters];
+                                    updated[idx].value = e.target.value;
+                                    setEmployeeFilters(updated);
+                                  }}
+                                  placeholder="Min"
+                                  className="w-24"
+                                />
+                                <span className="text-gray-500">to</span>
+                                <Input
+                                  type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
+                                  value={filter.value2 || ''}
+                                  onChange={(e) => {
+                                    const updated = [...employeeFilters];
+                                    updated[idx].value2 = e.target.value;
+                                    setEmployeeFilters(updated);
+                                  }}
+                                  placeholder="Max"
+                                  className="w-24"
+                                />
+                              </>
+                            ) : (
+                              <Input
+                                type={availableEmployeeFields.find(f => f.name === filter.field)?.type === 'number' ? 'number' : 'text'}
+                                value={filter.value}
+                                onChange={(e) => {
+                                  const updated = [...employeeFilters];
+                                  updated[idx].value = e.target.value;
+                                  setEmployeeFilters(updated);
+                                }}
+                                placeholder="Value"
+                                className="w-32"
+                              />
+                            )}
+                            
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEmployeeFilters(employeeFilters.filter((_, i) => i !== idx));
+                              }}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                        
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (availableEmployeeFields.length > 0) {
+                              setEmployeeFilters([...employeeFilters, {
+                                field: availableEmployeeFields[0].name,
+                                operator: availableEmployeeFields[0].type === 'number' ? 'greater_than' : 'equals',
+                                value: ''
+                              }]);
+                            }
+                          }}
                         >
-                          {dep} ×
-                        </Badge>
+                          <Plus className="w-4 h-4 mr-1" />
+                          Add Filter
+                        </Button>
+                        
+                        <div className="text-sm text-gray-600 mt-2">
+                          {filteredEmployeeCount !== null ? (
+                            <span className="font-medium">Applies to {filteredEmployeeCount} employee{filteredEmployeeCount !== 1 ? 's' : ''}</span>
+                          ) : (
+                            <span>Loading employee count...</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 3: Parameters (HOW) */}
+                    {ruleType && (
+                      <div className="border-b border-gray-200 pb-6">
+                        <h4 className="text-[#1E1E1E] font-semibold mb-4">3. Parameters (HOW)</h4>
+                        <div className="space-y-4">
+                          {ruleType === 'fixed' && (
+                            <div>
+                              <Label htmlFor="fixed-value">Fixed Value</Label>
+                              <Input
+                                id="fixed-value"
+                                type="number"
+                                value={fixedValue}
+                                onChange={(e) => setFixedValue(e.target.value)}
+                                placeholder="Enter fixed amount"
+                                className="mt-1"
+                              />
+                            </div>
+                          )}
+                          
+                          {ruleType === 'table' && (
+                            <div className="space-y-4">
+                              <div>
+                                <Label htmlFor="table-component">Component with Table</Label>
+                                <Select value={tableComponent} onValueChange={setTableComponent}>
+                                  <SelectTrigger id="table-component" className="mt-1">
+                                    <SelectValue placeholder="Select component..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableComponents.map((comp) => (
+                                      <SelectItem key={comp} value={comp}>
+                                        {comp}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label htmlFor="table-name">Table Name</Label>
+                                <Input
+                                  id="table-name"
+                                  value={tableName}
+                                  onChange={(e) => setTableName(e.target.value)}
+                                  placeholder="Enter table name"
+                                  className="mt-1"
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="table-lookup">Lookup Field</Label>
+                                <Input
+                                  id="table-lookup"
+                                  value={tableLookupField}
+                                  onChange={(e) => setTableLookupField(e.target.value)}
+                                  placeholder="e.g., Role, Grade"
+                                  className="mt-1"
+                                />
+                              </div>
+                            </div>
+                          )}
+                          
+                          {ruleType === 'percentage' && (
+                            <div className="space-y-4">
+                              <div>
+                                <Label htmlFor="percentage-base">Base Component</Label>
+                                <Select value={percentageBase} onValueChange={setPercentageBase}>
+                                  <SelectTrigger id="percentage-base" className="mt-1">
+                                    <SelectValue placeholder="Select base component..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableDependencies.map((comp) => (
+                                      <SelectItem key={comp} value={comp}>
+                                        {comp}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label htmlFor="percentage-amount">Percentage (%)</Label>
+                                <Input
+                                  id="percentage-amount"
+                                  type="number"
+                                  value={percentageAmount}
+                                  onChange={(e) => setPercentageAmount(e.target.value)}
+                                  placeholder="e.g., 15 for 15%"
+                                  className="mt-1"
+                                />
+                              </div>
+                            </div>
+                          )}
+                          
+                          {ruleType === 'capfloor' && (
+                            <div className="space-y-4">
+                              <div>
+                                <Label htmlFor="capfloor-type">Type</Label>
+                                <Select value={capFloorType} onValueChange={(value) => setCapFloorType(value as typeof capFloorType)}>
+                                  <SelectTrigger id="capfloor-type" className="mt-1">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="cap">Maximum (Cap)</SelectItem>
+                                    <SelectItem value="floor">Minimum (Floor)</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label htmlFor="capfloor-component">Component</Label>
+                                <Select value={capFloorComponent} onValueChange={setCapFloorComponent}>
+                                  <SelectTrigger id="capfloor-component" className="mt-1">
+                                    <SelectValue placeholder="Select component..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableDependencies.map((comp) => (
+                                      <SelectItem key={comp} value={comp}>
+                                        {comp}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label htmlFor="capfloor-value">{capFloorType === 'cap' ? 'Maximum' : 'Minimum'} Value</Label>
+                                <Input
+                                  id="capfloor-value"
+                                  type="number"
+                                  value={capFloorValue}
+                                  onChange={(e) => setCapFloorValue(e.target.value)}
+                                  placeholder="Enter value"
+                                  className="mt-1"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Section 4: Preview & Explanation */}
+                    <div className="border-b border-gray-200 pb-6">
+                      <h4 className="text-[#1E1E1E] font-semibold mb-4">4. Preview & Explanation</h4>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <p className="text-sm text-gray-900 font-medium mb-2">Rule Explanation:</p>
+                        <p className="text-sm text-gray-700">{generateRuleExplanation()}</p>
+                        {target && ruleType && (
+                          <div className="mt-3 pt-3 border-t border-blue-300">
+                            <p className="text-xs text-gray-600 font-mono bg-white p-2 rounded border border-blue-200">
+                              Expression: {generateExpressionFromStructured() || '(incomplete)'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Advanced Options */}
+                    <div className="border-b border-gray-200 pb-6">
+                      <button
+                        type="button"
+                        onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-4"
+                      >
+                        {showAdvancedOptions ? 'Hide' : 'Show'} Advanced Options
+                        {showAdvancedOptions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                      
+                      {showAdvancedOptions && (
+                        <div className="space-y-4">
+                          {/* Dependencies */}
+                          <div>
+                            <Label htmlFor="depends">Depends On</Label>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {dependsOn.map((dep) => (
+                                <Badge
+                                  key={dep}
+                                  className="bg-[#0052CC] text-white px-3 py-1 cursor-pointer"
+                                  onClick={() => handleRemoveDependency(dep)}
+                                >
+                                  {dep} ×
+                                </Badge>
+                              ))}
+                              <Select onValueChange={handleAddDependency}>
+                                <SelectTrigger className="w-auto border-dashed">
+                                  <SelectValue placeholder="+ Add dependency" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableDependencies.map((dep) => (
+                                    <SelectItem key={dep} value={dep}>
+                                      {dep}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          {/* Toggles */}
+                          <div className="grid grid-cols-2 gap-6">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="incomeTax">Income Tax</Label>
+                                <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="socialSecurity">Social Security</Label>
+                                <Switch
+                                  id="socialSecurity"
+                                  checked={socialSecurity}
+                                  onCheckedChange={setSocialSecurity}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="workPercentFlag">Apply Work %</Label>
+                                <Switch
+                                  id="workPercentFlag"
+                                  checked={workPercentFlag}
+                                  onCheckedChange={setWorkPercentFlag}
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="pensionFlag">Pension</Label>
+                                <Switch
+                                  id="pensionFlag"
+                                  checked={pensionFlag}
+                                  onCheckedChange={setPensionFlag}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="workPension">Work Pension</Label>
+                                <Switch
+                                  id="workPension"
+                                  checked={workPension}
+                                  onCheckedChange={setWorkPension}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="expensesPension">Expenses Pension</Label>
+                                <Switch
+                                  id="expensesPension"
+                                  checked={expensesPension}
+                                  onCheckedChange={setExpensesPension}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="educationFund">Education Fund</Label>
+                                <Switch
+                                  id="educationFund"
+                                  checked={educationFund}
+                                  onCheckedChange={setEducationFund}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Group */}
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="group">Group</Label>
+                              <Select value={group} onValueChange={setGroup}>
+                                <SelectTrigger className="w-40">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {componentGroups
+                                    .sort((a, b) => a.displayOrder - b.displayOrder)
+                                    .map((group, index) => {
+                                      const groupNumber = `group${index + 1}`;
+                                      return (
+                                        <SelectItem key={group.groupName} value={groupNumber}>
+                                          {groupNumber}
+                                        </SelectItem>
+                                      );
+                                    })}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          {/* Effective Dates */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="effectiveFrom">Effective From</Label>
+                              <Input
+                                id="effectiveFrom"
+                                type="date"
+                                value={effectiveFrom}
+                                onChange={(e) => setEffectiveFrom(e.target.value)}
+                                className="mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="effectiveTo">Effective To</Label>
+                              <Input
+                                id="effectiveTo"
+                                type="date"
+                                value={effectiveTo}
+                                onChange={(e) => setEffectiveTo(e.target.value)}
+                                placeholder="Optional"
+                                className="mt-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section 5: Actions */}
+                    <div className="pt-4">
+                      <h4 className="text-[#1E1E1E] font-semibold mb-4">5. Actions</h4>
+                      <div className="flex items-center gap-3">
+                        <Button
+                          onClick={handleSave}
+                          disabled={saving || !target || (!expertMode && !ruleType) || (expertMode && !expression)}
+                          variant="outline"
+                        >
+                          {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                          Save Draft
+                        </Button>
+                        <Button
+                          onClick={handleValidate}
+                          disabled={loading || !target || (!expertMode && !ruleType) || (expertMode && !expression)}
+                          variant="outline"
+                        >
+                          {loading ? (
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          ) : lastValidationStatus === "success" ? (
+                            <CheckCircle className="w-4 h-4 text-green-600 mr-2" />
+                          ) : (
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                          )}
+                          {lastValidationStatus === "success" ? "Validated" : "Validate"}
+                        </Button>
+                        <Button
+                          onClick={handlePublish}
+                          disabled={saving || !target || (!expertMode && !ruleType) || (expertMode && !expression)}
+                        >
+                          {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
+                          Publish
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Validation Results - shown for both modes */}
+                {validationResults.length > 0 && (
+                  <div className="mt-6">
+                    <h4 className="text-[#1E1E1E] mb-3">Validation Results</h4>
+                    <div className="space-y-2">
+                      {validationResults.map((result, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex items-start gap-3 p-3 rounded-lg ${
+                            result.severity === 'error'
+                              ? 'bg-red-50 border border-red-200'
+                              : result.severity === 'warning'
+                              ? 'bg-yellow-50 border border-yellow-200'
+                              : 'bg-blue-50 border border-blue-200'
+                          }`}
+                        >
+                          <AlertCircle
+                            className={`w-5 h-5 mt-0.5 ${
+                              result.severity === 'error'
+                                ? 'text-red-600'
+                                : result.severity === 'warning'
+                                ? 'text-yellow-600'
+                                : 'text-blue-600'
+                            }`}
+                          />
+                          <div className="flex-1 text-sm text-[#1E1E1E]">
+                            {result.component && <strong>{result.component}: </strong>}
+                            {result.message}
+                          </div>
+                        </div>
                       ))}
-                      <Select onValueChange={handleAddDependency}>
-                        <SelectTrigger className="w-auto border-dashed">
-                          <SelectValue placeholder="+ Add dependency" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableDependencies.map((dep) => (
-                            <SelectItem key={dep} value={dep}>
-                              {dep}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
-
-                  {/* Toggles */}
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="incomeTax">Income Tax</Label>
-                        <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="socialSecurity">Social Security</Label>
-                        <Switch
-                          id="socialSecurity"
-                          checked={socialSecurity}
-                          onCheckedChange={setSocialSecurity}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="workPercentFlag">Apply Work %</Label>
-                        <Switch
-                          id="workPercentFlag"
-                          checked={workPercentFlag}
-                          onCheckedChange={setWorkPercentFlag}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="pensionFlag">Pension</Label>
-                        <Switch
-                          id="pensionFlag"
-                          checked={pensionFlag}
-                          onCheckedChange={setPensionFlag}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="workPension">Work Pension</Label>
-                        <Switch
-                          id="workPension"
-                          checked={workPension}
-                          onCheckedChange={setWorkPension}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="expensesPension">Expenses Pension</Label>
-                        <Switch
-                          id="expensesPension"
-                          checked={expensesPension}
-                          onCheckedChange={setExpensesPension}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="educationFund">Education Fund</Label>
-                        <Switch
-                          id="educationFund"
-                          checked={educationFund}
-                          onCheckedChange={setEducationFund}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Group */}
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="group">Group</Label>
-                      <Select value={group} onValueChange={setGroup}>
-                        <SelectTrigger className="w-40">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {componentGroups
-                            .sort((a, b) => a.displayOrder - b.displayOrder)
-                            .map((group, index) => {
-                              const groupNumber = `group${index + 1}`;
-                              return (
-                                <SelectItem key={group.groupName} value={groupNumber}>
-                                  {groupNumber}
-                                </SelectItem>
-                              );
-                            })}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  {/* Effective Dates */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="effectiveFrom">Effective From</Label>
-                      <Input
-                        id="effectiveFrom"
-                        type="date"
-                        value={effectiveFrom}
-                        onChange={(e) => setEffectiveFrom(e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="effectiveTo">Effective To</Label>
-                      <Input
-                        id="effectiveTo"
-                        type="date"
-                        value={effectiveTo}
-                        onChange={(e) => setEffectiveTo(e.target.value)}
-                        placeholder="Optional"
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
+                )}
 
                   {/* Validation Results */}
                   {validationResults.length > 0 && (
@@ -2066,7 +3201,6 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       </div>
                     </div>
                   )}
-                </div>
               </Card>
             </div>
           </div>
@@ -2620,6 +3754,53 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               disabled={importing}
             >
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Publish Confirmation Dialog */}
+      <Dialog open={showPublishConfirmDialog} onOpenChange={setShowPublishConfirmDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Publish</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <p className="text-sm text-gray-600">
+              Publishing this ruleset will make it active and affect all calculations. Are you sure you want to continue?
+            </p>
+            {target && ruleType && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-gray-900 mb-2">Rule Summary:</p>
+                <p className="text-sm text-gray-700">{generateRuleExplanation()}</p>
+                {filteredEmployeeCount !== null && (
+                  <p className="text-sm text-gray-700 mt-2">
+                    <strong>Affected employees:</strong> {filteredEmployeeCount}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowPublishConfirmDialog(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmPublish}
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Publishing...
+                </>
+              ) : (
+                'Publish'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
