@@ -328,9 +328,12 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
         }
       } catch (e: any) {
         // Check if this is a "Ruleset not found" error (happens when switching tenants)
-        const isRulesetNotFound = e.message?.includes('Ruleset not found') || 
-                                  e.message?.includes('NoSuchElementException') ||
-                                  (e.response?.status === 404);
+        // Error can be wrapped as "API call failed: 404 - Ruleset not found: ..." or direct
+        const errorMsg = e.message || '';
+        const isRulesetNotFound = errorMsg.includes('Ruleset not found') || 
+                                  errorMsg.includes('NoSuchElementException') ||
+                                  (e.response?.status === 404) ||
+                                  (errorMsg.includes('404') && errorMsg.includes('Ruleset'));
         
         if (isRulesetNotFound && !cancelled) {
           // Clear the selected ruleset instead of showing error

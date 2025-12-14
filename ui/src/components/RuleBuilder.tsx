@@ -386,9 +386,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setRuleset(data);
     } catch (err: any) {
       // Check if this is a "Ruleset not found" error (happens when switching tenants)
-      const isRulesetNotFound = err.message?.includes('Ruleset not found') || 
-                                err.message?.includes('NoSuchElementException') ||
-                                (err.response?.status === 404);
+      // Error can be wrapped as "API call failed: 404 - Ruleset not found: ..." or direct
+      const errorMsg = err.message || '';
+      const isRulesetNotFound = errorMsg.includes('Ruleset not found') || 
+                                errorMsg.includes('NoSuchElementException') ||
+                                (err.response?.status === 404) ||
+                                (errorMsg.includes('404') && errorMsg.includes('Ruleset'));
       
       if (isRulesetNotFound) {
         // Clear the selected ruleset and reload rulesets list instead of showing error
@@ -1435,6 +1438,54 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             setShowCreateRulesetDialog(true);
           }}
         />
+        
+        {/* Create New Ruleset Dialog - needed even in empty state */}
+        <Dialog open={showCreateRulesetDialog} onOpenChange={setShowCreateRulesetDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create New Ruleset</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-2">
+              <div>
+                <Label htmlFor="create-ruleset-name">Ruleset Name</Label>
+                <Input
+                  id="create-ruleset-name"
+                  value={newRulesetName}
+                  onChange={(e) => setNewRulesetName(e.target.value)}
+                  placeholder="Enter name for the new ruleset"
+                  className="mt-1"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newRulesetName.trim() && !saving) {
+                      handleCreateRuleset();
+                    }
+                  }}
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Ruleset name cannot contain slashes (/) or backslashes (\). A new empty ruleset will be created. You can add components to it after creation.
+                </p>
+              </div>
+            </div>
+            <DialogFooter className="mt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateRulesetDialog(false);
+                  setNewRulesetName('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateRuleset}
+                disabled={!newRulesetName.trim() || saving}
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Create Ruleset
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
