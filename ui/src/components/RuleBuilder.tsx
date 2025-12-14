@@ -999,9 +999,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     return expression;
   };
 
-  // Helper: Generate plain-language explanation
+  // Helper: Generate plain-language explanation in full sentences
   const generateRuleExplanation = (): string => {
-    if (!ruleType || !target) return 'Configure the rule to see explanation.';
+    if (!target) return '';
     
     const componentName = target || 'the component';
     let explanation = '';
@@ -1013,8 +1013,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       g.ruleType !== null
     );
     
+    // Build natural language description
     if (activeGroups.length > 0) {
-      explanation += 'Applies different values based on employee groups:\n';
+      // Start with the main action
+      explanation = `${componentName} will be calculated differently based on employee groups. `;
+      
+      // Describe each group
+      const groupDescriptions: string[] = [];
       activeGroups.forEach((group, idx) => {
         const filterDescriptions = group.filters
           .filter(f => f.field && f.value)
@@ -1024,56 +1029,157 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             let desc = '';
             switch (f.operator) {
               case 'equals':
-                desc = `${f.field} equals ${isNumeric ? f.value : `"${f.value}"`}`;
+                desc = `${f.field} is ${isNumeric ? f.value : `"${f.value}"`}`;
                 break;
               case 'not_equals':
-                desc = `${f.field} does not equal ${isNumeric ? f.value : `"${f.value}"`}`;
+                desc = `${f.field} is not ${isNumeric ? f.value : `"${f.value}"`}`;
                 break;
               case 'greater_than':
-                desc = `${f.field} > ${f.value}`;
+                desc = `${f.field} is greater than ${f.value}`;
                 break;
               case 'less_than':
-                desc = `${f.field} < ${f.value}`;
+                desc = `${f.field} is less than ${f.value}`;
                 break;
               case 'in_range':
-                desc = `${f.value} <= ${f.field} <= ${f.value2 || ''}`;
+                desc = `${f.field} is between ${f.value} and ${f.value2 || ''}`;
                 break;
             }
             if (i < group.filters.length - 1 && f.logic) {
-              desc += ` ${f.logic}`;
+              desc += ` ${f.logic === 'AND' ? 'and' : 'or'}`;
             }
             return desc;
           })
           .filter(d => d !== '');
         
         if (filterDescriptions.length > 0) {
-          const valueDesc = generateGroupValueExpression(group);
-          explanation += `\n• Group ${idx + 1}: If ${filterDescriptions.join(' ')} then ${valueDesc} (${filteredEmployeeCounts[group.id] || 0} employees)`;
+          // Generate natural language value description
+          let valueDesc = '';
+          switch (group.ruleType) {
+            case 'fixed':
+              valueDesc = `set to ${group.fixedValue || '0'}`;
+              break;
+            case 'table':
+              if (group.tableName && group.tableLookupField) {
+                valueDesc = `looked up from table "${group.tableName}" using ${group.tableLookupField}`;
+              } else {
+                valueDesc = 'looked up from table';
+              }
+              break;
+            case 'percentage':
+              if (group.percentageBase && group.percentageAmount) {
+                valueDesc = `calculated as ${group.percentageAmount}% of ${group.percentageBase}`;
+              } else {
+                valueDesc = 'calculated as a percentage';
+              }
+              break;
+            case 'capfloor':
+              const capFloorText = group.capFloorType === 'cap' ? 'maximum' : 'minimum';
+              if (group.capFloorComponent && group.capFloorValue) {
+                valueDesc = `limited to a ${capFloorText} of ${group.capFloorValue} for ${group.capFloorComponent}`;
+              } else {
+                valueDesc = `limited to a ${capFloorText}`;
+              }
+              break;
+          }
+          
+          const employeeCount = filteredEmployeeCounts[group.id] || 0;
+          let groupDesc = `For employees where ${filterDescriptions.join(' ')}, ${componentName} will be ${valueDesc}`;
+          if (employeeCount > 0) {
+            groupDesc += `, affecting ${employeeCount} employee${employeeCount !== 1 ? 's' : ''}`;
+          }
+          groupDesc += '.';
+          groupDescriptions.push(groupDesc);
         }
       });
       
+      if (groupDescriptions.length > 0) {
+        explanation += groupDescriptions.join(' ');
+      }
+      
+      // Add default/else case
       const baseExpr = generateBaseExpression();
-      if (baseExpr) {
-        explanation += `\n• Default: ${baseExpr}`;
+      if (baseExpr && baseExpr !== '0') {
+        let defaultDesc = '';
+        switch (ruleType) {
+          case 'fixed':
+            defaultDesc = `set to ${fixedValue || '0'}`;
+            break;
+          case 'table':
+            if (tableName && tableLookupField) {
+              defaultDesc = `looked up from table "${tableName}" using ${tableLookupField}`;
+            } else {
+              defaultDesc = 'looked up from table';
+            }
+            break;
+          case 'percentage':
+            if (percentageBase && percentageAmount) {
+              defaultDesc = `calculated as ${percentageAmount}% of ${percentageBase}`;
+            } else {
+              defaultDesc = 'calculated as a percentage';
+            }
+            break;
+          case 'capfloor':
+            const capFloorText = capFloorType === 'cap' ? 'maximum' : 'minimum';
+            if (capFloorComponent && capFloorValue) {
+              defaultDesc = `limited to a ${capFloorText} of ${capFloorValue} for ${capFloorComponent}`;
+            } else {
+              defaultDesc = `limited to a ${capFloorText}`;
+            }
+            break;
+        }
+        explanation += ` For all other employees, ${componentName} will be ${defaultDesc}.`;
       }
     } else {
-      // No filter groups, use base rule type
+      // No filter groups - single rule for all employees
+      const totalEmployees = employees.length;
+      let actionDesc = '';
+      
       switch (ruleType) {
         case 'fixed':
-          explanation += `Sets ${componentName} to a fixed value of ${fixedValue || '0'}.`;
+          actionDesc = `${componentName} will be set to a fixed value of ${fixedValue || '0'}`;
           break;
         case 'table':
-          explanation += `Looks up ${componentName} from table "${tableName}" using field ${tableLookupField}.`;
+          if (tableName && tableLookupField) {
+            actionDesc = `${componentName} will be looked up from table "${tableName}" using field ${tableLookupField}`;
+          } else {
+            actionDesc = `${componentName} will be looked up from a table`;
+          }
           break;
         case 'percentage':
-          explanation += `Calculates ${componentName} as ${percentageAmount || '0'}% of ${percentageBase || 'base'}.`;
+          if (percentageBase && percentageAmount) {
+            actionDesc = `${componentName} will be calculated as ${percentageAmount}% of ${percentageBase}`;
+          } else {
+            actionDesc = `${componentName} will be calculated as a percentage`;
+          }
           break;
         case 'capfloor':
           const capFloorText = capFloorType === 'cap' ? 'maximum' : 'minimum';
-          explanation += `Applies a ${capFloorText} of ${capFloorValue || '0'} to ${capFloorComponent || 'the component'}.`;
+          if (capFloorComponent && capFloorValue) {
+            actionDesc = `A ${capFloorText} of ${capFloorValue} will be applied to ${capFloorComponent}`;
+          } else {
+            actionDesc = `A ${capFloorText} will be applied`;
+          }
           break;
       }
-      explanation += ' Applies to all employees.';
+      
+      explanation = `${actionDesc}.`;
+      if (totalEmployees > 0) {
+        explanation += ` This applies to all ${totalEmployees} employee${totalEmployees !== 1 ? 's' : ''}.`;
+      }
+    }
+    
+    // Add effective dates if specified
+    if (effectiveFrom || effectiveTo) {
+      explanation += ' ';
+      if (effectiveFrom) {
+        explanation += `Effective from ${effectiveFrom}`;
+        if (effectiveTo) {
+          explanation += ` until ${effectiveTo}`;
+        }
+        explanation += '.';
+      } else if (effectiveTo) {
+        explanation += `Effective until ${effectiveTo}.`;
+      }
     }
     
     return explanation;
@@ -2892,6 +2998,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       <div className="space-y-4">
                         <div>
                           <Label htmlFor="target">Target Component</Label>
+                          <p className="text-sm text-gray-600 mt-1 mb-3">
+                            This rule will calculate values for the selected component. Each filter group below can apply different calculation methods.
+                          </p>
                           {availableComponents.length > 0 ? (
                             <Select
                               value={target}
@@ -2918,52 +3027,95 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                             />
                           )}
                         </div>
-                        
-                        <div>
-                          <Label htmlFor="rule-type">Rule Type</Label>
-                          <Select
-                            value={ruleType || ''}
-                            onValueChange={(value) => setRuleType(value as typeof ruleType)}
-                          >
-                            <SelectTrigger id="rule-type" className="mt-1">
-                              <SelectValue placeholder="Select rule type..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="fixed">Fixed Value</SelectItem>
-                              <SelectItem value="table">Table Lookup</SelectItem>
-                              <SelectItem value="percentage">Percentage Adjustment</SelectItem>
-                              <SelectItem value="capfloor">Cap / Floor</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
                       </div>
                     </div>
 
-                    {/* Section 2: Population (WHO) */}
+                    {/* Section 2: Filter Groups - Each group defines WHO and HOW */}
                     <div className="border-b border-gray-200 pb-6">
-                      <h4 className="text-[#1E1E1E] font-semibold mb-4">2. Population (WHO)</h4>
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-[#1E1E1E] font-semibold">2. Filter Groups</h4>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const newGroup: FilterGroup = {
+                              id: `group-${Date.now()}`,
+                              filters: [],
+                              ruleType: null,
+                              fixedValue: '',
+                              tableComponent: '',
+                              tableName: '',
+                              tableLookupField: '',
+                              percentageBase: '',
+                              percentageAmount: '',
+                              capFloorType: 'cap',
+                              capFloorComponent: '',
+                              capFloorValue: '',
+                            };
+                            setFilterGroups([...filterGroups, newGroup]);
+                          }}
+                        >
+                          + Add Group
+                        </Button>
+                      </div>
                       <p className="text-sm text-gray-600 mb-4">
-                        Create filter groups with AND/OR logic. Each group can have a different value.
+                        Each group defines which employees it applies to (WHO) and how the value is calculated (HOW). Groups are evaluated in order.
                       </p>
                       
                       <div className="space-y-4">
-                        {filterGroups.map((group, groupIdx) => (
-                          <div key={group.id} className="p-4 bg-gray-50 rounded-lg border border-gray-300">
-                            <div className="flex items-center justify-between mb-3">
-                              <h5 className="font-medium text-gray-900">Group {groupIdx + 1}</h5>
-                              {filterGroups.length > 1 && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setFilterGroups(filterGroups.filter((_, i) => i !== groupIdx));
-                                  }}
-                                  className="text-red-600 hover:text-red-700"
-                                >
-                                  <X className="w-4 h-4" />
-                                </Button>
-                              )}
-                            </div>
+                        {filterGroups.length === 0 ? (
+                          <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-[10px]">
+                            <p className="text-sm text-gray-600 mb-3">No filter groups defined</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                const newGroup: FilterGroup = {
+                                  id: `group-${Date.now()}`,
+                                  filters: [],
+                                  ruleType: null,
+                                  fixedValue: '',
+                                  tableComponent: '',
+                                  tableName: '',
+                                  tableLookupField: '',
+                                  percentageBase: '',
+                                  percentageAmount: '',
+                                  capFloorType: 'cap',
+                                  capFloorComponent: '',
+                                  capFloorValue: '',
+                                };
+                                setFilterGroups([newGroup]);
+                              }}
+                            >
+                              Create First Group
+                            </Button>
+                          </div>
+                        ) : (
+                          filterGroups.map((group, groupIdx) => (
+                            <div key={group.id} className="bg-white border-2 border-gray-300 rounded-[10px] p-6 shadow-sm">
+                              <div className="flex items-center justify-between mb-4">
+                                <div>
+                                  <h5 className="text-lg font-semibold text-[#0A0A0A]">Group {groupIdx + 1}</h5>
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    {group.ruleType 
+                                      ? `${group.ruleType === 'fixed' ? 'Fixed Value' : group.ruleType === 'percentage' ? 'Percentage' : group.ruleType === 'table' ? 'Table Lookup' : 'Cap/Floor'} • ${filteredEmployeeCounts[group.id] || 0} employees`
+                                      : 'Configure filters and calculation method'}
+                                  </p>
+                                </div>
+                                {filterGroups.length > 1 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setFilterGroups(filterGroups.filter((_, i) => i !== groupIdx));
+                                    }}
+                                    className="text-red-600 hover:text-red-700"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
                             
                             {/* Filters for this group */}
                             <div className="space-y-2 mb-4">
@@ -2978,12 +3130,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                         setFilterGroups(updated);
                                       }}
                                     >
-                                      <SelectTrigger className="w-16">
+                                      <SelectTrigger className="w-20 min-w-[80px] font-medium">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="AND">AND</SelectItem>
-                                        <SelectItem value="OR">OR</SelectItem>
+                                        <SelectItem value="AND" className="font-medium">AND</SelectItem>
+                                        <SelectItem value="OR" className="font-medium">OR</SelectItem>
                                       </SelectContent>
                                     </Select>
                                   )}
@@ -3108,30 +3260,100 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                             </div>
                             
                             {/* HOW: Rule type and parameters for this group */}
-                            <div className="border-t border-gray-300 pt-3 mt-3">
-                              <Label className="text-sm font-medium mb-2 block">3. Parameters (HOW) for this group:</Label>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label htmlFor={`group-rule-type-${groupIdx}`}>Rule Type</Label>
-                                  <Select
-                                    value={group.ruleType || ''}
-                                    onValueChange={(value) => {
+                            <div className="border-t border-gray-300 pt-4 mt-4">
+                              <Label className="text-base font-semibold text-[#0A0A0A] mb-3 block">Calculation Method (HOW)</Label>
+                              <div className="mb-4">
+                                <Label className="mb-3 block text-sm">Select how to calculate the value for this group:</Label>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
                                       const updated = [...filterGroups];
-                                      updated[groupIdx].ruleType = value as typeof group.ruleType;
+                                      updated[groupIdx].ruleType = 'fixed';
                                       setFilterGroups(updated);
                                     }}
+                                    className={`p-4 rounded-[10px] border-2 text-left transition-all ${
+                                      group.ruleType === 'fixed'
+                                        ? 'border-[#0052CC] bg-blue-50'
+                                        : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                                    }`}
                                   >
-                                    <SelectTrigger id={`group-rule-type-${groupIdx}`} className="mt-1">
-                                      <SelectValue placeholder="Select rule type..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="fixed">Fixed Value</SelectItem>
-                                      <SelectItem value="table">Table Lookup</SelectItem>
-                                      <SelectItem value="percentage">Percentage Adjustment</SelectItem>
-                                      <SelectItem value="capfloor">Cap / Floor</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                    <div className="font-semibold text-[#0A0A0A] mb-1">Fixed Value</div>
+                                    <div className="text-xs text-gray-600">Set a constant amount</div>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = [...filterGroups];
+                                      updated[groupIdx].ruleType = 'percentage';
+                                      setFilterGroups(updated);
+                                    }}
+                                    className={`p-4 rounded-[10px] border-2 text-left transition-all ${
+                                      group.ruleType === 'percentage'
+                                        ? 'border-[#0052CC] bg-blue-50'
+                                        : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    <div className="font-semibold text-[#0A0A0A] mb-1">Percentage Adjustment</div>
+                                    <div className="text-xs text-gray-600">Calculate as % of base</div>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = [...filterGroups];
+                                      updated[groupIdx].ruleType = 'table';
+                                      setFilterGroups(updated);
+                                    }}
+                                    className={`p-4 rounded-[10px] border-2 text-left transition-all ${
+                                      group.ruleType === 'table'
+                                        ? 'border-[#0052CC] bg-blue-50'
+                                        : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    <div className="font-semibold text-[#0A0A0A] mb-1">Table Lookup</div>
+                                    <div className="text-xs text-gray-600">Look up value from table</div>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = [...filterGroups];
+                                      updated[groupIdx].ruleType = 'capfloor';
+                                      setFilterGroups(updated);
+                                    }}
+                                    className={`p-4 rounded-[10px] border-2 text-left transition-all ${
+                                      group.ruleType === 'capfloor'
+                                        ? 'border-[#0052CC] bg-blue-50'
+                                        : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    <div className="font-semibold text-[#0A0A0A] mb-1">Cap / Floor</div>
+                                    <div className="text-xs text-gray-600">Apply min/max limits</div>
+                                  </button>
                                 </div>
+                                {group.ruleType && (
+                                  <div className="mt-3 flex items-center gap-2 text-sm text-gray-600">
+                                    <span className="font-medium">Selected:</span>
+                                    <span className="text-[#0052CC] font-semibold">
+                                      {group.ruleType === 'fixed' && 'Fixed Value'}
+                                      {group.ruleType === 'percentage' && 'Percentage Adjustment'}
+                                      {group.ruleType === 'table' && 'Table Lookup'}
+                                      {group.ruleType === 'capfloor' && 'Cap / Floor'}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = [...filterGroups];
+                                        updated[groupIdx].ruleType = null;
+                                        setFilterGroups(updated);
+                                      }}
+                                      className="text-gray-400 hover:text-gray-600 underline text-xs ml-2"
+                                    >
+                                      Change
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-4 mt-4">
                                 
                                 {group.ruleType === 'fixed' && (
                                   <div>
@@ -3315,7 +3537,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                               </div>
                             </div>
                           </div>
-                        ))}
+                        ))
+                        )}
                         
                         <Button
                           variant="outline"
@@ -3343,152 +3566,80 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       </div>
                     </div>
 
-                    {/* Section 3: Parameters (HOW) */}
-                    {ruleType && (
-                      <div className="border-b border-gray-200 pb-6">
-                        <h4 className="text-[#1E1E1E] font-semibold mb-4">3. Parameters (HOW)</h4>
-                        <div className="space-y-4">
-                          {ruleType === 'fixed' && (
-                            <div>
-                              <Label htmlFor="fixed-value">Fixed Value</Label>
-                              <Input
-                                id="fixed-value"
-                                type="number"
-                                value={fixedValue}
-                                onChange={(e) => setFixedValue(e.target.value)}
-                                placeholder="Enter fixed amount"
-                                className="mt-1"
-                              />
-                            </div>
-                          )}
-                          
-                          {ruleType === 'table' && (
-                            <div className="space-y-4">
-                              <div>
-                                <Label htmlFor="table-component">Component with Table</Label>
-                                <Select value={tableComponent} onValueChange={setTableComponent}>
-                                  <SelectTrigger id="table-component" className="mt-1">
-                                    <SelectValue placeholder="Select component..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {availableComponents.map((comp) => (
-                                      <SelectItem key={comp} value={comp}>
-                                        {comp}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div>
-                                <Label htmlFor="table-name">Table Name</Label>
-                                <Input
-                                  id="table-name"
-                                  value={tableName}
-                                  onChange={(e) => setTableName(e.target.value)}
-                                  placeholder="Enter table name"
-                                  className="mt-1"
-                                />
-                              </div>
-                              <div>
-                                <Label htmlFor="table-lookup">Lookup Field</Label>
-                                <Input
-                                  id="table-lookup"
-                                  value={tableLookupField}
-                                  onChange={(e) => setTableLookupField(e.target.value)}
-                                  placeholder="e.g., Role, Grade"
-                                  className="mt-1"
-                                />
-                              </div>
-                            </div>
-                          )}
-                          
-                          {ruleType === 'percentage' && (
-                            <div className="space-y-4">
-                              <div>
-                                <Label htmlFor="percentage-base">Base Component</Label>
-                                <Select value={percentageBase} onValueChange={setPercentageBase}>
-                                  <SelectTrigger id="percentage-base" className="mt-1">
-                                    <SelectValue placeholder="Select base component..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {availableDependencies.map((comp) => (
-                                      <SelectItem key={comp} value={comp}>
-                                        {comp}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div>
-                                <Label htmlFor="percentage-amount">Percentage (%)</Label>
-                                <Input
-                                  id="percentage-amount"
-                                  type="number"
-                                  value={percentageAmount}
-                                  onChange={(e) => setPercentageAmount(e.target.value)}
-                                  placeholder="e.g., 15 for 15%"
-                                  className="mt-1"
-                                />
-                              </div>
-                            </div>
-                          )}
-                          
-                          {ruleType === 'capfloor' && (
-                            <div className="space-y-4">
-                              <div>
-                                <Label htmlFor="capfloor-type">Type</Label>
-                                <Select value={capFloorType} onValueChange={(value) => setCapFloorType(value as typeof capFloorType)}>
-                                  <SelectTrigger id="capfloor-type" className="mt-1">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="cap">Maximum (Cap)</SelectItem>
-                                    <SelectItem value="floor">Minimum (Floor)</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div>
-                                <Label htmlFor="capfloor-component">Component</Label>
-                                <Select value={capFloorComponent} onValueChange={setCapFloorComponent}>
-                                  <SelectTrigger id="capfloor-component" className="mt-1">
-                                    <SelectValue placeholder="Select component..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {availableDependencies.map((comp) => (
-                                      <SelectItem key={comp} value={comp}>
-                                        {comp}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div>
-                                <Label htmlFor="capfloor-value">{capFloorType === 'cap' ? 'Maximum' : 'Minimum'} Value</Label>
-                                <Input
-                                  id="capfloor-value"
-                                  type="number"
-                                  value={capFloorValue}
-                                  onChange={(e) => setCapFloorValue(e.target.value)}
-                                  placeholder="Enter value"
-                                  className="mt-1"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
 
-                    {/* Section 4: Preview & Explanation */}
+                    {/* Section 3: Preview & Explanation - Dominant and Live */}
                     <div className="border-b border-gray-200 pb-6">
-                      <h4 className="text-[#1E1E1E] font-semibold mb-4">4. Preview & Explanation</h4>
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                        <p className="text-sm text-gray-900 font-medium mb-2">Rule Explanation:</p>
-                        <p className="text-sm text-gray-700">{generateRuleExplanation()}</p>
-                        {target && ruleType && (
-                          <div className="mt-3 pt-3 border-t border-blue-300">
-                            <p className="text-xs text-gray-600 font-mono bg-white p-2 rounded border border-blue-200">
-                              Expression: {generateExpressionFromStructured() || '(incomplete)'}
+                      <h4 className="text-[#1E1E1E] font-semibold mb-4">3. Preview & Explanation</h4>
+                      <div className="bg-white border-2 border-[#0052CC] rounded-[10px] p-6 shadow-sm">
+                        {target && filterGroups.length > 0 ? (
+                          <>
+                            <div className="mb-4">
+                              <h5 className="text-base font-semibold text-[#0A0A0A] mb-2">Rule Summary</h5>
+                              <p className="text-sm text-[#0A0A0A] leading-relaxed whitespace-pre-line">
+                                {generateRuleExplanation()}
+                              </p>
+                            </div>
+                            
+                            {/* Impact Summary */}
+                            <div className="mt-4 pt-4 border-t border-gray-300">
+                              <h5 className="text-sm font-semibold text-[#0A0A0A] mb-3">Impact Summary</h5>
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <div className="text-xs text-gray-600 mb-1">Total Employees Affected</div>
+                                    <div className="text-lg font-semibold text-[#0A0A0A]">
+                                      {(() => {
+                                        const totalAffected = Object.values(filteredEmployeeCounts).reduce((sum, count) => sum + count, 0);
+                                        return totalAffected > 0 ? totalAffected : 0;
+                                      })()}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-gray-600 mb-1">Number of Groups</div>
+                                    <div className="text-lg font-semibold text-[#0A0A0A]">
+                                      {filterGroups.filter(g => g.ruleType !== null && g.filters.length > 0).length}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {/* Per-group breakdown */}
+                                {filterGroups.filter(g => g.ruleType !== null && g.filters.length > 0).length > 0 && (
+                                  <div className="mt-4 pt-4 border-t border-gray-200">
+                                    <div className="text-xs text-gray-600 mb-2 font-medium">Breakdown by Group:</div>
+                                    <div className="space-y-2">
+                                      {filterGroups.map((group, idx) => {
+                                        if (!group.ruleType || group.filters.length === 0) return null;
+                                        const count = filteredEmployeeCounts[group.id] || 0;
+                                        return (
+                                          <div key={group.id} className="flex items-center justify-between text-sm">
+                                            <span className="text-gray-700">Group {idx + 1} ({group.ruleType === 'fixed' ? 'Fixed' : group.ruleType === 'percentage' ? 'Percentage' : group.ruleType === 'table' ? 'Table' : 'Cap/Floor'})</span>
+                                            <span className="font-semibold text-[#0A0A0A]">{count} employees</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {/* Expression (technical) */}
+                            {generateExpressionFromStructured() && (
+                              <div className="mt-4 pt-4 border-t border-gray-200">
+                                <div className="text-xs text-gray-500 mb-1">Technical Expression</div>
+                                <p className="text-xs font-mono text-gray-700 bg-gray-50 p-2 rounded border border-gray-200">
+                                  {generateExpressionFromStructured()}
+                                </p>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-center py-8">
+                            <p className="text-sm text-gray-600">
+                              Complete the rule configuration to see the impact preview.
+                            </p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              {!target ? 'Select a target component' : 'Create at least one filter group with filters and a calculation method'} to begin.
                             </p>
                           </div>
                         )}
