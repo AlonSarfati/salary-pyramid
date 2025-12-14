@@ -53,14 +53,8 @@ public class RestrictedGroupAwareEvalContext implements com.atlas.engine.expr.Ev
                         ". Components can only reference earlier groups (not their own group or later groups).");
                 }
                 
-                // Get the actual group name for this number
-                String actualGroupName = numberToGroup.get(groupNumber);
-                if (actualGroupName == null) {
-                    return Value.ofNumber(BigDecimal.ZERO);
-                }
-                
-                // Sum all components in this group
-                return sumGroup(actualGroupName);
+                // Sum all components in this group AND all previous groups (cumulative)
+                return sumGroupCumulative(groupNumber);
             } catch (NumberFormatException e) {
                 // Not a valid group number, treat as regular component
             }
@@ -77,25 +71,53 @@ public class RestrictedGroupAwareEvalContext implements com.atlas.engine.expr.Ev
                     "Component cannot reference group '" + componentName + 
                     "'. Components can only reference earlier groups (not their own group or later groups).");
             }
-            return sumGroup(normalizedName);
+            // Sum all components in this group AND all previous groups (cumulative)
+            return sumGroupCumulative(groupNumber);
         }
         
         // Otherwise, treat as regular component
         return baseContext.getComponent(componentName);
     }
     
+    /**
+     * Sum all components in the specified group AND all previous groups (cumulative).
+     * For example, group2 includes group1 + group2, and group3 includes group1 + group2 + group3.
+     */
+    private Value sumGroupCumulative(int targetGroupNumber) {
+        BigDecimal sum = BigDecimal.ZERO;
+        
+        // Sum components from group1 up to and including the target group
+        for (int i = 1; i <= targetGroupNumber; i++) {
+            String actualGroupName = numberToGroup.get(i);
+            if (actualGroupName != null) {
+                String normalizedGroupName = actualGroupName.toLowerCase();
+                for (Map.Entry<String, String> entry : componentToGroup.entrySet()) {
+                    // Compare normalized group names
+                    if (normalizedGroupName.equals(entry.getValue().toLowerCase())) {
+                        Value componentValue = baseContext.getComponent(entry.getKey());
+                        if (componentValue != null && componentValue.getType() == ValueType.NUMBER) {
+                            sum = sum.add(componentValue.asNumber());
+                        }
+                    }
+                }
+            }
+        }
+        
+        return Value.ofNumber(sum);
+    }
+    
+    /**
+     * @deprecated Use sumGroupCumulative instead. This method is kept for backward compatibility
+     * but should not be used as groups are now cumulative.
+     */
+    @Deprecated
     private Value sumGroup(String groupName) {
         BigDecimal sum = BigDecimal.ZERO;
         // Normalize the group name for comparison
         String normalizedGroupName = groupName.toLowerCase();
-        for (Map.Entry<String, String> entry : componentToGroup.entrySet()) {
-            // Compare normalized group names
-            if (normalizedGroupName.equals(entry.getValue().toLowerCase())) {
-                Value componentValue = baseContext.getComponent(entry.getKey());
-                if (componentValue != null && componentValue.getType() == ValueType.NUMBER) {
-                    sum = sum.add(componentValue.asNumber());
-                }
-            }
+        Integer groupNumber = groupToNumber.get(normalizedGroupName);
+        if (groupNumber != null) {
+            return sumGroupCumulative(groupNumber);
         }
         return Value.ofNumber(sum);
     }
