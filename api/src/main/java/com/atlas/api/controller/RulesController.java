@@ -17,7 +17,11 @@ public class RulesController {
     public RulesController(RulesService rulesService) { this.rulesService = rulesService; }
 
     @PostMapping
-    public ResponseEntity<RuleSetResponse> create(@RequestBody RuleSetRequest req) {
+    public ResponseEntity<?> create(@RequestBody RuleSetRequest req) {
+        // Validate ruleset name doesn't contain slashes
+        if (req.name() != null && (req.name().contains("/") || req.name().contains("\\"))) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Ruleset name cannot contain slashes (/) or backslashes (\\)"));
+        }
         String id = rulesService.saveDraft(req);
         return ResponseEntity.ok(new RuleSetResponse(id, "DRAFT"));
     }
@@ -37,6 +41,10 @@ public class RulesController {
         if (newName == null || newName.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "name is required"));
         }
+        // Validate ruleset name doesn't contain slashes
+        if (newName.contains("/") || newName.contains("\\")) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Ruleset name cannot contain slashes (/) or backslashes (\\)"));
+        }
         rulesService.renameRuleset(tenantId, rulesetId, newName.trim());
         return ResponseEntity.ok(Map.of("rulesetId", rulesetId, "name", newName.trim()));
     }
@@ -54,6 +62,11 @@ public class RulesController {
                                          @RequestBody(required = false) Map<String, Object> body) {
         String newId = body != null ? (String) body.get("rulesetId") : null;
         String newName = body != null ? (String) body.get("name") : null;
+
+        // Validate ruleset name doesn't contain slashes
+        if (newName != null && (newName.contains("/") || newName.contains("\\"))) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Ruleset name cannot contain slashes (/) or backslashes (\\)"));
+        }
 
         String createdId = rulesService.copyRuleset(tenantId, rulesetId, newId, newName);
 

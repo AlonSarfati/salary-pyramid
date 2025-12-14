@@ -142,7 +142,7 @@ export const rulesetApi = {
     tenantId: string;
     ruleSets: Array<{ rulesetId: string; name: string; count: number }>;
   }> {
-    return apiCall(`/rulesets/${tenantId}/active`);
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/active`);
   },
 
   // Get a specific ruleset
@@ -154,7 +154,7 @@ export const rulesetApi = {
     tenantId: string,
     rulesetId: string
   ): Promise<RuleSet> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}`);
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}`);
   },
 
   // Get targets (component names) for a ruleset
@@ -162,7 +162,7 @@ export const rulesetApi = {
     tenantId: string,
     rulesetId: string
   ): Promise<{ rulesetId: string; targets: string[] }> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}/targets`);
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}/targets`);
   },
 
   // Create a new ruleset (draft)
@@ -178,7 +178,7 @@ export const rulesetApi = {
     tenantId: string,
     rulesetId: string
   ): Promise<RuleSetResponse> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}/publish`, {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}/publish`, {
       method: 'POST',
     });
   },
@@ -189,7 +189,7 @@ export const rulesetApi = {
     rulesetId: string,
     name: string
   ): Promise<{ rulesetId: string; name: string }> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}`, {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}`, {
       method: 'PUT',
       body: JSON.stringify({ name }),
     });
@@ -200,7 +200,7 @@ export const rulesetApi = {
     tenantId: string,
     rulesetId: string
   ): Promise<{ status: string; rulesetId: string }> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}`, {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}`, {
       method: 'DELETE',
     });
   },
@@ -211,7 +211,7 @@ export const rulesetApi = {
     sourceRulesetId: string,
     name?: string
   ): Promise<{ rulesetId: string; name: string; status: string }> {
-    return apiCall(`/rulesets/${tenantId}/${sourceRulesetId}/copy`, {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(sourceRulesetId)}/copy`, {
       method: 'POST',
       body: JSON.stringify(name ? { name } : {}),
     });
@@ -227,7 +227,7 @@ export const ruleApi = {
     target: string,
     request: RuleUpdateRequest
   ): Promise<RuleSet> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}/rules/${encodeURIComponent(target)}`, {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}/rules/${encodeURIComponent(target)}`, {
       method: 'PUT',
       body: JSON.stringify(request),
     });
@@ -239,7 +239,7 @@ export const ruleApi = {
     rulesetId: string,
     request?: ValidateRequest
   ): Promise<ValidateResponse> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}/validate`, {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}/validate`, {
       method: 'POST',
       body: JSON.stringify(request || {}),
     });
@@ -251,7 +251,7 @@ export const ruleApi = {
     rulesetId: string,
     target: string
   ): Promise<RuleSet> {
-    return apiCall(`/rulesets/${tenantId}/${rulesetId}/rules/${encodeURIComponent(target)}`, {
+    return apiCall(`/rulesets/${encodeURIComponent(tenantId)}/${encodeURIComponent(rulesetId)}/rules/${encodeURIComponent(target)}`, {
       method: 'DELETE',
     });
   },

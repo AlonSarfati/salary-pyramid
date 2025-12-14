@@ -35,6 +35,11 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
   
   // Global ruleset persistence key
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+  }, [tenantId]);
   
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -69,6 +74,9 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
                 const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
                 if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
                   initialRulesetId = storedId;
+                } else {
+                  // Stored ruleset doesn't exist in current tenant, clear it
+                  localStorage.removeItem(GLOBAL_RULESET_KEY);
                 }
               } catch (e) {
                 console.warn('Failed to parse global ruleset from localStorage:', e);
@@ -523,10 +531,12 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
       ) : employees.length === 0 ? (
         <StateScreen
           type="empty"
-          title="No employees yet"
-          description="Get started by adding an employee manually or importing a CSV or Excel file."
+          title="No employees"
+          description="Add employees manually or import from a CSV or Excel file to get started."
           primaryActionLabel="Add Employee"
           onPrimaryAction={handleAdd}
+          secondaryActionLabel="Import CSV/Excel"
+          onSecondaryAction={() => setShowCsvDialog(true)}
         />
       ) : (
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0">

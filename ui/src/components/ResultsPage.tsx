@@ -305,8 +305,8 @@ export default function ResultsPage({ tenantId: tenantIdProp }: ResultsPageProps
         ) : simulations.length === 0 ? (
           <StateScreen
             type="empty"
-            title="No scenarios yet"
-            description="Run a simulation and save it to see it here."
+            title="No saved scenarios"
+            description="Run a simulation and save it as a scenario to view it here."
             primaryActionLabel="Go to Simulate"
             onPrimaryAction={() => navigate('/simulate')}
             inline

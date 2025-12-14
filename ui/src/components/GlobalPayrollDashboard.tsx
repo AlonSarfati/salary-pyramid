@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DollarSign, Users, TrendingUp, FileText, Loader2, Info, Play, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card } from './ui/card';
 import { Label } from './ui/label';
@@ -16,6 +17,7 @@ interface GlobalPayrollDashboardProps {
 }
 
 export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalPayrollDashboardProps) {
+  const navigate = useNavigate();
   const [summary, setSummary] = useState<BaselineSummary | null>(null);
   const [trend, setTrend] = useState<BaselineTrendPoint[]>([]);
   const [breakdown, setBreakdown] = useState<BaselineBreakdown | null>(null);
@@ -64,6 +66,16 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     return () => { cancelled = true; };
   }, []);
 
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+    setSummary(null);
+    setTrend([]);
+    setBreakdown(null);
+    setSimulationCount(0);
+    setDataRulesetId(null);
+  }, [tenantId]);
+
   // Load all rulesets
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +86,12 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
         const rulesets = await rulesetApi.getAllRulesets(tenantId);
         if (!cancelled) {
           setAllRulesets(rulesets);
+          
+          // Always validate and clear if ruleset doesn't exist in current tenant
+          if (selectedRulesetId && !rulesets.some(r => r.rulesetId === selectedRulesetId)) {
+            setSelectedRulesetId(null);
+          }
+          
           if (rulesets.length > 0) {
             let initialRulesetId: string | null = null;
             
@@ -84,6 +102,9 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                 const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
                 if (rulesets.some(r => r.rulesetId === storedId)) {
                   initialRulesetId = storedId;
+                } else {
+                  // Stored ruleset doesn't exist in current tenant, clear it
+                  localStorage.removeItem(GLOBAL_RULESET_KEY);
                 }
               } catch (e) {
                 console.warn('Failed to parse global ruleset from localStorage:', e);
@@ -305,6 +326,19 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     );
   }
   
+  // Render empty state if no rulesets (but not an error - API call succeeded)
+  if (!rulesetsLoading && allRulesets.length === 0) {
+    return (
+      <StateScreen
+        type="empty"
+        title="No rulesets"
+        description="Create your first ruleset to start building salary calculation rules."
+        primaryActionLabel="Create Ruleset"
+        onPrimaryAction={() => navigate('/rules/builder')}
+      />
+    );
+  }
+
   // Show loading only if rulesets are still loading or data is loading
   if ((rulesetsLoading || isDataLoading) && !rulesetsError) {
     return (

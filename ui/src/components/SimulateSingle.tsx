@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Play, Save, Info, User, Users, Loader2 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -16,6 +17,7 @@ import { useCurrency } from '../hooks/useCurrency';
 import { formatCurrencyWithDecimals, getCurrencySymbol } from '../utils/currency';
 
 export default function SimulateSingle({ tenantId = "default" }: { tenantId?: string }) {
+  const navigate = useNavigate();
   // Get currency for tenant
   const currency = useCurrency(tenantId);
   
@@ -89,6 +91,14 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
 
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+    setSelectedRulesetName("");
+    setSimulationResult(null);
+    setBaselineResult(null);
+  }, [tenantId]);
+
   // ---- fetch rulesets ----
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +121,9 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                   initialId = parsed.rulesetId;
                   const found = data.ruleSets.find(rs => rs.rulesetId === parsed.rulesetId);
                   initialName = parsed.name || found?.name || parsed.rulesetId;
+                } else {
+                  // Stored ruleset doesn't exist in current tenant, clear it
+                  localStorage.removeItem(GLOBAL_RULESET_KEY);
                 }
               }
             } catch {
@@ -199,11 +212,38 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
           });
         }
       } catch (e: any) {
-        console.error("Failed to load required inputs:", e);
-        // On error, use empty inputs
-        if (!cancelled) {
+        // Check if this is a "Ruleset not found" error (happens when switching tenants)
+        const isRulesetNotFound = e.message?.includes('Ruleset not found') || 
+                                  e.message?.includes('NoSuchElementException') ||
+                                  (e.response?.status === 404);
+        
+        if (isRulesetNotFound && !cancelled) {
+          // Clear the selected ruleset and reload rulesets list instead of showing error
+          setSelectedRulesetId(null);
+          setSelectedRulesetName("");
           setRequiredInputs({});
           setInputValues({});
+          // Reload rulesets to get the correct list for this tenant
+          try {
+            const data = await rulesetApi.getActive(tenantId);
+            if (!cancelled) {
+              setRulesets(data.ruleSets || []);
+              if (data.ruleSets && data.ruleSets.length > 0) {
+                const first = data.ruleSets[0];
+                setSelectedRulesetId(first.rulesetId);
+                setSelectedRulesetName(first.name || first.rulesetId);
+              }
+            }
+          } catch (reloadErr) {
+            console.error('Failed to reload rulesets:', reloadErr);
+          }
+        } else {
+          console.error("Failed to load required inputs:", e);
+          // On error, use empty inputs
+          if (!cancelled) {
+            setRequiredInputs({});
+            setInputValues({});
+          }
         }
       } finally {
         if (!cancelled) setInputsLoading(false);
@@ -406,6 +446,35 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
 
       setSimulationResult(result);
     } catch (err: any) {
+      // Check if this is a "Ruleset not found" error (happens when switching tenants)
+      const isRulesetNotFound = err.message?.includes('Ruleset not found') || 
+                                err.message?.includes('NoSuchElementException') ||
+                                (err.response?.status === 404);
+      
+      if (isRulesetNotFound) {
+        // Clear the selected ruleset and reload rulesets list instead of showing error
+        setSelectedRulesetId(null);
+        setSelectedRulesetName("");
+        setSimulationResult(null);
+        // Reload rulesets to get the correct list for this tenant
+        try {
+          const data = await rulesetApi.getActive(tenantId);
+          setRulesets(data.ruleSets || []);
+          if (data.ruleSets && data.ruleSets.length > 0) {
+            const first = data.ruleSets[0];
+            setSelectedRulesetId(first.rulesetId);
+            setSelectedRulesetName(first.name || first.rulesetId);
+            showToast("info", "Ruleset not found", "The selected ruleset is not available in this tenant. Please select a different ruleset.");
+          } else {
+            showToast("info", "No rulesets", "This tenant has no rulesets. Please create a ruleset first.");
+          }
+        } catch (reloadErr) {
+          console.error('Failed to reload rulesets:', reloadErr);
+          showToast("error", "Error", "Failed to reload rulesets. Please refresh the page.");
+        }
+        return;
+      }
+      
       const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
       setSimulationError({
         type: isNetworkError ? 'network' : 'system',
@@ -513,7 +582,15 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       <span>Loading...</span>
                     </div>
                   ) : rulesetOptions.length === 0 ? (
-                    <div className="text-sm text-gray-500">No rulesets available</div>
+                    <div className="flex flex-col items-center gap-3 py-2">
+                      <div className="text-sm text-gray-500">No rulesets available</div>
+                      <button
+                        onClick={() => navigate('/rules/builder')}
+                        className="flex items-center gap-2 px-4 py-2 text-sm bg-[#4E9F6A] text-white rounded-md hover:bg-[#2F6A43] transition-colors"
+                      >
+                        Create First Ruleset
+                      </button>
+                    </div>
                   ) : (
                     <Select
                       value={selectedRulesetId || ''}

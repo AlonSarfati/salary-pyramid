@@ -35,6 +35,12 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
   
   // Global ruleset persistence key
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
+
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+    setRuleset(null);
+  }, [tenantId]);
   
   // Component groups state
   const [groups, setGroups] = useState<ComponentGroup[]>([]);
@@ -68,6 +74,13 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
     return () => { cancelled = true; };
   }, []);
 
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+    setRuleset(null);
+    setError(null);
+  }, [tenantId]);
+
   // Fetch rulesets on mount
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +101,9 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
                 const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
                 if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
                   initialRulesetId = storedId;
+                } else {
+                  // Stored ruleset doesn't exist in current tenant, clear it
+                  localStorage.removeItem(GLOBAL_RULESET_KEY);
                 }
               } catch (e) {
                 console.warn('Failed to parse global ruleset from localStorage:', e);
@@ -124,12 +140,35 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
     (async () => {
       try {
         setLoading(true);
+        setError(null);
         const data = await rulesetApi.getRuleset(tenantId, selectedRulesetId);
         if (!cancelled) {
           setRuleset(data);
         }
       } catch (e: any) {
         if (!cancelled) {
+          // Check if this is a "Ruleset not found" error (happens when switching tenants)
+          const isRulesetNotFound = e.message?.includes('Ruleset not found') || 
+                                    e.message?.includes('NoSuchElementException') ||
+                                    (e.response?.status === 404);
+          
+          if (isRulesetNotFound) {
+            // Clear the selected ruleset instead of showing error
+            setSelectedRulesetId(null);
+            setRuleset(null);
+            // Reload rulesets to get the correct list for this tenant
+            try {
+              const data = await rulesetApi.getActive(tenantId);
+              if (!cancelled && data.ruleSets && data.ruleSets.length > 0) {
+                setRulesets(data.ruleSets);
+                setSelectedRulesetId(data.ruleSets[0].rulesetId);
+              }
+            } catch (reloadErr) {
+              console.error('Failed to reload rulesets:', reloadErr);
+            }
+            return;
+          }
+          
           const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
           setError({
             type: isNetworkError ? 'network' : 'system',
@@ -417,7 +456,15 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
               <span>Loading...</span>
             </div>
           ) : rulesets.length === 0 ? (
-            <div className="text-sm text-gray-500">No rulesets available</div>
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="text-sm text-gray-500">No rulesets available</div>
+              <button
+                onClick={() => window.location.href = '/rules/builder'}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-[#4E9F6A] text-white rounded-md hover:bg-[#2F6A43] transition-colors"
+              >
+                Create First Ruleset
+              </button>
+            </div>
           ) : (
             <Select
               value={selectedRulesetId || ''}
@@ -482,10 +529,12 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
         <div className="w-full h-full overflow-auto bg-[#F9FAFB] rounded-lg">
           {nodes.length === 0 && !loading ? (
             <div className="flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="mb-2">No components found</p>
-                <p className="text-sm">Select a ruleset to view the component graph</p>
-              </div>
+              <StateScreen
+                type="empty"
+                title="No components"
+                description="Select a ruleset with components to view the dependency graph."
+                inline
+              />
             </div>
           ) : (
             <svg

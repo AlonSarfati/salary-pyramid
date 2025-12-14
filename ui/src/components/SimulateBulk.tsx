@@ -32,6 +32,13 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   // Global ruleset persistence key
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
 
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+    setSimulationResult(null);
+    setBaselineResult(null);
+  }, [tenantId]);
+
   // Form state
   const [payMonth, setPayMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM format
 
@@ -88,6 +95,9 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
                 const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
                 if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
                   initialRulesetId = storedId;
+                } else {
+                  // Stored ruleset doesn't exist in current tenant, clear it
+                  localStorage.removeItem(GLOBAL_RULESET_KEY);
                 }
               } catch (e) {
                 console.warn('Failed to parse global ruleset from localStorage:', e);
@@ -108,7 +118,10 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
 
   // Fetch required inputs when ruleset changes
   useEffect(() => {
-    if (!selectedRulesetId) return;
+    if (!selectedRulesetId) {
+      setRequiredInputs({});
+      return;
+    }
     
     let cancelled = false;
     (async () => {
@@ -118,13 +131,42 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
         const response = await fetch(
           `/api/simulate/required-inputs?tenantId=${tenantId}&rulesetId=${selectedRulesetId}&payDay=${payDay}`
         );
-        if (!response.ok) throw new Error('Failed to fetch required inputs');
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Failed to fetch required inputs');
+        }
         const inputs = await response.json();
         if (!cancelled) {
           setRequiredInputs(inputs);
         }
       } catch (e: any) {
-        console.error('Failed to load required inputs:', e);
+        // Check if this is a "Ruleset not found" error (happens when switching tenants)
+        const isRulesetNotFound = e.message?.includes('Ruleset not found') || 
+                                  e.message?.includes('NoSuchElementException') ||
+                                  (e.response?.status === 404);
+        
+        if (isRulesetNotFound && !cancelled) {
+          // Clear the selected ruleset and reload rulesets list instead of showing error
+          setSelectedRulesetId(null);
+          setRequiredInputs({});
+          // Reload rulesets to get the correct list for this tenant
+          try {
+            const data = await rulesetApi.getActive(tenantId);
+            if (!cancelled) {
+              setRulesets(data.ruleSets || []);
+              if (data.ruleSets && data.ruleSets.length > 0) {
+                setSelectedRulesetId(data.ruleSets[0].rulesetId);
+              }
+            }
+          } catch (reloadErr) {
+            console.error('Failed to reload rulesets:', reloadErr);
+          }
+        } else {
+          console.error('Failed to load required inputs:', e);
+          if (!cancelled) {
+            setRequiredInputs({});
+          }
+        }
       } finally {
         if (!cancelled) setInputsLoading(false);
       }
@@ -455,12 +497,40 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
         }, 100);
       }
     } catch (e: any) {
+      // Check if this is a "Ruleset not found" error (happens when switching tenants)
+      const isRulesetNotFound = e.message?.includes('Ruleset not found') || 
+                                e.message?.includes('NoSuchElementException') ||
+                                (e.response?.status === 404);
+      
+      if (isRulesetNotFound) {
+        // Clear the selected ruleset and reload rulesets list instead of showing error
+        setSelectedRulesetId(null);
+        setSimulationResult(null);
+        setBaselineResult(null);
+        // Reload rulesets to get the correct list for this tenant
+        try {
+          const data = await rulesetApi.getActive(tenantId);
+          setRulesets(data.ruleSets || []);
+          if (data.ruleSets && data.ruleSets.length > 0) {
+            setSelectedRulesetId(data.ruleSets[0].rulesetId);
+            showToast("info", "Ruleset not found", "The selected ruleset is not available in this tenant. Please select a different ruleset.");
+          } else {
+            showToast("info", "No rulesets", "This tenant has no rulesets. Please create a ruleset first.");
+          }
+        } catch (reloadErr) {
+          console.error('Failed to reload rulesets:', reloadErr);
+          showToast("error", "Error", "Failed to reload rulesets. Please refresh the page.");
+        }
+        return;
+      }
+      
       const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
       setSimulationError({
         type: isNetworkError ? 'network' : 'system',
         message: e.message,
         supportRef: e.response?.status ? `HTTP-${e.response.status}` : undefined,
       });
+      console.error('Simulation error:', e);
       console.error('Simulation error:', e);
     } finally {
       setSimulating(false);
@@ -931,10 +1001,14 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
         )}
 
         {employees.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <Users className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-            <p>No employees added. Click "Add Employee" or upload a CSV file.</p>
-          </div>
+          <StateScreen
+            type="empty"
+            title="No employees"
+            description="Add employees to run bulk simulations. You can add them manually or import from a CSV or Excel file."
+            primaryActionLabel="Go to Employees"
+            onPrimaryAction={() => window.location.href = '/employees'}
+            inline
+          />
         ) : (
           <>
             <div className="overflow-x-auto -mx-6 px-6" style={{ width: '100%' }}>

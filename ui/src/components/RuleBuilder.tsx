@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { Plus, Save, CheckCircle, AlertCircle, Upload, List, Network, Loader2, X, Trash2, Database, HelpCircle, Sparkles, Layers, Edit, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -20,6 +21,7 @@ import { useToast } from './ToastProvider';
 import { StateScreen } from './ui/StateScreen';
 
 export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: string }) {
+  const navigate = useNavigate();
   // Load persisted state from localStorage
   const getStoredState = () => {
     try {
@@ -94,6 +96,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showDeleteRulesetDialog, setShowDeleteRulesetDialog] = useState(false);
   const [showRenameRulesetDialog, setShowRenameRulesetDialog] = useState(false);
   const [showCopyRulesetDialog, setShowCopyRulesetDialog] = useState(false);
+  const [showCreateRulesetDialog, setShowCreateRulesetDialog] = useState(false);
   const [showDeleteComponentDialog, setShowDeleteComponentDialog] = useState(false);
   const [componentToDelete, setComponentToDelete] = useState<string | null>(null);
   const [newRulesetName, setNewRulesetName] = useState('');
@@ -149,6 +152,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   // Load rulesets on mount
   useEffect(() => {
     loadRulesets();
+  }, [tenantId]);
+
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+    setRuleset(null);
+    setComponents([]);
+    setError(null);
   }, [tenantId]);
 
   // Load ruleset when selected
@@ -315,11 +326,26 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
 
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+    setRuleset(null);
+    setComponents([]);
+  }, [tenantId]);
+
   const loadRulesets = async () => {
     try {
       setLoading(true);
       const all = await rulesetApi.getAllRulesets(tenantId);
       setRulesets(all);
+      
+      // Always validate and clear if ruleset doesn't exist in current tenant
+      if (selectedRulesetId && !all.some(rs => rs.rulesetId === selectedRulesetId)) {
+        setSelectedRulesetId(null);
+        setRuleset(null);
+        setComponents([]);
+      }
+      
       if (!selectedRulesetId && all.length > 0) {
         // Try to restore global ruleset selection
         let initialId: string | null = null;
@@ -329,6 +355,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             const parsed = JSON.parse(stored);
             if (parsed.rulesetId && all.some(rs => rs.rulesetId === parsed.rulesetId)) {
               initialId = parsed.rulesetId;
+            } else {
+              // Stored ruleset doesn't exist in current tenant, clear it
+              localStorage.removeItem(GLOBAL_RULESET_KEY);
             }
           }
         } catch {
@@ -336,6 +365,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         }
         setSelectedRulesetId(initialId || all[0].rulesetId);
       }
+      // Note: Empty state is handled in render, not here
     } catch (err: any) {
       const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
       setError({
@@ -351,9 +381,26 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const loadRuleset = async (rulesetId: string) => {
     try {
       setLoading(true);
+      setError(null);
       const data = await rulesetApi.getRuleset(tenantId, rulesetId);
       setRuleset(data);
     } catch (err: any) {
+      // Check if this is a "Ruleset not found" error (happens when switching tenants)
+      const isRulesetNotFound = err.message?.includes('Ruleset not found') || 
+                                err.message?.includes('NoSuchElementException') ||
+                                (err.response?.status === 404);
+      
+      if (isRulesetNotFound) {
+        // Clear the selected ruleset and reload rulesets list instead of showing error
+        setError(null); // Clear any error state
+        setSelectedRulesetId(null);
+        setRuleset(null);
+        setComponents([]);
+        // Reload rulesets to get the correct list for this tenant
+        await loadRulesets();
+        return;
+      }
+      
       const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
       setError({
         type: isNetworkError ? 'network' : 'system',
@@ -523,6 +570,15 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       showToast("info", "Ruleset name required", "Please enter a ruleset name.");
       return;
     }
+    // Validate no slashes in name
+    if (newRulesetName.includes('/') || newRulesetName.includes('\\')) {
+      setError({
+        type: 'validation',
+        message: 'Ruleset name cannot contain slashes (/) or backslashes (\\)',
+      });
+      showToast("error", "Invalid ruleset name", "Ruleset name cannot contain slashes.");
+      return;
+    }
     try {
       setSaving(true);
       setError(null);
@@ -532,7 +588,15 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setNewRulesetName('');
       await loadRulesets();
     } catch (err: any) {
-      showToast("error", "Couldn't rename ruleset", "Please try again.");
+      const errorMessage = err.message || 'Failed to rename ruleset';
+      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch');
+      const isValidationError = errorMessage.includes('cannot contain slashes') || errorMessage.includes('slashes');
+      setError({
+        type: isValidationError ? 'validation' : (isNetworkError ? 'network' : 'system'),
+        message: errorMessage,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
+      showToast("error", "Couldn't rename ruleset", errorMessage);
     } finally {
       setSaving(false);
     }
@@ -541,6 +605,15 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const handleCopyRuleset = async () => {
     if (!selectedRulesetId || !newRulesetName.trim()) {
       showToast("info", "Ruleset name required", "Please enter a ruleset name.");
+      return;
+    }
+    // Validate no slashes in name
+    if (newRulesetName.includes('/') || newRulesetName.includes('\\')) {
+      setError({
+        type: 'validation',
+        message: 'Ruleset name cannot contain slashes (/) or backslashes (\\)',
+      });
+      showToast("error", "Invalid ruleset name", "Ruleset name cannot contain slashes.");
       return;
     }
     try {
@@ -554,7 +627,15 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       await loadRulesets();
       setSelectedRulesetId(res.rulesetId);
     } catch (err: any) {
-      showToast("error", "Couldn't copy ruleset", "Please try again.");
+      const errorMessage = err.message || 'Failed to copy ruleset';
+      const isValidationError = errorMessage.includes('cannot contain slashes') || errorMessage.includes('slashes');
+      if (isValidationError) {
+        setError({
+          type: 'validation',
+          message: errorMessage,
+        });
+      }
+      showToast("error", "Couldn't copy ruleset", errorMessage);
     } finally {
       setSaving(false);
     }
@@ -562,7 +643,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleDeleteRuleset = async () => {
     if (!selectedRulesetId) {
-      setError('Please select a ruleset to delete');
+      setError({
+        type: 'validation',
+        message: 'Please select a ruleset to delete',
+      });
       return;
     }
     try {
@@ -577,7 +661,57 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setComponents([]);
       await loadRulesets();
     } catch (err: any) {
-      setError(err.message || 'Failed to delete ruleset');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      const errorMessage = err.message || 'Failed to delete ruleset';
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: errorMessage,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
+      showToast('error', 'Failed to delete ruleset', errorMessage);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateRuleset = async () => {
+    if (!newRulesetName.trim()) {
+      showToast("info", "Ruleset name required", "Please enter a ruleset name.");
+      return;
+    }
+    // Validate no slashes in name
+    if (newRulesetName.includes('/') || newRulesetName.includes('\\')) {
+      setError({
+        type: 'validation',
+        message: 'Ruleset name cannot contain slashes (/) or backslashes (\\)',
+      });
+      showToast("error", "Invalid ruleset name", "Ruleset name cannot contain slashes.");
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      const response = await rulesetApi.create({
+        name: newRulesetName.trim(),
+        tenantId,
+        rules: [],
+      });
+      showToast('success', 'Ruleset created', `New ruleset "${newRulesetName.trim()}" was created.`);
+      setShowCreateRulesetDialog(false);
+      setNewRulesetName('');
+      // Reload list and select the new ruleset
+      await loadRulesets();
+      setSelectedRulesetId(response.rulesetId);
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to create ruleset';
+      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch');
+      const isValidationError = errorMessage.includes('cannot contain slashes') || errorMessage.includes('slashes');
+      setError({
+        type: isValidationError ? 'validation' : (isNetworkError ? 'network' : 'system'),
+        message: errorMessage,
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
+      showToast("error", "Couldn't create ruleset", errorMessage);
     } finally {
       setSaving(false);
     }
@@ -585,7 +719,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleDeleteComponent = async (componentName: string) => {
     if (!selectedRulesetId) {
-      setError('Please select a ruleset');
+      setError({
+        type: 'validation',
+        message: 'Please select a ruleset',
+      });
       return;
     }
 
@@ -1173,13 +1310,19 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleAddComponent = async () => {
     if (!selectedRulesetId || !newComponentName.trim()) {
-      setError('Component name is required');
+      setError({
+        type: 'validation',
+        message: 'Component name is required',
+      });
       return;
     }
 
     // Check if component already exists
     if (components.some(c => c.name === newComponentName.trim())) {
-      setError('Component with this name already exists');
+      setError({
+        type: 'validation',
+        message: 'Component with this name already exists',
+      });
       return;
     }
 
@@ -1227,7 +1370,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       // Load the new rule data
       loadRuleData(newComponentName.trim());
     } catch (err: any) {
-      setError(err.message || 'Failed to add component');
+      const isNetworkError = err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: err.message || 'Failed to add component',
+        supportRef: err.response?.status ? `HTTP-${err.response.status}` : undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -1272,6 +1420,25 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     .map(r => r.target)
     .filter(t => t !== target) || [];
 
+  // Show empty state if no rulesets (but not an error - API call succeeded)
+  if (!loading && !error && rulesets.length === 0) {
+    return (
+      <div className="p-8 max-w-[1600px] mx-auto">
+        <h1 className="text-[#1E1E1E] mb-6">Rules</h1>
+        <StateScreen
+          type="empty"
+          title="No rulesets yet"
+          description="Build your first ruleset now to start creating salary calculation rules."
+          primaryActionLabel="Create Ruleset"
+          onPrimaryAction={() => {
+            setNewRulesetName('');
+            setShowCreateRulesetDialog(true);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-[1600px] mx-auto">
       <h1 className="text-[#1E1E1E] mb-6">Rules</h1>
@@ -1279,7 +1446,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       {error && (
         <div className="mb-4">
           <StateScreen
-            type={error.type}
+            type={error.type || 'system'}
             supportRef={error.supportRef}
             onPrimaryAction={() => {
               setError(null);
@@ -1366,33 +1533,50 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <Label htmlFor="ruleset" className="min-w-[100px]">Ruleset</Label>
-                <Select
-                  value={selectedRulesetId || ''}
-                  onValueChange={(value) => {
-                    setSelectedRulesetId(value);
-                    try {
-                      const found = rulesets.find(rs => rs.rulesetId === value);
-                      localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
-                        rulesetId: value,
-                        name: found?.name || value,
-                      }));
-                    } catch {
-                      // ignore storage errors
-                    }
-                  }}
-                  disabled={loading || rulesets.length === 0}
-                >
-                  <SelectTrigger id="ruleset" className="max-w-md">
-                    <SelectValue placeholder="Select ruleset..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rulesets.map((rs) => (
-                      <SelectItem key={rs.rulesetId} value={rs.rulesetId}>
-                        {rs.name || rs.rulesetId} {rs.status === 'ACTIVE' ? '(Active)' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {!loading && rulesets.length === 0 ? (
+                  <div className="flex items-center gap-3">
+                    <div className="text-sm text-gray-500">No rulesets available</div>
+                    <Button
+                      onClick={() => {
+                        setNewRulesetName(`Ruleset ${new Date().toLocaleDateString()}`);
+                        setShowCreateRulesetDialog(true);
+                      }}
+                      className="flex items-center gap-2"
+                      size="sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create First Ruleset
+                    </Button>
+                  </div>
+                ) : (
+                  <Select
+                    value={selectedRulesetId || ''}
+                    onValueChange={(value) => {
+                      setSelectedRulesetId(value);
+                      try {
+                        const found = rulesets.find(rs => rs.rulesetId === value);
+                        localStorage.setItem(GLOBAL_RULESET_KEY, JSON.stringify({
+                          rulesetId: value,
+                          name: found?.name || value,
+                        }));
+                      } catch {
+                        // ignore storage errors
+                      }
+                    }}
+                    disabled={loading || rulesets.length === 0}
+                  >
+                    <SelectTrigger id="ruleset" className="max-w-md">
+                      <SelectValue placeholder="Select ruleset..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rulesets.map((rs) => (
+                        <SelectItem key={rs.rulesetId} value={rs.rulesetId}>
+                          {rs.name || rs.rulesetId} {rs.status === 'ACTIVE' ? '(Active)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                 {lastValidationStatus === "success" && lastValidationTime && (
                   <div className="ml-2 flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
@@ -1931,6 +2115,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 placeholder="Enter ruleset name"
                 className="mt-1"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Ruleset name cannot contain slashes (/) or backslashes (\)
+              </p>
             </div>
           </div>
           <DialogFooter className="mt-4">
@@ -1966,6 +2153,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 placeholder="Enter name for the new ruleset"
                 className="mt-1"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Ruleset name cannot contain slashes (/) or backslashes (\)
+              </p>
             </div>
             <p className="text-xs text-gray-500">
               A new draft ruleset will be created with all components copied from the current one.
@@ -1983,6 +2173,54 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               disabled={!newRulesetName.trim() || saving}
             >
               Create Copy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create New Ruleset Dialog */}
+      <Dialog open={showCreateRulesetDialog} onOpenChange={setShowCreateRulesetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Ruleset</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label htmlFor="create-ruleset-name">Ruleset Name</Label>
+              <Input
+                id="create-ruleset-name"
+                value={newRulesetName}
+                onChange={(e) => setNewRulesetName(e.target.value)}
+                placeholder="Enter name for the new ruleset"
+                className="mt-1"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newRulesetName.trim() && !saving) {
+                    handleCreateRuleset();
+                  }
+                }}
+                autoFocus
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Ruleset name cannot contain slashes (/) or backslashes (\). A new empty ruleset will be created. You can add components to it after creation.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateRulesetDialog(false);
+                setNewRulesetName('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateRuleset}
+              disabled={!newRulesetName.trim() || saving}
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Create Ruleset
             </Button>
           </DialogFooter>
         </DialogContent>

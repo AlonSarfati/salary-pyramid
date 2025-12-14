@@ -237,6 +237,11 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   // Global ruleset persistence key
   const GLOBAL_RULESET_KEY = `globalRuleset_${tenantId}`;
 
+  // Clear selected ruleset when tenant changes
+  useEffect(() => {
+    setSelectedRulesetId(null);
+  }, [tenantId]);
+
   // Load rulesets
   useEffect(() => {
     let cancelled = false;
@@ -256,6 +261,9 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
                 const { rulesetId: storedId } = JSON.parse(storedGlobalRuleset);
                 if (data.ruleSets.some(rs => rs.rulesetId === storedId)) {
                   initialRulesetId = storedId;
+                } else {
+                  // Stored ruleset doesn't exist in current tenant, clear it
+                  localStorage.removeItem(GLOBAL_RULESET_KEY);
                 }
               } catch (e) {
                 console.warn('Failed to parse global ruleset from localStorage:', e);
@@ -301,7 +309,10 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
   
   // Load components from selected ruleset
   useEffect(() => {
-    if (!selectedRulesetId) return;
+    if (!selectedRulesetId) {
+      setAvailableComponents([]);
+      return;
+    }
     
     let cancelled = false;
     (async () => {
@@ -316,7 +327,27 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
           }
         }
       } catch (e: any) {
-        console.error('Failed to load ruleset:', e);
+        // Check if this is a "Ruleset not found" error (happens when switching tenants)
+        const isRulesetNotFound = e.message?.includes('Ruleset not found') || 
+                                  e.message?.includes('NoSuchElementException') ||
+                                  (e.response?.status === 404);
+        
+        if (isRulesetNotFound && !cancelled) {
+          // Clear the selected ruleset instead of showing error
+          setSelectedRulesetId(null);
+          setAvailableComponents([]);
+          // Reload rulesets to get the correct list for this tenant
+          try {
+            const data = await rulesetApi.getActive(tenantId);
+            if (!cancelled && data.ruleSets && data.ruleSets.length > 0) {
+              // Don't auto-select, let user choose
+            }
+          } catch (reloadErr) {
+            console.error('Failed to reload rulesets:', reloadErr);
+          }
+        } else {
+          console.error('Failed to load ruleset:', e);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -1468,4 +1499,3 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
     </div>
   );
 }
-

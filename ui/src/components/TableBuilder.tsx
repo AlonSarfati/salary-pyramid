@@ -914,8 +914,13 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                     </div>
                   ))}
                   {tables.length === 0 && !selectedTable && (
-                    <div className="text-center text-gray-500 py-8">
-                      No tables found. Create a new table to get started.
+                    <div className="py-8">
+                      <StateScreen
+                        type="empty"
+                        title="No tables"
+                        description="Create a lookup table to use in your rules with the TBL() function."
+                        inline
+                      />
                     </div>
                   )}
                 </div>
