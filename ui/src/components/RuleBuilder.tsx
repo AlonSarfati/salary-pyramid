@@ -100,6 +100,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showDeleteComponentDialog, setShowDeleteComponentDialog] = useState(false);
   const [componentToDelete, setComponentToDelete] = useState<string | null>(null);
   const [newRulesetName, setNewRulesetName] = useState('');
+  const [rulesetNameError, setRulesetNameError] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -570,18 +571,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleRenameRuleset = async () => {
     if (!selectedRulesetId || !newRulesetName.trim()) {
+      setRulesetNameError("Ruleset name is required");
       showToast("info", "Ruleset name required", "Please enter a ruleset name.");
       return;
     }
     // Validate no slashes in name
     if (newRulesetName.includes('/') || newRulesetName.includes('\\')) {
-      setError({
-        type: 'validation',
-        message: 'Ruleset name cannot contain slashes (/) or backslashes (\\)',
-      });
-      showToast("error", "Invalid ruleset name", "Ruleset name cannot contain slashes.");
+      setRulesetNameError("Ruleset name cannot contain slashes (/) or backslashes (\\)");
       return;
     }
+    setRulesetNameError(null);
     try {
       setSaving(true);
       setError(null);
@@ -589,6 +588,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       showToast('success', 'Ruleset renamed', `Ruleset is now called "${newRulesetName.trim()}".`);
       setShowRenameRulesetDialog(false);
       setNewRulesetName('');
+      setRulesetNameError(null);
       await loadRulesets();
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to rename ruleset';
@@ -607,18 +607,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleCopyRuleset = async () => {
     if (!selectedRulesetId || !newRulesetName.trim()) {
+      setRulesetNameError("Ruleset name is required");
       showToast("info", "Ruleset name required", "Please enter a ruleset name.");
       return;
     }
     // Validate no slashes in name
     if (newRulesetName.includes('/') || newRulesetName.includes('\\')) {
-      setError({
-        type: 'validation',
-        message: 'Ruleset name cannot contain slashes (/) or backslashes (\\)',
-      });
-      showToast("error", "Invalid ruleset name", "Ruleset name cannot contain slashes.");
+      setRulesetNameError("Ruleset name cannot contain slashes (/) or backslashes (\\)");
       return;
     }
+    setRulesetNameError(null);
     try {
       setSaving(true);
       setError(null);
@@ -626,6 +624,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       showToast('success', 'Ruleset copied', `New ruleset "${res.name}" was created.`);
       setShowCopyRulesetDialog(false);
       setNewRulesetName('');
+      setRulesetNameError(null);
       // Reload list and select the new ruleset
       await loadRulesets();
       setSelectedRulesetId(res.rulesetId);
@@ -679,18 +678,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   const handleCreateRuleset = async () => {
     if (!newRulesetName.trim()) {
+      setRulesetNameError("Ruleset name is required");
       showToast("info", "Ruleset name required", "Please enter a ruleset name.");
       return;
     }
     // Validate no slashes in name
     if (newRulesetName.includes('/') || newRulesetName.includes('\\')) {
-      setError({
-        type: 'validation',
-        message: 'Ruleset name cannot contain slashes (/) or backslashes (\\)',
-      });
-      showToast("error", "Invalid ruleset name", "Ruleset name cannot contain slashes.");
+      setRulesetNameError("Ruleset name cannot contain slashes (/) or backslashes (\\)");
       return;
     }
+    setRulesetNameError(null);
     try {
       setSaving(true);
       setError(null);
@@ -702,6 +699,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       showToast('success', 'Ruleset created', `New ruleset "${newRulesetName.trim()}" was created.`);
       setShowCreateRulesetDialog(false);
       setNewRulesetName('');
+      setRulesetNameError(null);
       // Reload list and select the new ruleset
       await loadRulesets();
       setSelectedRulesetId(response.rulesetId);
@@ -1435,12 +1433,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           primaryActionLabel="Create Ruleset"
           onPrimaryAction={() => {
             setNewRulesetName('');
+            setRulesetNameError(null);
             setShowCreateRulesetDialog(true);
           }}
         />
         
         {/* Create New Ruleset Dialog - needed even in empty state */}
-        <Dialog open={showCreateRulesetDialog} onOpenChange={setShowCreateRulesetDialog}>
+        <Dialog open={showCreateRulesetDialog} onOpenChange={(open) => {
+          if (!open) {
+            setRulesetNameError(null);
+          }
+          setShowCreateRulesetDialog(open);
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Ruleset</DialogTitle>
@@ -1451,19 +1455,33 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 <Input
                   id="create-ruleset-name"
                   value={newRulesetName}
-                  onChange={(e) => setNewRulesetName(e.target.value)}
+                  onChange={(e) => {
+                    setNewRulesetName(e.target.value);
+                    // Clear error when user starts typing
+                    if (rulesetNameError) {
+                      setRulesetNameError(null);
+                    }
+                    // Real-time validation
+                    if (e.target.value.includes('/') || e.target.value.includes('\\')) {
+                      setRulesetNameError("Ruleset name cannot contain slashes (/) or backslashes (\\)");
+                    }
+                  }}
                   placeholder="Enter name for the new ruleset"
-                  className="mt-1"
+                  className={`mt-1 ${rulesetNameError ? 'border-red-500' : ''}`}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newRulesetName.trim() && !saving) {
+                    if (e.key === 'Enter' && newRulesetName.trim() && !saving && !rulesetNameError) {
                       handleCreateRuleset();
                     }
                   }}
                   autoFocus
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Ruleset name cannot contain slashes (/) or backslashes (\). A new empty ruleset will be created. You can add components to it after creation.
-                </p>
+                {rulesetNameError ? (
+                  <p className="text-xs text-red-600 mt-1">{rulesetNameError}</p>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Ruleset name cannot contain slashes (/) or backslashes (\). A new empty ruleset will be created. You can add components to it after creation.
+                  </p>
+                )}
               </div>
             </div>
             <DialogFooter className="mt-4">
@@ -1472,13 +1490,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 onClick={() => {
                   setShowCreateRulesetDialog(false);
                   setNewRulesetName('');
+                  setRulesetNameError(null);
                 }}
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleCreateRuleset}
-                disabled={!newRulesetName.trim() || saving}
+                disabled={!newRulesetName.trim() || saving || !!rulesetNameError}
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 Create Ruleset
@@ -1590,6 +1609,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                     <Button
                       onClick={() => {
                         setNewRulesetName(`Ruleset ${new Date().toLocaleDateString()}`);
+                        setRulesetNameError(null);
                         setShowCreateRulesetDialog(true);
                       }}
                       className="flex items-center gap-2"
@@ -1645,6 +1665,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                   onClick={() => {
                     const current = rulesets.find(r => r.rulesetId === selectedRulesetId);
                     setNewRulesetName(current?.name || '');
+                    setRulesetNameError(null);
                     setShowRenameRulesetDialog(true);
                   }}
                 >
@@ -1657,6 +1678,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                   onClick={() => {
                     const current = rulesets.find(r => r.rulesetId === selectedRulesetId);
                     setNewRulesetName(current?.name ? `${current.name} Copy` : '');
+                    setRulesetNameError(null);
                     setShowCopyRulesetDialog(true);
                   }}
                 >
@@ -2151,7 +2173,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       </Sheet>
 
       {/* Rename Ruleset Dialog */}
-      <Dialog open={showRenameRulesetDialog} onOpenChange={setShowRenameRulesetDialog}>
+      <Dialog open={showRenameRulesetDialog} onOpenChange={(open) => {
+        if (!open) {
+          setRulesetNameError(null);
+        }
+        setShowRenameRulesetDialog(open);
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Rename Ruleset</DialogTitle>
@@ -2162,25 +2189,42 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               <Input
                 id="ruleset-name"
                 value={newRulesetName}
-                onChange={(e) => setNewRulesetName(e.target.value)}
+                onChange={(e) => {
+                  setNewRulesetName(e.target.value);
+                  // Clear error when user starts typing
+                  if (rulesetNameError) {
+                    setRulesetNameError(null);
+                  }
+                  // Real-time validation
+                  if (e.target.value.includes('/') || e.target.value.includes('\\')) {
+                    setRulesetNameError("Ruleset name cannot contain slashes (/) or backslashes (\\)");
+                  }
+                }}
                 placeholder="Enter ruleset name"
-                className="mt-1"
+                className={`mt-1 ${rulesetNameError ? 'border-red-500' : ''}`}
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Ruleset name cannot contain slashes (/) or backslashes (\)
-              </p>
+              {rulesetNameError ? (
+                <p className="text-xs text-red-600 mt-1">{rulesetNameError}</p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">
+                  Ruleset name cannot contain slashes (/) or backslashes (\)
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-4">
             <Button
               variant="outline"
-              onClick={() => setShowRenameRulesetDialog(false)}
+              onClick={() => {
+                setShowRenameRulesetDialog(false);
+                setRulesetNameError(null);
+              }}
             >
               Cancel
             </Button>
             <Button
               onClick={handleRenameRuleset}
-              disabled={!newRulesetName.trim() || saving}
+              disabled={!newRulesetName.trim() || saving || !!rulesetNameError}
             >
               Save
             </Button>
@@ -2189,7 +2233,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       </Dialog>
 
       {/* Copy & Rename Ruleset Dialog */}
-      <Dialog open={showCopyRulesetDialog} onOpenChange={setShowCopyRulesetDialog}>
+      <Dialog open={showCopyRulesetDialog} onOpenChange={(open) => {
+        if (!open) {
+          setRulesetNameError(null);
+        }
+        setShowCopyRulesetDialog(open);
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Copy &amp; Rename Ruleset</DialogTitle>
@@ -2200,13 +2249,27 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               <Input
                 id="copy-ruleset-name"
                 value={newRulesetName}
-                onChange={(e) => setNewRulesetName(e.target.value)}
+                onChange={(e) => {
+                  setNewRulesetName(e.target.value);
+                  // Clear error when user starts typing
+                  if (rulesetNameError) {
+                    setRulesetNameError(null);
+                  }
+                  // Real-time validation
+                  if (e.target.value.includes('/') || e.target.value.includes('\\')) {
+                    setRulesetNameError("Ruleset name cannot contain slashes (/) or backslashes (\\)");
+                  }
+                }}
                 placeholder="Enter name for the new ruleset"
-                className="mt-1"
+                className={`mt-1 ${rulesetNameError ? 'border-red-500' : ''}`}
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Ruleset name cannot contain slashes (/) or backslashes (\)
-              </p>
+              {rulesetNameError ? (
+                <p className="text-xs text-red-600 mt-1">{rulesetNameError}</p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">
+                  Ruleset name cannot contain slashes (/) or backslashes (\)
+                </p>
+              )}
             </div>
             <p className="text-xs text-gray-500">
               A new draft ruleset will be created with all components copied from the current one.
@@ -2215,13 +2278,16 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           <DialogFooter className="mt-4">
             <Button
               variant="outline"
-              onClick={() => setShowCopyRulesetDialog(false)}
+              onClick={() => {
+                setShowCopyRulesetDialog(false);
+                setRulesetNameError(null);
+              }}
             >
               Cancel
             </Button>
             <Button
               onClick={handleCopyRuleset}
-              disabled={!newRulesetName.trim() || saving}
+              disabled={!newRulesetName.trim() || saving || !!rulesetNameError}
             >
               Create Copy
             </Button>
@@ -2230,7 +2296,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       </Dialog>
 
       {/* Create New Ruleset Dialog */}
-      <Dialog open={showCreateRulesetDialog} onOpenChange={setShowCreateRulesetDialog}>
+      <Dialog open={showCreateRulesetDialog} onOpenChange={(open) => {
+        if (!open) {
+          setRulesetNameError(null);
+        }
+        setShowCreateRulesetDialog(open);
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create New Ruleset</DialogTitle>
@@ -2241,19 +2312,33 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               <Input
                 id="create-ruleset-name"
                 value={newRulesetName}
-                onChange={(e) => setNewRulesetName(e.target.value)}
+                onChange={(e) => {
+                  setNewRulesetName(e.target.value);
+                  // Clear error when user starts typing
+                  if (rulesetNameError) {
+                    setRulesetNameError(null);
+                  }
+                  // Real-time validation
+                  if (e.target.value.includes('/') || e.target.value.includes('\\')) {
+                    setRulesetNameError("Ruleset name cannot contain slashes (/) or backslashes (\\)");
+                  }
+                }}
                 placeholder="Enter name for the new ruleset"
-                className="mt-1"
+                className={`mt-1 ${rulesetNameError ? 'border-red-500' : ''}`}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newRulesetName.trim() && !saving) {
+                  if (e.key === 'Enter' && newRulesetName.trim() && !saving && !rulesetNameError) {
                     handleCreateRuleset();
                   }
                 }}
                 autoFocus
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Ruleset name cannot contain slashes (/) or backslashes (\). A new empty ruleset will be created. You can add components to it after creation.
-              </p>
+              {rulesetNameError ? (
+                <p className="text-xs text-red-600 mt-1">{rulesetNameError}</p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">
+                  Ruleset name cannot contain slashes (/) or backslashes (\). A new empty ruleset will be created. You can add components to it after creation.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-4">
@@ -2262,13 +2347,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               onClick={() => {
                 setShowCreateRulesetDialog(false);
                 setNewRulesetName('');
+                setRulesetNameError(null);
               }}
             >
               Cancel
             </Button>
             <Button
               onClick={handleCreateRuleset}
-              disabled={!newRulesetName.trim() || saving}
+              disabled={!newRulesetName.trim() || saving || !!rulesetNameError}
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               Create Ruleset

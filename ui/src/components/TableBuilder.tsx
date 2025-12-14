@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import { tableApi, rulesetApi } from '../services/apiService';
-import { StateScreen } from './ui/StateScreen';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { useToast } from './ToastProvider';
 import { StateScreen } from './ui/StateScreen';
