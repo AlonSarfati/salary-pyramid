@@ -541,6 +541,22 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
     );
   }
 
+  // Show empty state if no rulesets (but not an error - API call succeeded)
+  if (!rulesLoading && !rulesError && rulesets.length === 0) {
+    return (
+      <div className="p-8 max-w-[1600px] mx-auto">
+        <h1 className="text-[#1E1E1E] mb-6">Simulate</h1>
+        <StateScreen
+          type="empty"
+          title="No rulesets"
+          description="Create your first ruleset to start running salary simulations for employees."
+          primaryActionLabel="Create Ruleset"
+          onPrimaryAction={() => navigate('/rules/builder')}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-[1600px] mx-auto">
       <h1 className="text-[#1E1E1E] mb-6">Simulate</h1>

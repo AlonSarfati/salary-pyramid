@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Upload, Play, Download, Users, Loader2, Plus, Trash2, X, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Label } from './ui/label';
@@ -17,6 +18,7 @@ import { formatCurrency as formatCurrencyUtil } from '../utils/currency';
 import * as XLSX from 'xlsx';
 
 export default function SimulateBulk({ tenantId = "default" }: { tenantId?: string }) {
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const currency = useCurrency(tenantId);
   const [hasData, setHasData] = useState(false);
@@ -725,6 +727,22 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const formatCurrency = (amount: number) => {
     return formatCurrencyUtil(amount, currency);
   };
+
+  // Show empty state if no rulesets (but not an error - API call succeeded)
+  if (!rulesLoading && rulesets.length === 0) {
+    return (
+      <div className="p-8 max-w-[1600px] mx-auto">
+        <h1 className="text-[#1E1E1E] mb-6">Bulk / Segment Simulation</h1>
+        <StateScreen
+          type="empty"
+          title="No rulesets"
+          description="Create your first ruleset to start running bulk salary simulations for multiple employees."
+          primaryActionLabel="Create Ruleset"
+          onPrimaryAction={() => navigate('/rules/builder')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[1600px] mx-auto p-6">

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { TrendingUp, Play, Save, Loader2, AlertCircle, CheckCircle2, DollarSign, Users, Percent, Info, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
@@ -21,6 +22,7 @@ interface OptimizerProps {
 }
 
 export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const currency = useCurrency(tenantId);
   
@@ -620,6 +622,22 @@ export default function Optimizer({ tenantId = 'default' }: OptimizerProps) {
           window.location.reload();
         }}
       />
+    );
+  }
+
+  // Show empty state if no rulesets (but not an error - API call succeeded)
+  if (!rulesetsLoading && !rulesetsError && rulesets.length === 0) {
+    return (
+      <div className="p-8 max-w-[1600px] mx-auto">
+        <h1 className="text-3xl font-bold text-[#1E1E1E] mb-2">Raise Optimizer</h1>
+        <StateScreen
+          type="empty"
+          title="No rulesets"
+          description="Create your first ruleset to start optimizing raises under a fixed yearly budget."
+          primaryActionLabel="Create Ruleset"
+          onPrimaryAction={() => navigate('/rules/builder')}
+        />
+      </div>
     );
   }
   

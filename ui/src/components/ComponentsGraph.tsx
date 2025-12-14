@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, CheckCircle, Upload, ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Label } from './ui/label';
@@ -23,6 +24,7 @@ interface Node {
 }
 
 export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: string }) {
+  const navigate = useNavigate();
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
 
@@ -428,6 +430,22 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
   };
 
   const selectedNodeData = nodes.find(n => n.id === selectedNode);
+
+  // Show empty state if no rulesets (but not an error - API call succeeded)
+  if (!loading && !error && rulesets.length === 0) {
+    return (
+      <div className="p-8 max-w-[1600px] mx-auto">
+        <h1 className="text-[#1E1E1E] mb-6">Components Graph</h1>
+        <StateScreen
+          type="empty"
+          title="No rulesets"
+          description="Create your first ruleset to start building salary calculation rules and visualize component relationships."
+          primaryActionLabel="Create Ruleset"
+          onPrimaryAction={() => navigate('/rules/builder')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[1600px] mx-auto h-full">

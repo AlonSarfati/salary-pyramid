@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Save, Upload, Plus, Trash2, Loader2, Database, Download } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -8,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import { tableApi, rulesetApi } from '../services/apiService';
+import { StateScreen } from './ui/StateScreen';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { useToast } from './ToastProvider';
 import { StateScreen } from './ui/StateScreen';
@@ -34,6 +36,7 @@ interface TableDef {
 }
 
 export default function TableBuilder({ tenantId = 'default' }: { tenantId?: string }) {
+  const navigate = useNavigate();
   const { showToast } = useToast();
   
   // Load persisted state from localStorage
@@ -835,6 +838,22 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
       setImporting(false);
     }
   };
+
+  // Show empty state if no components available (which means no rulesets)
+  if (availableComponents.length === 0) {
+    return (
+      <div className="p-8 max-w-[1600px] mx-auto">
+        <h1 className="text-[#1E1E1E] mb-6">Table Builder</h1>
+        <StateScreen
+          type="empty"
+          title="No rulesets"
+          description="Create your first ruleset with components to start building lookup tables for those components."
+          primaryActionLabel="Create Ruleset"
+          onPrimaryAction={() => navigate('/rules/builder')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
