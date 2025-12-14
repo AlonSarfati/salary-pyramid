@@ -882,32 +882,14 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
-  // Helper: Generate base expression from rule type (without filters)
+  // Helper: Generate base expression (default/else case when there are filter groups)
+  // Since rule types are now per-group, this returns '0' as the default fallback
   const generateBaseExpression = (): string => {
-    if (!ruleType || !target) return '';
+    if (!target) return '';
     
-    switch (ruleType) {
-      case 'fixed':
-        return fixedValue || '0';
-      case 'table':
-        if (tableComponent && tableName && tableLookupField) {
-          return `TBL("${tableName}", ${tableLookupField})`;
-        }
-        return '';
-      case 'percentage':
-        if (percentageBase && percentageAmount) {
-          return `${percentageBase} * ${parseFloat(percentageAmount) / 100}`;
-        }
-        return '';
-      case 'capfloor':
-        if (capFloorComponent && capFloorValue) {
-          const func = capFloorType === 'cap' ? 'MIN' : 'MAX';
-          return `${func}(${capFloorComponent}, ${capFloorValue})`;
-        }
-        return '';
-      default:
-        return '';
-    }
+    // Since we removed global rule type, the base expression is just '0' (unchanged for employees not matching any group)
+    // If there are no filter groups, we'll require at least one group to be configured
+    return '0';
   };
 
   // Helper: Generate expression for a filter group value (based on rule type)
@@ -967,8 +949,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
 
   // Helper: Generate expression from structured inputs (with filter groups applied)
   const generateExpressionFromStructured = (): string => {
-    const baseExpression = generateBaseExpression();
-    if (!baseExpression) return '';
+    if (!target) return '';
     
     // Filter out groups without filters or rule type configured
     const activeGroups = filterGroups.filter(g => 
@@ -977,10 +958,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       g.ruleType !== null
     );
     
-    // If no filter groups, return base expression
+    // Require at least one active group
     if (activeGroups.length === 0) {
-      return baseExpression;
+      return '';
     }
+    
+    const baseExpression = generateBaseExpression(); // Returns '0' as default/else case
     
     // Build nested IF-THEN-ELSE structure
     let expression = baseExpression; // Default value
@@ -999,11 +982,163 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     return expression;
   };
 
-  // Helper: Generate plain-language explanation in full sentences
+  // Helper: Humanize field names (snake_case to readable)
+  const humanizeFieldName = (fieldName: string): string => {
+    if (!fieldName) return fieldName;
+    // Replace underscores with spaces and capitalize words
+    return fieldName
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  };
+
+  // Helper: Humanize condition descriptions
+  const humanizeCondition = (field: string, operator: string, value: string, value2?: string): string => {
+    const humanField = humanizeFieldName(field);
+    const fieldMeta = availableEmployeeFields.find(af => af.name === field);
+    const isNumeric = fieldMeta?.type === 'number';
+    
+    switch (operator) {
+      case 'equals':
+        return `${humanField} is ${isNumeric ? value : `"${value}"`}`;
+      case 'not_equals':
+        return `${humanField} is not ${isNumeric ? value : `"${value}"`}`;
+      case 'greater_than':
+        return `${humanField} above ${value}`;
+      case 'less_than':
+        return `${humanField} below ${value}`;
+      case 'in_range':
+        return `${humanField} between ${value} and ${value2 || ''}`;
+      default:
+        return `${humanField} ${operator} ${value}`;
+    }
+  };
+
+  // Helper: Format number with thousand separators
+  const formatNumber = (num: number | string): string => {
+    const numValue = typeof num === 'string' ? parseFloat(num) : num;
+    if (isNaN(numValue)) return String(num);
+    return new Intl.NumberFormat('en-US').format(numValue);
+  };
+
+  // Helper: Format percentage
+  const formatPercentage = (value: string | number): string => {
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return String(value);
+    return `${formatNumber(numValue)}%`;
+  };
+
+  // Helper: Format currency (assuming ILS for now, can be made configurable)
+  const formatCurrency = (value: string | number): string => {
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return String(value);
+    return `₪${formatNumber(numValue)}`;
+  };
+
+  // Helper: Check if component name suggests it's monetary
+  const isMonetaryComponent = (componentName: string): boolean => {
+    const lower = componentName.toLowerCase();
+    return lower.includes('salary') || lower.includes('pay') || lower.includes('wage') || 
+           lower.includes('bonus') || lower.includes('compensation') || lower.includes('amount') ||
+           lower.includes('meshulav') || lower.includes('haslamat') || lower.includes('tax') ||
+           lower.includes('pension') || lower.includes('fund');
+  };
+
+  // Helper: Generate structured rule summary data for all groups
+  const generateStructuredRuleSummary = () => {
+    if (!target) return [];
+    
+    const componentName = humanizeFieldName(target);
+    const activeGroups = filterGroups.filter(g => 
+      g.filters.length > 0 && 
+      g.filters.some(f => f.field && f.value) && 
+      g.ruleType !== null
+    );
+
+    if (activeGroups.length === 0) {
+      return [{
+        component: componentName,
+        appliesTo: 'No filter groups configured',
+        calculationMethod: 'Not configured',
+        result: 'Rule not yet configured',
+        employeesAffected: 0
+      }];
+    }
+
+    // Generate summary for each active group
+    return activeGroups.map((group, groupIdx) => {
+      const filterDescriptions = group.filters
+        .filter(f => f.field && f.value)
+        .map((f, i) => {
+          const desc = humanizeCondition(f.field, f.operator, f.value, f.value2);
+          if (i < group.filters.length - 1 && f.logic) {
+            return desc + ` ${f.logic === 'AND' ? 'and' : 'or'}`;
+          }
+          return desc;
+        })
+        .filter(d => d !== '');
+
+      let calculationMethod = '';
+      let result = '';
+      
+      switch (group.ruleType) {
+        case 'fixed':
+          calculationMethod = 'Fixed Value';
+          const fixedVal = group.fixedValue || '0';
+          result = isMonetaryComponent(target) 
+            ? formatCurrency(fixedVal)
+            : formatNumber(fixedVal);
+          break;
+        case 'table':
+          calculationMethod = 'Table Lookup';
+          if (group.tableName && group.tableLookupField) {
+            result = `From table "${group.tableName}" using ${humanizeFieldName(group.tableLookupField)}`;
+          } else {
+            result = 'Table lookup (incomplete)';
+          }
+          break;
+        case 'percentage':
+          calculationMethod = 'Percentage Adjustment';
+          if (group.percentageBase && group.percentageAmount) {
+            result = `${formatPercentage(group.percentageAmount)} of ${humanizeFieldName(group.percentageBase)}`;
+          } else {
+            result = 'Percentage (incomplete)';
+          }
+          break;
+        case 'capfloor':
+          calculationMethod = group.capFloorType === 'cap' ? 'Cap (Maximum)' : 'Floor (Minimum)';
+          if (group.capFloorComponent && group.capFloorValue) {
+            const limitType = group.capFloorType === 'cap' ? 'maximum' : 'minimum';
+            const limitVal = isMonetaryComponent(group.capFloorComponent)
+              ? formatCurrency(group.capFloorValue)
+              : formatNumber(group.capFloorValue);
+            result = `${limitType} of ${limitVal} for ${humanizeFieldName(group.capFloorComponent)}`;
+          } else {
+            result = `${group.capFloorType === 'cap' ? 'Maximum' : 'Minimum'} (incomplete)`;
+          }
+          break;
+      }
+
+      const employeesAffected = filteredEmployeeCounts[group.id] || 0;
+      const appliesTo = filterDescriptions.length > 0 
+        ? `Employees where ${filterDescriptions.join(' ')}`
+        : 'All employees';
+
+      return {
+        component: componentName,
+        groupNumber: groupIdx + 1,
+        appliesTo,
+        calculationMethod,
+        result,
+        employeesAffected
+      };
+    });
+  };
+
+  // Helper: Generate plain-language explanation in full sentences (kept for backward compatibility)
   const generateRuleExplanation = (): string => {
     if (!target) return '';
     
-    const componentName = target || 'the component';
+    const componentName = humanizeFieldName(target) || 'the component';
     let explanation = '';
     
     // Get active filter groups
@@ -1024,28 +1159,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         const filterDescriptions = group.filters
           .filter(f => f.field && f.value)
           .map((f, i) => {
-            const fieldMeta = availableEmployeeFields.find(af => af.name === f.field);
-            const isNumeric = fieldMeta?.type === 'number';
-            let desc = '';
-            switch (f.operator) {
-              case 'equals':
-                desc = `${f.field} is ${isNumeric ? f.value : `"${f.value}"`}`;
-                break;
-              case 'not_equals':
-                desc = `${f.field} is not ${isNumeric ? f.value : `"${f.value}"`}`;
-                break;
-              case 'greater_than':
-                desc = `${f.field} is greater than ${f.value}`;
-                break;
-              case 'less_than':
-                desc = `${f.field} is less than ${f.value}`;
-                break;
-              case 'in_range':
-                desc = `${f.field} is between ${f.value} and ${f.value2 || ''}`;
-                break;
-            }
+            const desc = humanizeCondition(f.field, f.operator, f.value, f.value2);
             if (i < group.filters.length - 1 && f.logic) {
-              desc += ` ${f.logic === 'AND' ? 'and' : 'or'}`;
+              return desc + ` ${f.logic === 'AND' ? 'and' : 'or'}`;
             }
             return desc;
           })
@@ -1056,18 +1172,21 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           let valueDesc = '';
           switch (group.ruleType) {
             case 'fixed':
-              valueDesc = `set to ${group.fixedValue || '0'}`;
+              const fixedVal = group.fixedValue || '0';
+              valueDesc = isMonetaryComponent(target) 
+                ? `set to ${formatCurrency(fixedVal)}`
+                : `set to ${formatNumber(fixedVal)}`;
               break;
             case 'table':
               if (group.tableName && group.tableLookupField) {
-                valueDesc = `looked up from table "${group.tableName}" using ${group.tableLookupField}`;
+                valueDesc = `looked up from table "${group.tableName}" using ${humanizeFieldName(group.tableLookupField)}`;
               } else {
                 valueDesc = 'looked up from table';
               }
               break;
             case 'percentage':
               if (group.percentageBase && group.percentageAmount) {
-                valueDesc = `calculated as ${group.percentageAmount}% of ${group.percentageBase}`;
+                valueDesc = `calculated as ${formatPercentage(group.percentageAmount)} of ${humanizeFieldName(group.percentageBase)}`;
               } else {
                 valueDesc = 'calculated as a percentage';
               }
@@ -1075,7 +1194,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             case 'capfloor':
               const capFloorText = group.capFloorType === 'cap' ? 'maximum' : 'minimum';
               if (group.capFloorComponent && group.capFloorValue) {
-                valueDesc = `limited to a ${capFloorText} of ${group.capFloorValue} for ${group.capFloorComponent}`;
+                const limitVal = isMonetaryComponent(group.capFloorComponent)
+                  ? formatCurrency(group.capFloorValue)
+                  : formatNumber(group.capFloorValue);
+                valueDesc = `limited to a ${capFloorText} of ${limitVal} for ${humanizeFieldName(group.capFloorComponent)}`;
               } else {
                 valueDesc = `limited to a ${capFloorText}`;
               }
@@ -1085,7 +1207,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           const employeeCount = filteredEmployeeCounts[group.id] || 0;
           let groupDesc = `For employees where ${filterDescriptions.join(' ')}, ${componentName} will be ${valueDesc}`;
           if (employeeCount > 0) {
-            groupDesc += `, affecting ${employeeCount} employee${employeeCount !== 1 ? 's' : ''}`;
+            groupDesc += `, affecting ${formatNumber(employeeCount)} employee${employeeCount !== 1 ? 's' : ''}`;
           }
           groupDesc += '.';
           groupDescriptions.push(groupDesc);
@@ -1340,14 +1462,27 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       return;
     }
     
-    // If using structured builder, generate expression
-    if (!expertMode && ruleType) {
-      const generated = generateExpressionFromStructured();
-      if (!generated) {
-        showToast("info", "Incomplete rule", "Please complete all required fields for the selected rule type.");
+    // If using structured builder, generate expression from filter groups
+    if (!expertMode) {
+      // Check if there are any active filter groups with rule types configured
+      const hasActiveGroups = filterGroups.some(g => 
+        g.filters.length > 0 && 
+        g.filters.some(f => f.field && f.value) && 
+        g.ruleType !== null
+      );
+      
+      if (hasActiveGroups) {
+        const generated = generateExpressionFromStructured();
+        if (!generated) {
+          showToast("info", "Incomplete rule", "Please complete all required fields for the filter groups.");
+          return;
+        }
+        setExpression(generated);
+      } else {
+        // No filter groups configured - need at least one group with filters and rule type
+        showToast("info", "Incomplete rule", "Please create at least one filter group with filters and a calculation method.");
         return;
       }
-      setExpression(generated);
     }
     
     if (!expression) {
@@ -3573,31 +3708,67 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       <div className="bg-white border-2 border-[#0052CC] rounded-[10px] p-6 shadow-sm">
                         {target && filterGroups.length > 0 ? (
                           <>
-                            <div className="mb-4">
-                              <h5 className="text-base font-semibold text-[#0A0A0A] mb-2">Rule Summary</h5>
-                              <p className="text-sm text-[#0A0A0A] leading-relaxed whitespace-pre-line">
-                                {generateRuleExplanation()}
-                              </p>
+                            {/* Rule Summary - Structured Format */}
+                            <div className="mb-6 pb-6 border-b border-gray-200">
+                              <h5 className="text-base font-semibold text-[#0A0A0A] mb-4">Rule Summary</h5>
+                              {(() => {
+                                const summaries = generateStructuredRuleSummary();
+                                if (!summaries || summaries.length === 0) return null;
+                                
+                                return (
+                                  <div className="space-y-4">
+                                    {summaries.map((summary, idx) => (
+                                      <div key={idx} className={`${idx > 0 ? 'pt-4 border-t border-gray-200' : ''}`}>
+                                        {summaries.length > 1 && (
+                                          <div className="text-xs font-medium text-gray-600 mb-3">Group {summary.groupNumber}</div>
+                                        )}
+                                        <div className="space-y-3">
+                                          <div className="flex items-start">
+                                            <span className="text-sm font-medium text-gray-700 min-w-[140px]">Component:</span>
+                                            <span className="text-sm text-[#0A0A0A] font-semibold">{summary.component}</span>
+                                          </div>
+                                          <div className="flex items-start">
+                                            <span className="text-sm font-medium text-gray-700 min-w-[140px]">Applies to:</span>
+                                            <span className="text-sm text-[#0A0A0A]">{summary.appliesTo}</span>
+                                          </div>
+                                          <div className="flex items-start">
+                                            <span className="text-sm font-medium text-gray-700 min-w-[140px]">Calculation method:</span>
+                                            <span className="text-sm text-[#0A0A0A]">{summary.calculationMethod}</span>
+                                          </div>
+                                          <div className="flex items-start">
+                                            <span className="text-sm font-medium text-gray-700 min-w-[140px]">Result:</span>
+                                            <span className="text-sm text-[#0A0A0A] font-medium">{summary.result}</span>
+                                          </div>
+                                          <div className="flex items-start">
+                                            <span className="text-sm font-medium text-gray-700 min-w-[140px]">Employees affected:</span>
+                                            <span className="text-sm text-[#0A0A0A] font-semibold">{formatNumber(summary.employeesAffected)}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </div>
                             
                             {/* Impact Summary */}
-                            <div className="mt-4 pt-4 border-t border-gray-300">
-                              <h5 className="text-sm font-semibold text-[#0A0A0A] mb-3">Impact Summary</h5>
+                            <div className="mt-4">
+                              <h5 className="text-sm font-semibold text-[#0A0A0A] mb-4">Impact Summary</h5>
                               <div className="space-y-3">
                                 <div className="grid grid-cols-2 gap-4">
-                                  <div>
+                                  <div className="bg-gray-50 p-3 rounded-[6px] border border-gray-200">
                                     <div className="text-xs text-gray-600 mb-1">Total Employees Affected</div>
-                                    <div className="text-lg font-semibold text-[#0A0A0A]">
+                                    <div className="text-xl font-semibold text-[#0A0A0A]">
                                       {(() => {
                                         const totalAffected = Object.values(filteredEmployeeCounts).reduce((sum, count) => sum + count, 0);
-                                        return totalAffected > 0 ? totalAffected : 0;
+                                        return formatNumber(totalAffected > 0 ? totalAffected : 0);
                                       })()}
                                     </div>
                                   </div>
-                                  <div>
+                                  <div className="bg-gray-50 p-3 rounded-[6px] border border-gray-200">
                                     <div className="text-xs text-gray-600 mb-1">Number of Groups</div>
-                                    <div className="text-lg font-semibold text-[#0A0A0A]">
-                                      {filterGroups.filter(g => g.ruleType !== null && g.filters.length > 0).length}
+                                    <div className="text-xl font-semibold text-[#0A0A0A]">
+                                      {formatNumber(filterGroups.filter(g => g.ruleType !== null && g.filters.length > 0).length)}
                                     </div>
                                   </div>
                                 </div>
@@ -3605,15 +3776,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                 {/* Per-group breakdown */}
                                 {filterGroups.filter(g => g.ruleType !== null && g.filters.length > 0).length > 0 && (
                                   <div className="mt-4 pt-4 border-t border-gray-200">
-                                    <div className="text-xs text-gray-600 mb-2 font-medium">Breakdown by Group:</div>
+                                    <div className="text-xs text-gray-600 mb-3 font-medium">Breakdown by Group:</div>
                                     <div className="space-y-2">
                                       {filterGroups.map((group, idx) => {
                                         if (!group.ruleType || group.filters.length === 0) return null;
                                         const count = filteredEmployeeCounts[group.id] || 0;
+                                        const groupType = group.ruleType === 'fixed' ? 'Fixed' : 
+                                                         group.ruleType === 'percentage' ? 'Percentage' : 
+                                                         group.ruleType === 'table' ? 'Table' : 'Cap/Floor';
                                         return (
-                                          <div key={group.id} className="flex items-center justify-between text-sm">
-                                            <span className="text-gray-700">Group {idx + 1} ({group.ruleType === 'fixed' ? 'Fixed' : group.ruleType === 'percentage' ? 'Percentage' : group.ruleType === 'table' ? 'Table' : 'Cap/Floor'})</span>
-                                            <span className="font-semibold text-[#0A0A0A]">{count} employees</span>
+                                          <div key={group.id} className="flex items-center justify-between text-sm py-1.5 px-2 bg-gray-50 rounded-[6px]">
+                                            <span className="text-gray-700">Group {idx + 1} ({groupType})</span>
+                                            <span className="font-semibold text-[#0A0A0A]">{formatNumber(count)} employees</span>
                                           </div>
                                         );
                                       })}
@@ -3805,7 +3979,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       <div className="flex items-center gap-3">
                         <Button
                           onClick={handleSave}
-                          disabled={saving || !target || (!expertMode && !ruleType) || (expertMode && !expression)}
+                          disabled={saving || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null && g.filters.length > 0)) || (expertMode && !expression)}
                           variant="outline"
                         >
                           {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
@@ -3813,7 +3987,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                         </Button>
                         <Button
                           onClick={handleValidate}
-                          disabled={loading || !target || (!expertMode && !ruleType) || (expertMode && !expression)}
+                          disabled={loading || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null && g.filters.length > 0)) || (expertMode && !expression)}
                           variant="outline"
                         >
                           {loading ? (
@@ -3827,7 +4001,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                         </Button>
                         <Button
                           onClick={handlePublish}
-                          disabled={saving || !target || (!expertMode && !ruleType) || (expertMode && !expression)}
+                          disabled={saving || !target || (!expertMode && !filterGroups.some(g => g.ruleType !== null && g.filters.length > 0)) || (expertMode && !expression)}
                         >
                           {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
                           Publish
