@@ -49,10 +49,10 @@ public class ExprEvaluatorTest {
 
     @Test
     void testIfFunction() {
-        // IF(condition, trueValue, falseValue)
-        assertEquals(new BigDecimal("100"), evaluator.evaluateAsNumber("IF(10 > 5, 100, 200)", context));
-        assertEquals(new BigDecimal("200"), evaluator.evaluateAsNumber("IF(10 < 5, 100, 200)", context));
-        assertEquals(new BigDecimal("100"), evaluator.evaluateAsNumber("IF(10 = 10, 100, 200)", context));
+        // Business DSL only uses IF condition THEN expr ELSE expr (no IF() function form)
+        assertEquals(new BigDecimal("100"), evaluator.evaluateAsNumber("IF 10 > 5 THEN 100 ELSE 200", context));
+        assertEquals(new BigDecimal("200"), evaluator.evaluateAsNumber("IF 10 < 5 THEN 100 ELSE 200", context));
+        assertEquals(new BigDecimal("100"), evaluator.evaluateAsNumber("IF 10 = 10 THEN 100 ELSE 200", context));
     }
 
     @Test

@@ -177,9 +177,12 @@ public class ExprParser {
         
         // IF condition THEN expr ELSE expr   OR   IF(...) function call
         if (matchToken("IF", true)) {
-            skipWhitespace();
-            // Function-style IF(...)
+            // IMPORTANT: do NOT skip whitespace here before deciding between function-style IF(...)
+            // and IF <condition> THEN <expr> ELSE <expr>.
+            // If the very next character is '(', we treat it as function-style IF(...).
+            // If there's whitespace before the '(', we treat it as IF <condition> THEN ...
             if (pos < input.length() && input.charAt(pos) == '(') {
+                // Function-style IF(...)
                 return parseFunctionCall("IF");
             }
             // IF/THEN/ELSE syntax
