@@ -23,7 +23,14 @@ public final class Value {
     }
 
     public static Value ofNumber(BigDecimal value) {
-        return new Value(ValueType.NUMBER, value, null, null);
+        if (value == null) {
+            return new Value(ValueType.NUMBER, BigDecimal.ZERO, null, null);
+        }
+        BigDecimal normalized = value.stripTrailingZeros();
+        if (normalized.scale() < 0) {
+            normalized = normalized.setScale(0);
+        }
+        return new Value(ValueType.NUMBER, normalized, null, null);
     }
 
     public static Value ofNumber(String value) {

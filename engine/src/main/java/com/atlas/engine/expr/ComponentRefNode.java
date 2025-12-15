@@ -16,11 +16,13 @@ public class ComponentRefNode implements ExprNode {
 
     @Override
     public Value evaluate(EvalContext context) {
+        // Validate component existence in context
+        if (context.getComponentNames() != null && !context.getComponentNames().contains(componentName)) {
+            throw new IllegalArgumentException("Unknown component: " + componentName);
+        }
         Value value = context.getComponent(componentName);
-        // DefaultEvalContext returns zero for missing components, so we accept any value
-        // If value is null (shouldn't happen with DefaultEvalContext), return zero
         if (value == null) {
-            return Value.ofNumber(java.math.BigDecimal.ZERO);
+            throw new IllegalArgumentException("Unknown component: " + componentName);
         }
         return value;
     }

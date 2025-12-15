@@ -175,8 +175,14 @@ public class ExprParser {
     private ExprNode parsePrimary() {
         skipWhitespace();
         
-        // IF condition THEN expr ELSE expr
+        // IF condition THEN expr ELSE expr   OR   IF(...) function call
         if (matchToken("IF", true)) {
+            skipWhitespace();
+            // Function-style IF(...)
+            if (pos < input.length() && input.charAt(pos) == '(') {
+                return parseFunctionCall("IF");
+            }
+            // IF/THEN/ELSE syntax
             return parseIfThenElse();
         }
         
@@ -221,9 +227,12 @@ public class ExprParser {
                 throw new IllegalArgumentException("Component names must be CamelCase or lowercase (for groups). Found: " + name);
             }
             
-            // Allow component/group references even if not in componentNames set
-            // They will evaluate to zero if not found during evaluation
-            // This allows forward references and components/groups that might be calculated later
+            // Validate against available component names (if provided)
+            if (componentNames != null && !componentNames.isEmpty() && isCamelCase(name) && !componentNames.contains(name)) {
+                throw new IllegalArgumentException("Unknown component: " + name);
+            }
+            
+            // Allow lowercase group references
             return new ComponentRefNode(name);
         }
         
