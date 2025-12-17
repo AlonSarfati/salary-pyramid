@@ -8,6 +8,7 @@ public record RuleUpdateRequest(
         String effectiveFrom,         // yyyy-MM-dd or null
         String effectiveTo,           // yyyy-MM-dd or null
         String group,                 // component group
+        String layer,                 // logical layer: base / employer
         Boolean incomeTax,            // income tax flag
         Boolean socialSecurity,
         Boolean pension,

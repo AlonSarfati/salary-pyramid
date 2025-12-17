@@ -67,6 +67,7 @@ export default function ComponentsGraph({ tenantId = 'default' }: { tenantId?: s
             { groupName: 'bonus', displayName: 'Bonus', color: '#10B981', displayOrder: 2 },
             { groupName: 'extra hours', displayName: 'Extra Hours', color: '#F59E0B', displayOrder: 3 },
             { groupName: 'expenses', displayName: 'Expenses', color: '#8B5CF6', displayOrder: 4 },
+            { groupName: 'employer_cost', displayName: 'Employer Cost', color: '#EF4444', displayOrder: 6 },
           ]);
         }
       } finally {

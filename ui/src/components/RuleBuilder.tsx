@@ -74,6 +74,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [effectiveTo, setEffectiveTo] = useState('');
   const [group, setGroup] = useState('group1');
+  // Logical layer for the component: base vs employer cost
+  const [layer, setLayer] = useState<'base' | 'employer' | null>(null);
   const [incomeTax, setIncomeTax] = useState(false);
   const [socialSecurity, setSocialSecurity] = useState(false);
   const [pensionFlag, setPensionFlag] = useState(false);
@@ -157,6 +159,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [showAddComponent, setShowAddComponent] = useState(false);
   const [newComponentName, setNewComponentName] = useState('');
   const [newComponentGroup, setNewComponentGroup] = useState('group1');
+  const [newComponentLayer, setNewComponentLayer] = useState<'base' | 'employer'>('base');
   const [showDeleteRulesetDialog, setShowDeleteRulesetDialog] = useState(false);
   const [showRenameRulesetDialog, setShowRenameRulesetDialog] = useState(false);
   const [showCopyRulesetDialog, setShowCopyRulesetDialog] = useState(false);
@@ -350,12 +353,23 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       });
       
       const comps = ruleset.rules.map(rule => {
-        const actualGroupName = rule.meta?.group || 'core';
-        const groupNumber = groupNameToNumber[actualGroupName] || 'group1';
+        // Check if this is an employer cost component
+        const metaLayer = rule.meta?.layer;
+        const isEmployer = metaLayer && metaLayer.toLowerCase() === 'employer';
+        
+        // For employer cost components, display "Employer Cost" instead of group number
+        let displayGroup: string;
+        if (isEmployer) {
+          displayGroup = 'Employer Cost';
+        } else {
+          const actualGroupName = rule.meta?.group || 'core';
+          displayGroup = groupNameToNumber[actualGroupName] || 'group1';
+        }
+        
         return {
           id: rule.target,
           name: rule.target,
-          group: groupNumber, // Display group number
+          group: displayGroup, // Display group number or "Employer Cost"
           status: 'valid', // TODO: determine from validation
           order: orderMap.get(rule.target) ?? 9999, // Use calculation order
         };
@@ -812,6 +826,41 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setEffectiveFrom(rule.effectiveFrom || '');
       setEffectiveTo(rule.effectiveTo || '');
       
+      // Determine logical layer (base vs employer) from metadata only
+      const metaLayer = rule.meta?.layer;
+      const isEmployer = metaLayer && metaLayer.toLowerCase() === 'employer';
+      
+      if (isEmployer) {
+        setLayer('employer');
+        // Employer cost components don't have groups - clear it
+        setGroup('group1'); // Reset to default, but it won't be saved
+        // Employer cost components don't have tax/pension flags - reset all to false
+        setIncomeTax(false);
+        setSocialSecurity(false);
+        setPensionFlag(false);
+        setWorkPension(false);
+        setExpensesPension(false);
+        setEducationFund(false);
+        setWorkPercentFlag(false);
+      } else {
+        setLayer('base');
+        // Convert group name to group number for display (only for base layer)
+        const actualGroupName = rule.meta?.group || 'core';
+        const groupNumber = groupNameToNumber[actualGroupName] || 'group1';
+        setGroup(groupNumber);
+        // Load tax/pension flags from metadata for base layer components
+        const legacyTaxable = rule.meta?.taxable === 'true';
+        const legacyTax = rule.meta?.tax === 'true';
+        const incomeTaxMeta = rule.meta?.incomeTax === 'true';
+        setIncomeTax(incomeTaxMeta || legacyTax || legacyTaxable);
+        setSocialSecurity(rule.meta?.socialSecurity === 'true');
+        setPensionFlag(rule.meta?.pensionFlag === 'true');
+        setWorkPension(rule.meta?.workPension === 'true');
+        setExpensesPension(rule.meta?.expensesPension === 'true');
+        setEducationFund(rule.meta?.educationFund === 'true');
+        setWorkPercentFlag(rule.meta?.workPercent === 'true');
+      }
+      
       // Reset structured state
       setRuleType(null);
       setFixedValue('');
@@ -842,22 +891,6 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       if (!expertMode && rule.expression) {
         parseExpressionToStructured(rule.expression);
       }
-      
-      // Convert group name to group number for display
-      const actualGroupName = rule.meta?.group || 'core';
-      const groupNumber = groupNameToNumber[actualGroupName] || 'group1';
-      setGroup(groupNumber);
-      // Backwards compatibility: map legacy flags to incomeTax
-      const legacyTaxable = rule.meta?.taxable === 'true';
-      const legacyTax = rule.meta?.tax === 'true';
-      const incomeTaxMeta = rule.meta?.incomeTax === 'true';
-      setIncomeTax(incomeTaxMeta || legacyTax || legacyTaxable);
-      setSocialSecurity(rule.meta?.socialSecurity === 'true');
-      setPensionFlag(rule.meta?.pensionFlag === 'true');
-      setWorkPension(rule.meta?.workPension === 'true');
-      setExpensesPension(rule.meta?.expensesPension === 'true');
-      setEducationFund(rule.meta?.educationFund === 'true');
-      setWorkPercentFlag(rule.meta?.workPercent === 'true');
     }
   };
 
@@ -1065,7 +1098,11 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const generateStructuredRuleSummary = () => {
     if (!target) return [];
     
-    const componentName = humanizeFieldName(target);
+    let componentName = humanizeFieldName(target);
+    // Make employer layer explicit in the summary label
+    if (layer === 'employer') {
+      componentName = `${componentName} (Employer Cost)`;
+    }
     const activeGroups = filterGroups.filter(g => 
       g.filters.length > 0 && 
       g.filters.some(f => f.field && f.value) && 
@@ -1509,9 +1546,11 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       isSavingRef.current = true; // Set flag to prevent reload
       setError(null);
       
-      // Convert group number back to group name for saving
+      // Convert group number back to group name for saving.
+      // For Employer Cost layer we intentionally do NOT assign a component group
+      // so employer components live in their own logical layer, independent of tenant groups.
       let actualGroupName: string | null = null;
-      if (group) {
+      if (layer !== 'employer' && group) {
         actualGroupName = groupNumberToName[group];
         // If mapping doesn't exist (groups not loaded yet), default to first group or 'core'
         if (!actualGroupName && componentGroups.length > 0) {
@@ -1522,19 +1561,23 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         }
       }
       
+      // For employer cost components, all tax/pension flags should be false
+      const isEmployer = layer === 'employer';
+      
       await ruleApi.updateRule(tenantId, selectedRulesetId, target, {
         expression,
         dependsOn: dependsOn.length > 0 ? dependsOn : null,
         effectiveFrom: effectiveFrom || null,
         effectiveTo: effectiveTo || null,
         group: actualGroupName,
-        incomeTax,
-        socialSecurity,
-        pension: pensionFlag,
-        workPension,
-        expensesPension,
-        educationFund,
-        workPercent: workPercentFlag,
+        layer: layer || 'base',
+        incomeTax: isEmployer ? false : incomeTax,
+        socialSecurity: isEmployer ? false : socialSecurity,
+        pension: isEmployer ? false : pensionFlag,
+        workPension: isEmployer ? false : workPension,
+        expensesPension: isEmployer ? false : expensesPension,
+        educationFund: isEmployer ? false : educationFund,
+        workPercent: isEmployer ? false : workPercentFlag,
       });
 
       // Reload ruleset to get updated data
@@ -2330,6 +2373,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             effectiveFrom: null,
             effectiveTo: null,
             group: actualGroupName,
+            layer: 'base',
             incomeTax: false,
             socialSecurity: false,
             pension: false,
@@ -2392,8 +2436,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       const defaultExpression = '0';
       
       // Convert group number back to group name for saving
+      // For Employer Cost layer we intentionally do NOT assign a component group
       let actualGroupName: string | null = null;
-      if (newComponentGroup) {
+      if (newComponentLayer === 'base' && newComponentGroup) {
         actualGroupName = groupNumberToName[newComponentGroup];
         // If mapping doesn't exist (groups not loaded yet), default to first group or 'core'
         if (!actualGroupName && componentGroups.length > 0) {
@@ -2403,6 +2448,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           actualGroupName = 'core'; // Fallback if no groups loaded
         }
       }
+      // For employer cost layer, actualGroupName remains null
       
       await ruleApi.updateRule(tenantId, selectedRulesetId, newComponentName.trim(), {
         expression: defaultExpression,
@@ -2410,6 +2456,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         effectiveFrom: null,
         effectiveTo: null,
         group: actualGroupName,
+        layer: newComponentLayer,
         incomeTax: false,
       });
 
@@ -2422,6 +2469,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       // Reset form and close dialog
       setNewComponentName('');
       setNewComponentGroup('group1');
+      setNewComponentLayer('base');
       setShowAddComponent(false);
       
       // Load the new rule data
@@ -2441,6 +2489,9 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   // Map group numbers to colors from componentGroups
   const groupColors: Record<string, string> = React.useMemo(() => {
     const colors: Record<string, string> = {};
+    // Add special color for Employer Cost layer
+    colors['Employer Cost'] = 'bg-red-100 text-red-800';
+    
     componentGroups
       .sort((a, b) => a.displayOrder - b.displayOrder)
       .forEach((group, index) => {
@@ -2857,7 +2908,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                           </button>
                         </div>
                       </div>
-                      <Badge className={selectedComponent === component.id ? 'bg-white bg-opacity-20 text-white' : groupColors[component.group]}>
+                      <Badge className={selectedComponent === component.id ? 'bg-white bg-opacity-20 text-white' : (groupColors[component.group] || 'bg-gray-100 text-gray-800')}>
                         {component.group}
                       </Badge>
                     </div>
@@ -2998,69 +3049,137 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-3 gap-6">
+                      {/* Tax & flags - only show for base layer */}
+                      {layer !== 'employer' && (
+                        <>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="incomeTax">Income Tax</Label>
+                              <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="socialSecurity">Social Security</Label>
+                              <Switch
+                                id="socialSecurity"
+                                checked={socialSecurity}
+                                onCheckedChange={setSocialSecurity}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="workPercentFlag">Apply Work %</Label>
+                              <Switch
+                                id="workPercentFlag"
+                                checked={workPercentFlag}
+                                onCheckedChange={setWorkPercentFlag}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Pension flags */}
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="pensionFlag">Pension</Label>
+                              <Switch
+                                id="pensionFlag"
+                                checked={pensionFlag}
+                                onCheckedChange={setPensionFlag}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="workPension">Work Pension</Label>
+                              <Switch
+                                id="workPension"
+                                checked={workPension}
+                                onCheckedChange={setWorkPension}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="expensesPension">Expenses Pension</Label>
+                              <Switch
+                                id="expensesPension"
+                                checked={expensesPension}
+                                onCheckedChange={setExpensesPension}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="educationFund">Education Fund</Label>
+                              <Switch
+                                id="educationFund"
+                                checked={educationFund}
+                                onCheckedChange={setEducationFund}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Layer selector */}
                       <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="incomeTax">Income Tax</Label>
-                          <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="socialSecurity">Social Security</Label>
-                          <Switch
-                            id="socialSecurity"
-                            checked={socialSecurity}
-                            onCheckedChange={setSocialSecurity}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="workPercentFlag">Apply Work %</Label>
-                          <Switch
-                            id="workPercentFlag"
-                            checked={workPercentFlag}
-                            onCheckedChange={setWorkPercentFlag}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="pensionFlag">Pension</Label>
-                          <Switch
-                            id="pensionFlag"
-                            checked={pensionFlag}
-                            onCheckedChange={setPensionFlag}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="workPension">Work Pension</Label>
-                          <Switch
-                            id="workPension"
-                            checked={workPension}
-                            onCheckedChange={setWorkPension}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="expensesPension">Expenses Pension</Label>
-                          <Switch
-                            id="expensesPension"
-                            checked={expensesPension}
-                            onCheckedChange={setExpensesPension}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="educationFund">Education Fund</Label>
-                          <Switch
-                            id="educationFund"
-                            checked={educationFund}
-                            onCheckedChange={setEducationFund}
-                          />
+                        <Label>Layer</Label>
+                        <div className="flex flex-col gap-2 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLayer('base');
+                              // When switching to base, set default group if not already set
+                              if (!group) {
+                                setGroup('group1');
+                              }
+                            }}
+                            className={`flex items-center justify-between px-3 py-2 border rounded-[6px] text-left ${
+                              layer === 'base'
+                                ? 'border-[#0052CC] bg-[#EEF2F8] text-[#0A0A0A]'
+                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <span>Employee (Base)</span>
+                            {layer === 'base' && <CheckCircle className="w-4 h-4 text-[#0052CC]" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLayer('employer');
+                              setGroup('group1'); // Clear group by resetting to default
+                              // Reset all tax/pension flags for employer cost components
+                              setIncomeTax(false);
+                              setSocialSecurity(false);
+                              setPensionFlag(false);
+                              setWorkPension(false);
+                              setExpensesPension(false);
+                              setEducationFund(false);
+                              setWorkPercentFlag(false);
+                            }}
+                            className={`flex items-center justify-between px-3 py-2 border rounded-[6px] text-left ${
+                              layer === 'employer'
+                                ? 'border-red-500 bg-red-50 text-[#0A0A0A]'
+                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <span>Employer Cost</span>
+                            {layer === 'employer' && <CheckCircle className="w-4 h-4 text-red-500" />}
+                          </button>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Employer Cost components are calculated on top of employee compensation and are
+                            reported separately in simulations.
+                          </p>
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-4">
                       <div className="flex items-center justify-between">
-                        <Label htmlFor="group">Group</Label>
-                        <Select value={group} onValueChange={setGroup}>
+                        <div className="flex flex-col gap-1">
+                          <Label htmlFor="group">Group</Label>
+                          <span className="text-xs text-gray-500">
+                            Groups apply to employee components. Employer Cost components don&apos;t need a group.
+                          </span>
+                        </div>
+                        <Select
+                          value={group}
+                          onValueChange={setGroup}
+                          disabled={layer === 'employer'}
+                        >
                           <SelectTrigger className="w-40">
                             <SelectValue />
                           </SelectTrigger>
@@ -3875,65 +3994,67 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                             </div>
                           </div>
 
-                          {/* Toggles */}
-                          <div className="grid grid-cols-2 gap-6">
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor="incomeTax">Income Tax</Label>
-                                <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
+                          {/* Toggles - only show for base layer */}
+                          {layer !== 'employer' && (
+                            <div className="grid grid-cols-2 gap-6">
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="incomeTax">Income Tax</Label>
+                                  <Switch id="incomeTax" checked={incomeTax} onCheckedChange={setIncomeTax} />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="socialSecurity">Social Security</Label>
+                                  <Switch
+                                    id="socialSecurity"
+                                    checked={socialSecurity}
+                                    onCheckedChange={setSocialSecurity}
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="workPercentFlag">Apply Work %</Label>
+                                  <Switch
+                                    id="workPercentFlag"
+                                    checked={workPercentFlag}
+                                    onCheckedChange={setWorkPercentFlag}
+                                  />
+                                </div>
                               </div>
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor="socialSecurity">Social Security</Label>
-                                <Switch
-                                  id="socialSecurity"
-                                  checked={socialSecurity}
-                                  onCheckedChange={setSocialSecurity}
-                                />
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor="workPercentFlag">Apply Work %</Label>
-                                <Switch
-                                  id="workPercentFlag"
-                                  checked={workPercentFlag}
-                                  onCheckedChange={setWorkPercentFlag}
-                                />
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="pensionFlag">Pension</Label>
+                                  <Switch
+                                    id="pensionFlag"
+                                    checked={pensionFlag}
+                                    onCheckedChange={setPensionFlag}
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="workPension">Work Pension</Label>
+                                  <Switch
+                                    id="workPension"
+                                    checked={workPension}
+                                    onCheckedChange={setWorkPension}
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="expensesPension">Expenses Pension</Label>
+                                  <Switch
+                                    id="expensesPension"
+                                    checked={expensesPension}
+                                    onCheckedChange={setExpensesPension}
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="educationFund">Education Fund</Label>
+                                  <Switch
+                                    id="educationFund"
+                                    checked={educationFund}
+                                    onCheckedChange={setEducationFund}
+                                  />
+                                </div>
                               </div>
                             </div>
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor="pensionFlag">Pension</Label>
-                                <Switch
-                                  id="pensionFlag"
-                                  checked={pensionFlag}
-                                  onCheckedChange={setPensionFlag}
-                                />
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor="workPension">Work Pension</Label>
-                                <Switch
-                                  id="workPension"
-                                  checked={workPension}
-                                  onCheckedChange={setWorkPension}
-                                />
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor="expensesPension">Expenses Pension</Label>
-                                <Switch
-                                  id="expensesPension"
-                                  checked={expensesPension}
-                                  onCheckedChange={setExpensesPension}
-                                />
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor="educationFund">Education Fund</Label>
-                                <Switch
-                                  id="educationFund"
-                                  checked={educationFund}
-                                  onCheckedChange={setEducationFund}
-                                />
-                              </div>
-                            </div>
-                          </div>
+                          )}
 
                           {/* Group */}
                           <div>
@@ -4137,25 +4258,63 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               </p>
             </div>
             <div>
-              <Label htmlFor="newComponentGroup">Group</Label>
-              <Select value={newComponentGroup} onValueChange={setNewComponentGroup}>
-                <SelectTrigger id="newComponentGroup" className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {componentGroups
-                    .sort((a, b) => a.displayOrder - b.displayOrder)
-                    .map((group, index) => {
-                      const groupNumber = `group${index + 1}`;
-                      return (
-                        <SelectItem key={group.groupName} value={groupNumber}>
-                          {groupNumber}
-                        </SelectItem>
-                      );
-                    })}
-                </SelectContent>
-              </Select>
+              <Label>Layer</Label>
+              <div className="flex flex-col gap-2 text-sm mt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewComponentLayer('base');
+                    // When switching to base, set default group if not already set
+                    if (!newComponentGroup) {
+                      setNewComponentGroup('group1');
+                    }
+                  }}
+                  className={`flex items-center justify-between px-3 py-2 border rounded-[6px] text-left ${
+                    newComponentLayer === 'base'
+                      ? 'border-[#0052CC] bg-[#EEF2F8] text-[#0A0A0A]'
+                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>Employee (Base)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewComponentLayer('employer');
+                    setNewComponentGroup('group1'); // Clear group by resetting to default
+                  }}
+                  className={`flex items-center justify-between px-3 py-2 border rounded-[6px] text-left ${
+                    newComponentLayer === 'employer'
+                      ? 'border-red-500 bg-red-50 text-[#0A0A0A]'
+                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>Employer Cost</span>
+                </button>
+              </div>
             </div>
+            {newComponentLayer === 'base' && (
+              <div>
+                <Label htmlFor="newComponentGroup">Group</Label>
+                <Select value={newComponentGroup} onValueChange={setNewComponentGroup}>
+                  <SelectTrigger id="newComponentGroup" className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {componentGroups
+                      .sort((a, b) => a.displayOrder - b.displayOrder)
+                      .map((group, index) => {
+                        const groupNumber = `group${index + 1}`;
+                        return (
+                          <SelectItem key={group.groupName} value={groupNumber}>
+                            {groupNumber}
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {error && error.type === 'validation' && (
               <div className="mb-3">
                 <StateScreen
@@ -4188,6 +4347,8 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 onClick={() => {
                   setShowAddComponent(false);
                   setNewComponentName('');
+                  setNewComponentGroup('group1');
+                  setNewComponentLayer('base');
                   setError(null);
                 }}
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"

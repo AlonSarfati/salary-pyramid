@@ -16,12 +16,15 @@ public class RestrictedGroupAwareEvalContext implements com.atlas.engine.expr.Ev
     private final Map<String, Integer> groupToNumber; // group name -> group number (1, 2, 3, ...)
     private final Map<Integer, String> numberToGroup; // group number -> group name
     private final int maxAllowedGroupNumber; // maximum group number this component can access
+    // Dynamic toggle groups: key = toggle group name (e.g., "pension_group"), value = set of component names
+    private final Map<String, Set<String>> toggleGroups;
     
     public RestrictedGroupAwareEvalContext(
             EvalContext modelContext,
             Map<String, String> componentToGroup,
             Map<String, Integer> groupToNumber,
-            int maxAllowedGroupNumber) {
+            int maxAllowedGroupNumber,
+            Map<String, Set<String>> toggleGroups) {
         if (modelContext == null) {
             throw new IllegalArgumentException("modelContext cannot be null");
         }
@@ -35,10 +38,18 @@ public class RestrictedGroupAwareEvalContext implements com.atlas.engine.expr.Ev
             }
         }
         this.maxAllowedGroupNumber = Math.max(0, maxAllowedGroupNumber);
+        this.toggleGroups = toggleGroups != null ? toggleGroups : new HashMap<>();
     }
     
     @Override
     public Value getComponent(String componentName) {
+        // Dynamic toggle groups: any {toggle}_group = sum of all components with that toggle enabled
+        // Rule: meta key with value "true" → {camelCaseToSnakeCase(key)}_group
+        String normalizedComponentName = componentName.toLowerCase();
+        if (toggleGroups.containsKey(normalizedComponentName)) {
+            return sumToggleGroup(normalizedComponentName);
+        }
+
         // Check if this is a group reference (group1, group2, etc.)
         if (componentName.toLowerCase().startsWith("group") && componentName.length() > 5) {
             try {
@@ -77,6 +88,26 @@ public class RestrictedGroupAwareEvalContext implements com.atlas.engine.expr.Ev
         
         // Otherwise, treat as regular component
         return baseContext.getComponent(componentName);
+    }
+
+    /**
+     * Sum all components that are tagged with a specific toggle flag.
+     * 
+     * @param toggleGroupName The toggle group name (e.g., "pension_group", "income_tax_group")
+     * @return The sum of all components with this toggle enabled
+     */
+    private Value sumToggleGroup(String toggleGroupName) {
+        BigDecimal sum = BigDecimal.ZERO;
+        Set<String> components = toggleGroups.get(toggleGroupName);
+        if (components != null) {
+            for (String componentName : components) {
+                Value componentValue = baseContext.getComponent(componentName);
+                if (componentValue != null && componentValue.getType() == ValueType.NUMBER) {
+                    sum = sum.add(componentValue.asNumber());
+                }
+            }
+        }
+        return Value.ofNumber(sum);
     }
     
     /**
@@ -145,6 +176,10 @@ public class RestrictedGroupAwareEvalContext implements com.atlas.engine.expr.Ev
                         }
                     }
                 }
+            }
+            // Add all toggle group names (e.g., pension_group, income_tax_group)
+            if (toggleGroups != null) {
+                names.addAll(toggleGroups.keySet());
             }
             return names;
         } catch (Exception e) {

@@ -10,7 +10,7 @@ import { Button } from './ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
-import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimBulkResponse, type Employee } from '../services/apiService';
+import { rulesetApi, simulationApi, employeeApi, type EmployeeInput, type SimBulkResponse, type Employee, type RuleSet } from '../services/apiService';
 import { useToast } from "./ToastProvider";
 import { StateScreen } from "./ui/StateScreen";
 import { useCurrency } from '../hooks/useCurrency';
@@ -39,6 +39,8 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     setSelectedRulesetId(null);
     setSimulationResult(null);
     setBaselineResult(null);
+  setRulesetDetails(null);
+  setEmployerComponentsMap({});
   }, [tenantId]);
 
   // Form state
@@ -74,6 +76,8 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
   const [baselineResult, setBaselineResult] = useState<SimBulkResponse | null>(null);
   const [baselineRulesetId, setBaselineRulesetId] = useState<string | null>(null);
   const [baselinePayMonth, setBaselinePayMonth] = useState<string>('');
+  const [rulesetDetails, setRulesetDetails] = useState<RuleSet | null>(null);
+  const [employerComponentsMap, setEmployerComponentsMap] = useState<Record<string, boolean>>({});
   
   // Ref for scrolling to results
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -117,6 +121,42 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     })();
     return () => { cancelled = true; };
   }, [tenantId]);
+
+  // Fetch full ruleset details for employer cost classification
+  useEffect(() => {
+    if (!selectedRulesetId) {
+      setRulesetDetails(null);
+      setEmployerComponentsMap({});
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const rs = await rulesetApi.getRuleset(tenantId, selectedRulesetId);
+        if (cancelled) return;
+        setRulesetDetails(rs);
+        const map: Record<string, boolean> = {};
+        rs.rules.forEach(rule => {
+          const layer = rule.meta?.layer;
+          if (layer && layer.toLowerCase() === 'employer') {
+            map[rule.target] = true;
+          }
+        });
+        setEmployerComponentsMap(map);
+      } catch (e) {
+        console.error('Failed to load ruleset details for bulk simulation view:', e);
+        if (!cancelled) {
+          setRulesetDetails(null);
+          setEmployerComponentsMap({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, selectedRulesetId]);
 
   // Fetch required inputs when ruleset changes
   useEffect(() => {
@@ -683,12 +723,37 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
     }
   };
 
-  // Prepare chart data from results
-  const componentData = simulationResult
-    ? Object.entries(simulationResult.totalsByComponent)
-        .map(([name, amount]) => ({ name, amount: Number(amount) }))
-        .sort((a, b) => b.amount - a.amount)
-    : [];
+  // Prepare chart data from results, with employer cost awareness
+  const {
+    componentData,
+    employerTotalAggregated,
+    salaryTotalAggregated,
+  } = useMemo(() => {
+    if (!simulationResult) {
+      return {
+        componentData: [] as Array<{ name: string; amount: number }>,
+        employerTotalAggregated: 0,
+        salaryTotalAggregated: 0,
+      };
+    }
+
+    const entries = Object.entries(simulationResult.totalsByComponent).map(([name, amount]) => ({
+      name,
+      amount: Number(amount),
+    }));
+
+    const employerTotal = entries
+      .filter(entry => employerComponentsMap[entry.name])
+      .reduce((sum, entry) => sum + entry.amount, 0);
+
+    const salaryTotal = Number(simulationResult.grandTotal) - employerTotal;
+
+    return {
+      componentData: entries.sort((a, b) => b.amount - a.amount),
+      employerTotalAggregated: employerTotal,
+      salaryTotalAggregated: salaryTotal,
+    };
+  }, [simulationResult, employerComponentsMap]);
 
   // Prepare employee results with comparison
   const employeeResults = simulationResult
@@ -1265,9 +1330,17 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
                   <div className="text-2xl text-[#1E1E1E]">{employeeResults.length}</div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm text-gray-600">Total Payroll Cost</div>
+              <div className="text-right space-y-1">
+                <div className="text-sm text-gray-600">Total Employer + Employee Cost</div>
                 <div className="text-2xl text-[#0052CC]">{formatCurrency(Number(simulationResult.grandTotal))}</div>
+                <div className="text-sm text-gray-600 pt-1 border-t border-gray-200">
+                  Employee Compensation: {formatCurrency(salaryTotalAggregated)}
+                </div>
+                {employerTotalAggregated > 0 && (
+                  <div className="text-sm text-gray-600">
+                    Employer Cost: {formatCurrency(employerTotalAggregated)}
+                  </div>
+                )}
                 {comparisonMode && baselineResult && (
                   <>
                     <div className="text-xs text-gray-500 mt-1">

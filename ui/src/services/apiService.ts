@@ -32,6 +32,7 @@ export type RuleUpdateRequest = {
   effectiveFrom?: string | null;
   effectiveTo?: string | null;
   group?: string | null;
+  layer?: 'base' | 'employer' | null;
   incomeTax?: boolean | null;
   socialSecurity?: boolean | null;
   pension?: boolean | null;

@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 import { Switch } from "./ui/switch";
 import SimulateBulk from "./SimulateBulk";
-import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput, type SimEmployeeResponse, type Employee } from "../services/apiService";
+import { rulesetApi, simulationApi, employeeApi, scenarioApi, type EmployeeInput, type SimEmployeeResponse, type Employee, type RuleSet } from "../services/apiService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { useToast } from "./ToastProvider";
@@ -33,6 +33,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
   const [selectedRulesetName, setSelectedRulesetName] = useState<string>("");
   const [rulesLoading, setRulesLoading] = useState(false);
   const [rulesError, setRulesError] = useState<{ type: 'network' | 'system'; message?: string; supportRef?: string } | null>(null);
+  const [rulesetDetails, setRulesetDetails] = useState<RuleSet | null>(null);
+  const [employerComponentsMap, setEmployerComponentsMap] = useState<Record<string, boolean>>({});
 
   // Form state
   const [employeeId, setEmployeeId] = useState("E001");
@@ -97,6 +99,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
     setSelectedRulesetName("");
     setSimulationResult(null);
     setBaselineResult(null);
+    setRulesetDetails(null);
+    setEmployerComponentsMap({});
   }, [tenantId]);
 
   // ---- fetch rulesets ----
@@ -171,6 +175,42 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
       cancelled = true;
     };
   }, [tenantId]);
+
+  // ---- fetch full ruleset details for employer cost classification ----
+  useEffect(() => {
+    if (!selectedRulesetId) {
+      setRulesetDetails(null);
+      setEmployerComponentsMap({});
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const rs = await rulesetApi.getRuleset(tenantId, selectedRulesetId);
+        if (cancelled) return;
+        setRulesetDetails(rs);
+        const map: Record<string, boolean> = {};
+        rs.rules.forEach(rule => {
+          const layer = rule.meta?.layer;
+          if (layer && layer.toLowerCase() === "employer") {
+            map[rule.target] = true;
+          }
+        });
+        setEmployerComponentsMap(map);
+      } catch (e) {
+        // If ruleset details fail to load, keep existing behavior
+        console.error("Failed to load ruleset details for simulation view:", e);
+        if (!cancelled) {
+          setRulesetDetails(null);
+          setEmployerComponentsMap({});
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, selectedRulesetId]);
 
   // ---- fetch required inputs when ruleset changes ----
   useEffect(() => {
@@ -510,22 +550,38 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
     setShowTrace(true);
   };
 
-  // Calculate results for display
-  const results = useMemo(() => {
-    if (!simulationResult) return [];
+  // Calculate results for display, separating employer cost components
+  const { results, totalAmount, employerTotal } = useMemo(() => {
+    if (!simulationResult) {
+      return { results: [] as Array<{ component: string; amount: number; contribution: number; isEmployer: boolean }>, totalAmount: 0, employerTotal: 0 };
+    }
 
     const components = simulationResult.components;
     const total = simulationResult.total;
 
-    return Object.entries(components).map(([component, amount]) => ({
-      component,
-      expression: "", // Would need to fetch from ruleset
-      amount: amount,
-      contribution: total > 0 ? (amount / total) * 100 : 0,
-    }));
-  }, [simulationResult]);
+    const items = Object.entries(components).map(([component, amount]) => {
+      const isEmployer = !!employerComponentsMap[component];
+      const numericAmount = Number(amount);
+      return {
+        component,
+        amount: numericAmount,
+        contribution: total > 0 ? (numericAmount / total) * 100 : 0,
+        isEmployer,
+      };
+    });
 
-  const totalAmount = simulationResult?.total || 0;
+    const employerSum = items
+      .filter(item => item.isEmployer)
+      .reduce((sum, item) => sum + item.amount, 0);
+
+    return {
+      results: items,
+      totalAmount: total,
+      employerTotal: employerSum,
+    };
+  }, [simulationResult, employerComponentsMap]);
+
+  const salaryTotal = Math.max(0, totalAmount - employerTotal);
 
   // Show full-page error if ruleset loading failed
   if (rulesError) {
@@ -929,8 +985,8 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                       </div>
                     )}
 
-                    {/* Table Rows */}
-                    {results.map((result, idx) => {
+                    {/* Table Rows - employee compensation components */}
+                    {results.filter(r => !r.isEmployer).map((result, idx) => {
                       const baselineAmount =
                         comparisonMode && baselineResult
                           ? baselineResult.components[result.component] ?? 0
@@ -989,11 +1045,75 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                     })}
                   </div>
 
+                  {/* Employer Cost Section (if any employer components exist) */}
+                  {results.some(r => r.isEmployer) && (
+                    <div className="mt-6 border-t border-gray-200 pt-4">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2">Employer Cost Components</h4>
+                      {results.filter(r => r.isEmployer).map((result, idx) => {
+                        const baselineAmount =
+                          comparisonMode && baselineResult
+                            ? baselineResult.components[result.component] ?? 0
+                            : 0;
+                        const delta = result.amount - baselineAmount;
+                        const isComparison = comparisonMode && !!baselineResult;
+
+                        return (
+                          <div
+                            key={result.component}
+                            className="grid grid-cols-12 gap-4 px-4 py-3 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors relative"
+                          >
+                            <button
+                              onClick={() => handleShowTrace(result.component)}
+                              className="absolute left-0 top-1/2 -translate-y-1/2 p-1 hover:bg-red-100 rounded -ml-8"
+                              title="Show calculation trace"
+                            >
+                              <Info className="w-4 h-4 text-red-600" />
+                            </button>
+                            <div className="col-span-4 flex items-center text-[#1E1E1E] min-w-0">
+                              <span className="truncate">{result.component}</span>
+                            </div>
+
+                            {isComparison ? (
+                              <>
+                                <div className="col-span-2 text-right text-gray-600">
+                                  {formatCurrencyWithDecimals(baselineAmount, currency, 2)}
+                                </div>
+                                <div className="col-span-2 text-right text-[#1E1E1E]">
+                                  {formatCurrencyWithDecimals(result.amount, currency, 2)}
+                                </div>
+                                <div
+                                  className={`col-span-2 text-right text-sm ${
+                                    delta >= 0 ? "text-green-600" : "text-red-600"
+                                  }`}
+                                >
+                                  {delta >= 0 ? "+" : ""}
+                                  {formatCurrencyWithDecimals(delta, currency, 2)}
+                                </div>
+                                <div className="col-span-2 text-right text-gray-600">
+                                  {result.contribution.toFixed(1)}%
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="col-span-3 text-right text-[#1E1E1E]">
+                                  {formatCurrencyWithDecimals(result.amount, currency, 2)}
+                                </div>
+                                <div className="col-span-2 text-right text-gray-600">
+                                  {result.contribution.toFixed(1)}%
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {/* Total Card */}
                   <Card className="p-4 bg-[#0052CC] text-white rounded-xl border-0 shadow-md">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-sm opacity-90">Total Compensation</div>
+                        <div className="text-sm opacity-90">Total Employer + Employee Cost</div>
                         <div className="text-2xl mt-1">
                           {formatCurrencyWithDecimals(totalAmount, currency, 2)}
                         </div>
@@ -1014,6 +1134,16 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                         )}
                       </div>
                       <div className="text-right">
+                        <div className="text-sm opacity-90 mb-1">Employee Compensation</div>
+                        <div className="text-lg">
+                          {formatCurrencyWithDecimals(salaryTotal, currency, 2)}
+                        </div>
+                        {employerTotal > 0 && (
+                          <div className="mt-2 text-sm opacity-90">
+                            Employer Cost: {formatCurrencyWithDecimals(employerTotal, currency, 2)}
+                          </div>
+                        )}
+                        <div className="mt-4 text-sm opacity-90">Pay Month</div>
                         <div className="text-sm opacity-90">Pay Month</div>
                         <div className="mt-1">
                           {payMonth
@@ -1100,8 +1230,18 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                   />
                 </div>
                 {simulationResult && (
-                  <div className="p-4 bg-[#EEF2F8] rounded-lg">
-                    <div className="text-sm text-gray-600 mb-1">Total: {formatCurrencyWithDecimals(simulationResult.total, currency, 2)}</div>
+                  <div className="p-4 bg-[#EEF2F8] rounded-lg space-y-1">
+                    <div className="text-sm text-gray-600">
+                      Total Employer + Employee Cost: {formatCurrencyWithDecimals(simulationResult.total, currency, 2)}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Employee Compensation: {formatCurrencyWithDecimals(salaryTotal, currency, 2)}
+                    </div>
+                    {employerTotal > 0 && (
+                      <div className="text-sm text-gray-600">
+                        Employer Cost: {formatCurrencyWithDecimals(employerTotal, currency, 2)}
+                      </div>
+                    )}
                     <div className="text-sm text-gray-600">Ruleset: {selectedRulesetName || selectedRulesetId}</div>
                     <div className="text-sm text-gray-600">Pay Month: {payMonth}</div>
                   </div>

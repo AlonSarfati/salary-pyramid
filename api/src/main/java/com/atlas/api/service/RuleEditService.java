@@ -101,6 +101,9 @@ public class RuleEditService {
         if (req.group() != null) {
             meta.put("group", req.group());
         }
+        if (req.layer() != null) {
+            meta.put("layer", req.layer());
+        }
         if (req.incomeTax() != null) {
             meta.put("incomeTax", String.valueOf(req.incomeTax()));
         }

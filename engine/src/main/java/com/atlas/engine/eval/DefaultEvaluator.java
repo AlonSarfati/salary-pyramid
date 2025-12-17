@@ -48,6 +48,11 @@ public class DefaultEvaluator implements Evaluator {
         Map<String, String> componentToGroup = new LinkedHashMap<>();
         // Use LinkedHashSet to preserve insertion order, then we'll sort it
         Set<String> groupNames = new LinkedHashSet<>();
+        // Track components by toggle flags (dynamic toggle-based groups)
+        // Key: toggle group name (e.g., "pension_group", "income_tax_group")
+        // Value: set of component names that have this toggle enabled
+        Map<String, Set<String>> toggleGroups = new LinkedHashMap<>();
+        
         for (Rule rule : ruleIdx.values()) {
             String componentName = rule.getTarget();
             Map<String, String> meta = rule.getMeta();
@@ -57,6 +62,25 @@ public class DefaultEvaluator implements Evaluator {
                     String normalizedGroup = groupName.toLowerCase();
                     componentToGroup.put(componentName, normalizedGroup);
                     groupNames.add(normalizedGroup);
+                }
+                
+                // Dynamic toggle groups: any meta key with value "true" becomes a toggle group
+                // Rule: {camelCaseKey} → {snake_case_key}_group
+                for (Map.Entry<String, String> entry : meta.entrySet()) {
+                    String metaKey = entry.getKey();
+                    String metaValue = entry.getValue();
+                    
+                    // Skip non-boolean meta keys (group, layer, etc.)
+                    if ("group".equals(metaKey) || "layer".equals(metaKey)) {
+                        continue;
+                    }
+                    
+                    // If value is "true", this is a toggle flag
+                    if (metaValue != null && metaValue.equalsIgnoreCase("true")) {
+                        String toggleGroupName = toToggleGroupName(metaKey);
+                        toggleGroups.computeIfAbsent(toggleGroupName, k -> new LinkedHashSet<>())
+                                   .add(componentName);
+                    }
                 }
             }
         }
@@ -107,6 +131,11 @@ public class DefaultEvaluator implements Evaluator {
                 }
             }
         }
+        
+        // Add toggle-based group names (e.g., pension_group, income_tax_group)
+        for (String toggleGroupName : toggleGroups.keySet()) {
+            componentNames.add(toggleGroupName);
+        }
 
         // Reorder components by group (group1 first, then group2, etc.) while preserving dependencies
         order = reorderByGroup(order, componentToGroup, groupToNumber);
@@ -154,7 +183,7 @@ public class DefaultEvaluator implements Evaluator {
             // Create restricted group-aware evaluation context
             // Components can only reference earlier groups (not their own group to prevent circular dependencies)
             RestrictedGroupAwareEvalContext groupAwareContext = new RestrictedGroupAwareEvalContext(
-                ruleContext, componentToGroup, groupToNumber, maxAllowedGroupNumber);
+                ruleContext, componentToGroup, groupToNumber, maxAllowedGroupNumber, toggleGroups);
             
             // Trace the expression being evaluated
             trace.step("Expression: " + r.getExpression());
@@ -367,5 +396,51 @@ public class DefaultEvaluator implements Evaluator {
         }
         
         return reordered;
+    }
+    
+    /**
+     * Converts a camelCase meta key to a toggle group name.
+     * Rule: {camelCaseKey} → {snake_case_key}_group
+     * 
+     * Special handling: Strips "Flag" suffix if present (e.g., "pensionFlag" → "pension")
+     * 
+     * Examples:
+     * - "pension" → "pension_group"
+     * - "pensionFlag" → "pension_group" (strips "Flag" suffix)
+     * - "incomeTax" → "income_tax_group"
+     * - "socialSecurity" → "social_security_group"
+     * - "workPension" → "work_pension_group"
+     * - "workPercentFlag" → "work_percent_group" (strips "Flag" suffix)
+     * 
+     * @param metaKey The meta key (e.g., "pension", "pensionFlag", "incomeTax")
+     * @return The toggle group name (e.g., "pension_group", "income_tax_group")
+     */
+    private static String toToggleGroupName(String metaKey) {
+        if (metaKey == null || metaKey.isEmpty()) {
+            return metaKey + "_group";
+        }
+        
+        // Strip "Flag" suffix if present (case-insensitive)
+        String key = metaKey;
+        if (key.length() > 4 && key.substring(key.length() - 4).equalsIgnoreCase("Flag")) {
+            key = key.substring(0, key.length() - 4);
+        }
+        
+        // Convert camelCase to snake_case
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
+            if (Character.isUpperCase(c)) {
+                if (i > 0) {
+                    result.append('_');
+                }
+                result.append(Character.toLowerCase(c));
+            } else {
+                result.append(c);
+            }
+        }
+        
+        // Append "_group" suffix
+        return result.toString() + "_group";
     }
 }
