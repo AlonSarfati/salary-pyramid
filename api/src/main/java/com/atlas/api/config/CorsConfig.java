@@ -54,23 +54,9 @@ public class CorsConfig { // (typo fix optional)
                                 "/*.png",
                                 "/*.svg"
                         ).permitAll()
-                        // All backend APIs under /api servlet path
+                        // All backend API endpoints under /api servlet path
                         // Spring Security sees the full path including /api before servlet path is stripped
                         .requestMatchers("/api/**").permitAll()
-                        // Also permit paths without /api prefix (in case servlet path affects matching)
-                        // This covers: /rulesets/**, /employees/**, /tenants/**, /simulate/**, etc.
-                        .requestMatchers(
-                                "/rulesets/**",
-                                "/employees/**",
-                                "/tenants/**",
-                                "/simulate/**",
-                                "/tables/**",
-                                "/component-groups/**",
-                                "/scenarios/**",
-                                "/baseline/**",
-                                "/optimizer/**",
-                                "/rules/assistant/**"
-                        ).permitAll()
                         // Fallback: permit all for now (stateless API, no auth layer)
                         .anyRequest().permitAll()
                 )
