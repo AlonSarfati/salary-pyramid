@@ -7,7 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/rules/assistant")
+@RequestMapping("/rules/assistant")
 public class RuleAssistantController {
     
     private final RuleAssistantService assistantService;

@@ -6,6 +6,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource; // ✅ servlet (MVC) package
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
 
 import java.util.List;
@@ -16,11 +17,12 @@ public class CorsConfig { // (typo fix optional)
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
-        cfg.setAllowedOrigins(List.of("http://localhost:3000", "http://127.0.0.1:3000"));
+        // Allow all origins for now (behind CloudFront, origin will vary)
+        // In production, you can restrict this to your CloudFront domain
+        cfg.setAllowedOriginPatterns(List.of("*")); // Use patterns for wildcard support
         cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        // during dev it's fine to allow all headers:
         cfg.setAllowedHeaders(List.of("*"));
-        cfg.setAllowCredentials(true);
+        cfg.setAllowCredentials(false); // Must be false when using wildcard origins
         // if you need to read custom headers in the FE response, you can expose them:
         // cfg.setExposedHeaders(List.of("Location"));
 
@@ -32,8 +34,50 @@ public class CorsConfig { // (typo fix optional)
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .cors(c -> {})        // use the bean above
-                .csrf(csrf -> csrf.disable()); // dev only
+                // Use our CORS configuration
+                .cors(c -> {})
+                // Stateless API + SPA, no CSRF tokens
+                .csrf(AbstractHttpConfigurer::disable)
+                // Our authorization rules
+                .authorizeHttpRequests(auth -> auth
+                        // Health endpoint for ALB / monitoring (NOT under servlet path)
+                        .requestMatchers("/actuator/health/**", "/actuator/info/**").permitAll()
+                        // Frontend entry & static assets (served by S3/CloudFront, but allow if backend serves them)
+                        .requestMatchers(
+                                "/",
+                                "/index.html",
+                                "/favicon.ico",
+                                "/assets/**",
+                                "/static/**",
+                                "/*.js",
+                                "/*.css",
+                                "/*.png",
+                                "/*.svg"
+                        ).permitAll()
+                        // All backend APIs under /api servlet path
+                        // Spring Security sees the full path including /api before servlet path is stripped
+                        .requestMatchers("/api/**").permitAll()
+                        // Also permit paths without /api prefix (in case servlet path affects matching)
+                        // This covers: /rulesets/**, /employees/**, /tenants/**, /simulate/**, etc.
+                        .requestMatchers(
+                                "/rulesets/**",
+                                "/employees/**",
+                                "/tenants/**",
+                                "/simulate/**",
+                                "/tables/**",
+                                "/component-groups/**",
+                                "/scenarios/**",
+                                "/baseline/**",
+                                "/optimizer/**",
+                                "/rules/assistant/**"
+                        ).permitAll()
+                        // Fallback: permit all for now (stateless API, no auth layer)
+                        .anyRequest().permitAll()
+                )
+                // Do NOT enable HTTP Basic or form login (no login pages)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable);
+
         return http.build();
     }
 }
