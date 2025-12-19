@@ -17,8 +17,11 @@ public class ExprEvaluator {
      * @return The result value
      */
     public Value evaluate(String expression, EvalContext context) {
-        Set<String> componentNames = context.getComponentNames();
-        ExprParser parser = new ExprParser(expression, componentNames);
+        // Pass null for componentNames to skip strict validation during evaluation.
+        // This allows expressions to reference components that will be calculated later,
+        // or components that may have been deleted but are still referenced.
+        // Missing components will evaluate to 0 via ComponentRefNode.evaluate() -> context.getComponent().
+        ExprParser parser = new ExprParser(expression, null);
         ExprNode node = parser.parse();
         return node.evaluate(context);
     }

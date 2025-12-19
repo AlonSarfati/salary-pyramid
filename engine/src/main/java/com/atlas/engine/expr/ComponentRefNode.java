@@ -16,13 +16,13 @@ public class ComponentRefNode implements ExprNode {
 
     @Override
     public Value evaluate(EvalContext context) {
-        // Validate component existence in context
-        if (context.getComponentNames() != null && !context.getComponentNames().contains(componentName)) {
-            throw new IllegalArgumentException("Unknown component: " + componentName);
-        }
+        // Get component value - getComponent() already handles missing components by returning 0
+        // This is more resilient: if a component doesn't exist (e.g., was deleted but still referenced),
+        // it will evaluate to 0 instead of throwing an exception and breaking the entire calculation
         Value value = context.getComponent(componentName);
+        // getComponent() should never return null, but if it does, return 0 as fallback
         if (value == null) {
-            throw new IllegalArgumentException("Unknown component: " + componentName);
+            return Value.ofNumber(java.math.BigDecimal.ZERO);
         }
         return value;
     }
