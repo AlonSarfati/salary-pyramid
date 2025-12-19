@@ -178,9 +178,11 @@ public class ExprEvaluatorTest {
 
     @Test
     void testUnknownComponent() {
-        assertThrows(IllegalArgumentException.class, () -> {
-            evaluator.evaluateAsNumber("UnknownComponent", context);
-        });
+        // Unknown components now evaluate to 0 instead of throwing an exception.
+        // This is more resilient: if a component doesn't exist (e.g., was deleted but still referenced),
+        // it will evaluate to 0 instead of breaking the entire calculation.
+        BigDecimal result = evaluator.evaluateAsNumber("UnknownComponent", context);
+        assertEquals(BigDecimal.ZERO, result);
     }
 
     @Test
