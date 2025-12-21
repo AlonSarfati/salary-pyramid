@@ -60,7 +60,8 @@
         '/api': {
           target: 'http://localhost:8080',
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api/, '')
+          // Do NOT rewrite - backend has server.servlet.context-path=/api
+          // Frontend calls /api/tenants -> proxy forwards to http://localhost:8080/api/tenants
         }
       }
     },

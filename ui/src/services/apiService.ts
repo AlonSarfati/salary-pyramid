@@ -638,7 +638,7 @@ export type RuleAssistantResponse = {
 
 export const ruleAssistantApi = {
   async generateRule(tenantId: string, request: RuleAssistantRequest): Promise<RuleAssistantResponse> {
-    return apiCall(`/api/rules/assistant/generate?tenantId=${encodeURIComponent(tenantId)}`, {
+    return apiCall(`/rules/assistant/generate?tenantId=${encodeURIComponent(tenantId)}`, {
       method: 'POST',
       body: JSON.stringify(request),
     });

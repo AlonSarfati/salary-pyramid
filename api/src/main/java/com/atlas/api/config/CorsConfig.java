@@ -40,8 +40,8 @@ public class CorsConfig { // (typo fix optional)
                 .csrf(AbstractHttpConfigurer::disable)
                 // Our authorization rules
                 .authorizeHttpRequests(auth -> auth
-                        // Health endpoint for ALB / monitoring (NOT under servlet path)
-                        .requestMatchers("/actuator/health/**", "/actuator/info/**").permitAll()
+                        // Health endpoint for ALB / monitoring (under context-path /api)
+                        .requestMatchers("/api/actuator/health/**", "/api/actuator/info/**").permitAll()
                         // Frontend entry & static assets (served by S3/CloudFront, but allow if backend serves them)
                         .requestMatchers(
                                 "/",
