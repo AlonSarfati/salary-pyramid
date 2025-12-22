@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, Play, Download, Users, Loader2, Plus, Trash2, X, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
 import { Card } from './ui/card';
@@ -938,7 +938,8 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
             supportRef={simulationError.supportRef}
             onPrimaryAction={() => {
               setSimulationError(null);
-              handleRun();
+              // Retry the main simulation with current settings
+              handleRunSimulation(false);
             }}
             inline
           />

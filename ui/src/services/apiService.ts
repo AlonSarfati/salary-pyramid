@@ -129,8 +129,28 @@ async function apiCall<T>(
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API call failed: ${response.status} - ${errorText}`);
+    let errorMessage = `API call failed: ${response.status}`;
+    try {
+      // Clone response to read body without consuming the original
+      const clonedResponse = response.clone();
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await clonedResponse.json();
+        if (errorData.error) {
+          errorMessage = errorData.error;
+        } else if (typeof errorData === 'string') {
+          errorMessage = errorData;
+        }
+      } else {
+        const errorText = await clonedResponse.text();
+        if (errorText) {
+          errorMessage = errorText;
+        }
+      }
+    } catch {
+      // If parsing fails, use default error message
+    }
+    throw new Error(errorMessage);
   }
 
   return response.json();
@@ -466,10 +486,10 @@ export const componentGroupsApi = {
   async getAll(): Promise<ComponentGroup[]> {
     return apiCall('/component-groups');
   },
-  async update(groupName: string, displayName: string, color: string, displayOrder: number): Promise<ComponentGroup> {
+  async update(groupName: string, newGroupName: string | null, displayName: string, color: string, displayOrder: number): Promise<ComponentGroup> {
     return apiCall(`/component-groups/${encodeURIComponent(groupName)}`, {
       method: 'PUT',
-      body: JSON.stringify({ displayName, color, displayOrder }),
+      body: JSON.stringify({ groupName: newGroupName, displayName, color, displayOrder }),
     });
   },
   async delete(groupName: string): Promise<void> {
