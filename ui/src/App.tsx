@@ -17,7 +17,6 @@ import RulesLayout from './components/RulesLayout';
 import SimulateLayout from './components/SimulateLayout';
 import { tenantApi } from './services/apiService';
 import { ToastProvider } from './components/ToastProvider';
-import liraLogo from './assets/lira-logo.png';
 
 type Tenant = {
   tenantId: string;
@@ -107,11 +106,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen bg-[#EEF2F8]">
         {/* Left Sidebar */}
         <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center gap-3">
-              <img src={liraLogo} alt="Lira Logo" className="h-8 w-auto" />
-              <h1 className="text-[#0052CC]">Lira Compensation</h1>
-            </div>
+          <div className="p-6 border-b border-gray-200 flex items-center">
+            <img
+              src="/assets/icons/lira-logo-rev.png"
+              alt="Lira logo"
+              className="sidebar-logo w-auto"
+            />
           </div>
           <nav className="flex-1 p-4">
             {navItems.map((item) => {
