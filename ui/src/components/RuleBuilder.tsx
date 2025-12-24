@@ -2166,7 +2166,25 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     }
   };
 
-  const parseCSV = (csvText: string): Array<{ componentName: string; expression: string; group: string }> => {
+  // Helper function to parse boolean values from strings
+  const parseBoolean = (value: string | null | undefined): boolean => {
+    if (!value) return false;
+    const normalized = String(value).trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'y';
+  };
+
+  const parseCSV = (csvText: string): Array<{ 
+    componentName: string; 
+    expression: string; 
+    group: string;
+    incomeTax?: boolean;
+    socialSecurity?: boolean;
+    pension?: boolean;
+    workPension?: boolean;
+    expensesPension?: boolean;
+    educationFund?: boolean;
+    workPercent?: boolean;
+  }> => {
     const lines = csvText.split(/\r?\n/).filter(line => line.trim());
     if (lines.length === 0) {
       throw new Error('CSV file is empty');
@@ -2175,7 +2193,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
     // Always skip first row (header)
     const dataLines = lines.slice(1);
 
-    const results: Array<{ componentName: string; expression: string; group: string }> = [];
+    const results: Array<{ 
+      componentName: string; 
+      expression: string; 
+      group: string;
+      incomeTax?: boolean;
+      socialSecurity?: boolean;
+      pension?: boolean;
+      workPension?: boolean;
+      expensesPension?: boolean;
+      educationFund?: boolean;
+      workPercent?: boolean;
+    }> = [];
 
     for (let i = 0; i < dataLines.length; i++) {
       const line = dataLines[i].trim();
@@ -2211,6 +2240,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       fields.push(currentField.trim());
 
       // Map by position: column 0 = name, column 1 = expression, column 2 = group
+      // Optional columns 3-9 = flags (incomeTax, socialSecurity, pension, workPension, expensesPension, educationFund, workPercent)
       if (fields.length < 3) {
         throw new Error(`Row ${i + 2}: Expected at least 3 columns (component name, rule expression, group), found ${fields.length}`);
       }
@@ -2229,13 +2259,67 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         throw new Error(`Row ${i + 2}: Group (column 3) is required`);
       }
 
-      results.push({ componentName, expression, group });
+      // Parse optional flag columns (default to false if not provided)
+      const result: {
+        componentName: string;
+        expression: string;
+        group: string;
+        incomeTax?: boolean;
+        socialSecurity?: boolean;
+        pension?: boolean;
+        workPension?: boolean;
+        expensesPension?: boolean;
+        educationFund?: boolean;
+        workPercent?: boolean;
+      } = { componentName, expression, group };
+
+      // Column 3: incomeTax
+      if (fields.length > 3) {
+        result.incomeTax = parseBoolean(fields[3]);
+      }
+      // Column 4: socialSecurity
+      if (fields.length > 4) {
+        result.socialSecurity = parseBoolean(fields[4]);
+      }
+      // Column 5: pension
+      if (fields.length > 5) {
+        result.pension = parseBoolean(fields[5]);
+      }
+      // Column 6: workPension
+      if (fields.length > 6) {
+        result.workPension = parseBoolean(fields[6]);
+      }
+      // Column 7: expensesPension
+      if (fields.length > 7) {
+        result.expensesPension = parseBoolean(fields[7]);
+      }
+      // Column 8: educationFund
+      if (fields.length > 8) {
+        result.educationFund = parseBoolean(fields[8]);
+      }
+      // Column 9: workPercent
+      if (fields.length > 9) {
+        result.workPercent = parseBoolean(fields[9]);
+      }
+
+      results.push(result);
     }
 
     return results;
   };
 
-  const parseXLSX = (file: File): Promise<Array<{ componentName: string; expression: string; group: string }>> => {
+  const parseXLSX = (file: File): Promise<Array<{ 
+    componentName: string; 
+    expression: string; 
+    group: string;
+    incomeTax?: boolean;
+    socialSecurity?: boolean;
+    pension?: boolean;
+    workPension?: boolean;
+    expensesPension?: boolean;
+    educationFund?: boolean;
+    workPercent?: boolean;
+  }>> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -2261,7 +2345,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           // Always skip first row (header)
           const dataRows = rows.slice(1);
 
-          const results: Array<{ componentName: string; expression: string; group: string }> = [];
+          const results: Array<{ 
+            componentName: string; 
+            expression: string; 
+            group: string;
+            incomeTax?: boolean;
+            socialSecurity?: boolean;
+            pension?: boolean;
+            workPension?: boolean;
+            expensesPension?: boolean;
+            educationFund?: boolean;
+            workPercent?: boolean;
+          }> = [];
 
           for (let i = 0; i < dataRows.length; i++) {
             const row = dataRows[i];
@@ -2272,6 +2367,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             }
 
             // Map by position: column 0 = name, column 1 = expression, column 2 = group
+            // Optional columns 3-9 = flags (incomeTax, socialSecurity, pension, workPension, expensesPension, educationFund, workPercent)
             if (row.length < 3) {
               reject(new Error(`Row ${i + 2}: Expected at least 3 columns (component name, rule expression, group), found ${row.length}`));
               return;
@@ -2294,7 +2390,50 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               return;
             }
 
-            results.push({ componentName, expression, group });
+            // Parse optional flag columns (default to false if not provided)
+            const result: {
+              componentName: string;
+              expression: string;
+              group: string;
+              incomeTax?: boolean;
+              socialSecurity?: boolean;
+              pension?: boolean;
+              workPension?: boolean;
+              expensesPension?: boolean;
+              educationFund?: boolean;
+              workPercent?: boolean;
+            } = { componentName, expression, group };
+
+            // Column 3: incomeTax
+            if (row.length > 3) {
+              result.incomeTax = parseBoolean(row[3]);
+            }
+            // Column 4: socialSecurity
+            if (row.length > 4) {
+              result.socialSecurity = parseBoolean(row[4]);
+            }
+            // Column 5: pension
+            if (row.length > 5) {
+              result.pension = parseBoolean(row[5]);
+            }
+            // Column 6: workPension
+            if (row.length > 6) {
+              result.workPension = parseBoolean(row[6]);
+            }
+            // Column 7: expensesPension
+            if (row.length > 7) {
+              result.expensesPension = parseBoolean(row[7]);
+            }
+            // Column 8: educationFund
+            if (row.length > 8) {
+              result.educationFund = parseBoolean(row[8]);
+            }
+            // Column 9: workPercent
+            if (row.length > 9) {
+              result.workPercent = parseBoolean(row[9]);
+            }
+
+            results.push(result);
           }
 
           resolve(results);
@@ -2317,7 +2456,18 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       setImporting(true);
       setImportError(null);
 
-      let rows: Array<{ componentName: string; expression: string; group: string }>;
+      let rows: Array<{ 
+        componentName: string; 
+        expression: string; 
+        group: string;
+        incomeTax?: boolean;
+        socialSecurity?: boolean;
+        pension?: boolean;
+        workPension?: boolean;
+        expensesPension?: boolean;
+        educationFund?: boolean;
+        workPercent?: boolean;
+      }>;
       
       // Check file extension
       const fileName = file.name.toLowerCase();
@@ -2374,13 +2524,13 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
             effectiveTo: null,
             group: actualGroupName,
             layer: 'base',
-            incomeTax: false,
-            socialSecurity: false,
-            pension: false,
-            workPension: false,
-            expensesPension: false,
-            educationFund: false,
-            workPercent: false,
+            incomeTax: row.incomeTax ?? false,
+            socialSecurity: row.socialSecurity ?? false,
+            pension: row.pension ?? false,
+            workPension: row.workPension ?? false,
+            expensesPension: row.expensesPension ?? false,
+            educationFund: row.educationFund ?? false,
+            workPercent: row.workPercent ?? false,
           });
           successCount++;
         } catch (err: any) {
@@ -4749,22 +4899,30 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
           </DialogHeader>
           <div className="space-y-4">
             <div className="text-sm text-gray-600">
-              <p className="mb-2">File format should have 3 columns (first row is header and will be skipped):</p>
+              <p className="mb-2">File format should have at least 3 columns (first row is header and will be skipped):</p>
               <ol className="list-decimal list-inside space-y-1 ml-2">
-                <li>Column 1: Component name</li>
-                <li>Column 2: Rule expression</li>
-                <li>Column 3: Group (group1, group2, etc. or group name)</li>
+                <li>Column 1: Component name (required)</li>
+                <li>Column 2: Rule expression (required)</li>
+                <li>Column 3: Group (required) - group1, group2, etc. or group name</li>
+                <li className="mt-2 font-semibold">Optional flag columns (true/false, 1/0, yes/no):</li>
+                <li className="ml-4">Column 4: Income Tax</li>
+                <li className="ml-4">Column 5: Social Security</li>
+                <li className="ml-4">Column 6: Pension</li>
+                <li className="ml-4">Column 7: Work Pension</li>
+                <li className="ml-4">Column 8: Expenses Pension</li>
+                <li className="ml-4">Column 9: Education Fund</li>
+                <li className="ml-4">Column 10: Work Percent</li>
               </ol>
               <p className="mt-3 text-xs text-gray-500">
                 Example:<br />
                 <code className="bg-gray-100 px-2 py-1 rounded block mt-1">
-                  Component Name,Expression,Group<br />
-                  BaseSalary,10000,group1<br />
-                  Bonus,BaseSalary * 0.1,group2
+                  Component Name,Expression,Group,Income Tax,Social Security,Pension<br />
+                  BaseSalary,10000,group1,true,true,false<br />
+                  Bonus,BaseSalary * 0.1,group2,true,false,false
                 </code>
               </p>
               <p className="mt-2 text-xs text-gray-500">
-                Supported formats: CSV (.csv), Excel (.xlsx, .xls)
+                Supported formats: CSV (.csv), Excel (.xlsx, .xls). Flag columns are optional and default to false if not provided.
               </p>
             </div>
             
