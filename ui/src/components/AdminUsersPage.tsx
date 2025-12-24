@@ -58,6 +58,9 @@ const ROLE_DESCRIPTIONS: Record<TenantUserRole, string> = {
 
 export default function AdminUsersPage() {
   const { tenantId } = useTenant();
+  
+  // This page manages tenant-specific users (tenant_users table)
+  // For system-level access, see "System Access" page
   const {
     users,
     invites,
@@ -163,7 +166,7 @@ export default function AdminUsersPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Users & Access</BreadcrumbPage>
+            <BreadcrumbPage>Team Members</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -171,8 +174,11 @@ export default function AdminUsersPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-[#1E1E1E] mb-1">Users & Access</h1>
-          <p className="text-sm text-gray-600">Manage user access and permissions for this tenant</p>
+          <h1 className="text-2xl font-semibold text-[#1E1E1E] mb-1">Team Members</h1>
+          <p className="text-sm text-gray-600">
+            Manage users who are members of this tenant (TENANT_ADMIN, TENANT_EDITOR, TENANT_VIEWER). 
+            For system-level access across all tenants, use "System Access" in the system admin menu.
+          </p>
         </div>
         {canManage && (
           <Button

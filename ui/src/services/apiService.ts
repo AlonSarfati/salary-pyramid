@@ -107,7 +107,7 @@ export type SimBulkResponse = {
 };
 
 // Helper function for API calls
-async function apiCall<T>(
+export async function apiCall<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
@@ -120,15 +120,6 @@ async function apiCall<T>(
     ...getAuthHeader(), // Include JWT token if available
   };
   
-  if (import.meta.env.DEV) {
-    // Dev-only diagnostics: log whether auth header is present (but not the token value)
-    console.debug(
-      "API call",
-      url,
-      "authHeader?",
-      !!headers['Authorization']
-    );
-  }
 
   if (isGetRequest) {
     // Add cache-busting headers for GET requests to prevent stale data
@@ -164,9 +155,6 @@ async function apiCall<T>(
       }
     } catch (refreshError) {
       // If refresh fails, continue with original error handling
-      if (import.meta.env.DEV) {
-        console.warn("Token refresh failed:", refreshError);
-      }
     }
   }
 
@@ -383,8 +371,19 @@ export const employeeApi = {
 };
 
 export const tenantApi = {
-  // List all tenants
-  async list(): Promise<Array<{ tenantId: string; name: string; status: string; currency: string; createdAt: string; updatedAt: string }>> {
+  // List all tenants (now returns metadata: effectiveRole, roleSource, canAccessAllTenants)
+  async list(): Promise<Array<{ 
+    tenantId: string; 
+    tenantName: string;
+    name?: string; // Legacy field
+    status: string; 
+    currency: string; 
+    createdAt: string; 
+    updatedAt: string;
+    effectiveRole?: string;
+    roleSource?: 'SYSTEM_ALLOWLIST' | 'TENANT_MEMBERSHIP';
+    canAccessAllTenants?: boolean;
+  }>> {
     return apiCall('/tenants');
   },
 

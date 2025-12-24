@@ -40,11 +40,15 @@ import { ToastProvider } from "./components/ToastProvider";
 
 type Tenant = {
   tenantId: string;
-  name: string;
+  tenantName: string;
+  name?: string; // Legacy field for backwards compatibility
   status: string;
   currency: string;
   createdAt: string;
   updatedAt: string;
+  effectiveRole?: string;
+  roleSource?: 'SYSTEM_ALLOWLIST' | 'TENANT_MEMBERSHIP';
+  canAccessAllTenants?: boolean;
 };
 
 type TenantContextType = {
@@ -83,33 +87,23 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       
       // Listen for token expiration and auto-renew
       userManager.events.addUserLoaded((user) => {
-        if (import.meta.env.DEV) {
-          console.info("OIDC: User loaded, token expires in", 
-            Math.floor((user.expires_at || 0) - Date.now() / 1000), "seconds");
-        }
-        // Update token in authService
+        // Update token in authService when user is loaded/renewed
         if (user.access_token) {
           setAuthToken(user.access_token);
         }
       });
       
       userManager.events.addAccessTokenExpiring(() => {
-        if (import.meta.env.DEV) {
-          console.info("OIDC: Access token expiring soon, renewing...");
-        }
         // The automaticSilentRenew will handle this, but we can also manually trigger
-        userManager.signinSilent().catch(err => {
-          console.warn("OIDC: Failed to silently renew token:", err);
+        userManager.signinSilent().catch(() => {
+          // Silent renewal failed - will be handled by automaticSilentRenew
         });
       });
       
       userManager.events.addAccessTokenExpired(() => {
-        if (import.meta.env.DEV) {
-          console.warn("OIDC: Access token expired");
-        }
-        // Try to renew
-        userManager.signinSilent().catch(err => {
-          console.warn("OIDC: Failed to renew expired token:", err);
+        // Try to renew expired token
+        userManager.signinSilent().catch(() => {
+          // Renewal failed - user may need to sign in again
         });
       });
     };
@@ -125,15 +119,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         // 1) Try to load existing OIDC user session
         const user = await getCurrentUser();
 
-        if (import.meta.env.DEV) {
-          console.info(
-            "OIDC getCurrentUser: user loaded?",
-            !!user,
-            "access_token?",
-            !!user?.access_token
-          );
-        }
-
         if (!user || !user.access_token) {
           setAuthError({
             error: "NOT_AUTHENTICATED",
@@ -145,27 +130,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
         // 2) Set token for API calls (ensure in-memory token is set on refresh)
         setAuthToken(user.access_token);
-        if (import.meta.env.DEV) {
-          console.info(
-            "Auth token set from OIDC user:",
-            !!user.access_token
-          );
-        }
 
         // 3) Check backend auth/me to get role/mode/tenants
         try {
-          if (import.meta.env.DEV) {
-            console.info("Calling /api/auth/me...");
-          }
           const authData = await authApi.getMe();
-          if (import.meta.env.DEV) {
-            console.info("✅ /api/auth/me succeeded:", authData);
-          }
           setAuthData(authData);
         } catch (error: any) {
-          if (import.meta.env.DEV) {
-            console.error("❌ /api/auth/me failed:", error);
-          }
           if (error.status === 401 || error.error === "NOT_AUTHENTICATED") {
             setAuthError({
               error: "NOT_AUTHENTICATED",
@@ -190,38 +160,32 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          console.log("Auth check failed (OIDC may not be configured):", error);
         }
 
-        // 4) Load tenants and filter by user's allowed tenants
+        // 4) Load tenants (backend now filters based on user's access)
         const allTenants = await tenantApi.list();
         
-        // Get current auth data (might have been set in step 3)
-        const currentAuthData = getAuthData();
+        // Normalize tenant data (handle both tenantName and name fields)
+        const normalizedTenants = allTenants.map(t => ({
+          ...t,
+          name: t.tenantName || t.name || t.tenantId, // Use tenantName if available, fallback to name or tenantId
+        }));
         
-        // Filter tenants based on user's allowedTenantIds
-        let filteredTenants = allTenants;
-        if (currentAuthData?.allowedTenantIds && currentAuthData.allowedTenantIds.length > 0) {
-          filteredTenants = allTenants.filter(tenant => 
-            currentAuthData.allowedTenantIds.includes(tenant.tenantId)
-          );
-        }
-        
-        setTenants(filteredTenants);
+        setTenants(normalizedTenants);
 
-        // Set default tenant from filtered list
-        if (filteredTenants.length > 0) {
+        // Set default tenant from list
+        if (normalizedTenants.length > 0) {
           const currentAuthData = getAuthData();
-          const defaultTenant = filteredTenants.find((t) => t.tenantId === "default");
-          const firstActive = filteredTenants.find((t) => t.status === "ACTIVE");
-          if (currentAuthData?.primaryTenantId && filteredTenants.some(t => t.tenantId === currentAuthData.primaryTenantId)) {
+          const defaultTenant = normalizedTenants.find((t) => t.tenantId === "default");
+          const firstActive = normalizedTenants.find((t) => t.status === "ACTIVE");
+          if (currentAuthData?.primaryTenantId && normalizedTenants.some(t => t.tenantId === currentAuthData.primaryTenantId)) {
             setSelectedTenantId(currentAuthData.primaryTenantId);
           } else if (defaultTenant) {
             setSelectedTenantId("default");
           } else if (firstActive) {
             setSelectedTenantId(firstActive.tenantId);
           } else {
-            setSelectedTenantId(filteredTenants[0].tenantId);
+            setSelectedTenantId(normalizedTenants[0].tenantId);
           }
         }
       } catch (error: any) {
@@ -265,17 +229,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const reloadTenants = async () => {
     try {
       const allTenants = await tenantApi.list();
-      const currentAuthData = getAuthData();
       
-      // Filter tenants based on user's allowedTenantIds
-      let filteredTenants = allTenants;
-      if (currentAuthData?.allowedTenantIds && currentAuthData.allowedTenantIds.length > 0) {
-        filteredTenants = allTenants.filter(tenant => 
-          currentAuthData.allowedTenantIds.includes(tenant.tenantId)
-        );
-      }
+      // Normalize tenant data (handle both tenantName and name fields)
+      const normalizedTenants = allTenants.map(t => ({
+        ...t,
+        name: t.tenantName || t.name || t.tenantId, // Use tenantName if available, fallback to name or tenantId
+      }));
       
-      setTenants(filteredTenants);
+      setTenants(normalizedTenants);
     } catch (error) {
       console.error("Failed to reload tenants:", error);
     }
@@ -343,10 +304,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-4">
               {!tenantsLoading && tenants.length > 0 && (() => {
                 const authData = getAuthData();
+                // Check if user has multiple tenants or is in MULTI_TENANT mode
                 const isMultiTenant = authData?.mode === "MULTI_TENANT" || 
-                                     (authData?.allowedTenantIds && authData.allowedTenantIds.length > 1);
+                                     (tenants.length > 1) ||
+                                     (tenants.some(t => t.canAccessAllTenants));
                 
-                if (isMultiTenant) {
+                if (isMultiTenant && tenants.length > 1) {
                   // Show dropdown for multi-tenant
                   return (
                     <div className="flex items-center gap-2">
@@ -354,13 +317,13 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                       <select
                         value={selectedTenantId}
                         onChange={(e) => setSelectedTenantId(e.target.value)}
-                        className="px-4 py-2 border border-gray-300 rounded bg-white text-[#1E1E1E] min-w-[200px] text-sm"
+                        className="px-4 py-2 border border-gray-300 rounded-sm bg-white text-[#1E1E1E] min-w-[200px] text-sm focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
                       >
                         {tenants
                           .filter(t => t.status === 'ACTIVE')
                           .map((tenant) => (
                             <option key={tenant.tenantId} value={tenant.tenantId}>
-                              {tenant.name}
+                              {tenant.name || tenant.tenantName || tenant.tenantId}
                             </option>
                           ))}
                       </select>
@@ -371,7 +334,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                   const primaryTenant = tenants.find(t => t.tenantId === authData?.primaryTenantId) ||
                                       tenants.find(t => t.tenantId === "default") ||
                                       tenants[0];
-                  const tenantName = primaryTenant?.name || primaryTenant?.tenantId || "Default";
+                  const tenantName = primaryTenant?.name || primaryTenant?.tenantName || primaryTenant?.tenantId || "Default";
                   
                   return (
                     <div className="flex items-center gap-2">

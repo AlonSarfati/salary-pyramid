@@ -1,14 +1,20 @@
 package com.atlas.api.controller;
 
+import com.atlas.api.auth.TenantContextResolver;
 import com.atlas.api.auth.UserContext;
+import com.atlas.api.exception.StructuredError;
 import com.atlas.api.service.AuthContextService;
+import com.atlas.api.service.CapabilitiesService;
 import com.atlas.api.service.TenantSettingsService;
+import com.atlas.api.service.UserIdentityService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,15 +24,24 @@ public class AdminTenantSettingsController {
     private final TenantSettingsService settingsService;
     private final UserContext userContext;
     private final AuthContextService authContextService;
+    private final CapabilitiesService capabilitiesService;
+    private final UserIdentityService userIdentityService;
+    private final TenantContextResolver tenantContextResolver;
 
     public AdminTenantSettingsController(
         TenantSettingsService settingsService,
         UserContext userContext,
-        AuthContextService authContextService
+        AuthContextService authContextService,
+        CapabilitiesService capabilitiesService,
+        UserIdentityService userIdentityService,
+        TenantContextResolver tenantContextResolver
     ) {
         this.settingsService = settingsService;
         this.userContext = userContext;
         this.authContextService = authContextService;
+        this.capabilitiesService = capabilitiesService;
+        this.userIdentityService = userIdentityService;
+        this.tenantContextResolver = tenantContextResolver;
     }
     
     /**
@@ -59,57 +74,117 @@ public class AdminTenantSettingsController {
     }
 
     /**
-     * Check if current user can edit tenant settings
+     * Get current user's actor info (userIdentityId and source)
      */
-    private boolean canEditSettings(String tenantId) {
-        // Ensure UserContext is populated from JWT if not already
+    private Map<String, String> getActorInfo() {
+        ensureUserContextPopulated();
+        
+        String userIdentityId = null;
+        String actorSource = null;
+        
+        if (userContext.getIssuer() != null && userContext.getSubject() != null) {
+            var userIdentity = userIdentityService.findByIssuerAndSubject(
+                userContext.getIssuer(), 
+                userContext.getSubject()
+            );
+            if (userIdentity.isPresent()) {
+                userIdentityId = userIdentity.get().id().toString();
+                actorSource = "TENANT_MEMBERSHIP"; // Settings are always tenant-scoped
+            }
+        }
+        
+        return Map.of(
+            "userIdentityId", userIdentityId != null ? userIdentityId : "",
+            "actorSource", actorSource != null ? actorSource : "SYSTEM_ALLOWLIST"
+        );
+    }
+    
+    /**
+     * Get user's role for a specific tenant.
+     */
+    private String getTenantRole(String tenantId) {
+        if (userContext.getIssuer() == null || userContext.getSubject() == null) {
+            return userContext.getRole();
+        }
+        
+        var userIdentity = userIdentityService.findByIssuerAndSubject(
+            userContext.getIssuer(), 
+            userContext.getSubject()
+        );
+        
+        if (userIdentity.isPresent()) {
+            // Check tenant_users table - would need to inject TenantUserService or query directly
+            // For now, fall back to allowlist role
+        }
+        
+        return userContext.getRole();
+    }
+    
+    /**
+     * Check if user has capability for tenant
+     */
+    private boolean hasCapability(String capability, String tenantId) {
         ensureUserContextPopulated();
         
         if (!userContext.isAuthenticated()) {
             return false;
         }
         
-        // Get allowlist role (this is what matters for system admins)
-        String allowlistRole = userContext.getRole();
-        
-        // For ADMIN users from allowlist, grant access to all tenants
-        // ADMIN is the strongest role - they can manage any tenant
-        if ("ADMIN".equals(allowlistRole)) {
-            return true;
-        }
-        
-        // For other roles, check tenant-specific role
-        String role = getTenantRole(tenantId);
-        boolean isAdmin = "ADMIN".equals(role);
-        
-        if (!isAdmin) {
+        // Validate capability scope
+        try {
+            capabilitiesService.validateCapabilityCheck(capability, tenantId);
+        } catch (IllegalArgumentException e) {
             return false;
         }
         
-        // For tenant-specific admins, check if they have access to this tenant
-        if (!userContext.canAccessTenant(tenantId)) {
+        // Resolve and validate tenant context (includes SSO check)
+        try {
+            tenantContextResolver.resolveTenant(tenantId);
+        } catch (SecurityException e) {
             return false;
         }
         
-        return true;
-    }
-
-    /**
-     * Check if current user is ADMIN (strongest role)
-     */
-    private boolean isAdmin() {
-        String allowlistRole = userContext.getRole();
-        return userContext.isAuthenticated() && "ADMIN".equals(allowlistRole);
+        String systemRole = userContext.getRole();
+        String tenantRole = getTenantRole(tenantId);
+        boolean canAccessAllTenants = "SYSTEM_ADMIN".equals(normalizeSystemRole(systemRole)) 
+            || "ADMIN".equals(systemRole);
+        
+        return capabilitiesService.hasCapability(
+            systemRole,
+            tenantRole,
+            capability,
+            tenantId,
+            canAccessAllTenants,
+            userContext.getAllowedTenantIds()
+        );
     }
     
     /**
-     * Get user's role for a specific tenant.
-     * First checks tenant_users table, then falls back to allowlist role.
+     * Get correlation ID from request header or generate one
      */
-    private String getTenantRole(String tenantId) {
-        // For now, use allowlist role. In future, check tenant_users table.
-        // This allows users with ADMIN in allowlist to access admin endpoints.
-        return userContext.getRole();
+    private String getCorrelationId(HttpServletRequest request) {
+        String correlationId = request.getHeader("X-Correlation-ID");
+        if (correlationId == null || correlationId.trim().isEmpty()) {
+            correlationId = java.util.UUID.randomUUID().toString();
+        }
+        return correlationId;
+    }
+    
+    private String normalizeSystemRole(String role) {
+        if (role == null) return null;
+        return switch (role) {
+            case "ADMIN" -> "SYSTEM_ADMIN";
+            case "ANALYST" -> "SYSTEM_ANALYST";
+            case "VIEWER" -> "SYSTEM_VIEWER";
+            default -> role;
+        };
+    }
+    
+    /**
+     * Check if user can change requireSso (only SYSTEM_ADMIN)
+     */
+    private boolean canChangeSso(String tenantId) {
+        return hasCapability(CapabilitiesService.TENANT_DANGER_DELETE, tenantId);
     }
 
     /**
@@ -117,11 +192,27 @@ public class AdminTenantSettingsController {
      */
     @GetMapping("/{tenantId}/settings")
     public ResponseEntity<?> getSettings(@PathVariable String tenantId) {
-        if (!canEditSettings(tenantId)) {
-            return ResponseEntity.status(403).body(Map.of(
-                "error", "FORBIDDEN",
-                "message", "You do not have permission to view settings for this tenant"
-            ));
+        // Resolve and validate tenant (includes SSO check)
+        try {
+            tenantContextResolver.resolveTenant(tenantId);
+        } catch (SecurityException e) {
+            if (e.getMessage().contains("SSO")) {
+                return ResponseEntity.status(403).body(
+                    StructuredError.ssoRequired(tenantId).toMap()
+                );
+            }
+            return ResponseEntity.status(403).body(
+                StructuredError.forbidden(e.getMessage(), CapabilitiesService.TENANT_SETTINGS_EDIT).toMap()
+            );
+        }
+        
+        if (!hasCapability(CapabilitiesService.TENANT_SETTINGS_EDIT, tenantId)) {
+            return ResponseEntity.status(403).body(
+                StructuredError.forbidden(
+                    "You do not have permission to view settings for this tenant",
+                    CapabilitiesService.TENANT_SETTINGS_EDIT
+                ).toMap()
+            );
         }
 
         try {
@@ -152,10 +243,9 @@ public class AdminTenantSettingsController {
             response.put("requireSso", s.requireSso());
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of(
-                "error", "INTERNAL_ERROR",
-                "message", e.getMessage()
-            ));
+            return ResponseEntity.status(500).body(
+                StructuredError.badRequest(e.getMessage()).toMap()
+            );
         }
     }
 
@@ -165,22 +255,41 @@ public class AdminTenantSettingsController {
     @PutMapping("/{tenantId}/settings")
     public ResponseEntity<?> updateSettings(
         @PathVariable String tenantId,
-        @RequestBody Map<String, Object> request
+        @RequestBody Map<String, Object> request,
+        HttpServletRequest httpRequest
     ) {
-        if (!canEditSettings(tenantId)) {
-            return ResponseEntity.status(403).body(Map.of(
-                "error", "FORBIDDEN",
-                "message", "You do not have permission to edit settings for this tenant"
-            ));
+        // Resolve and validate tenant
+        try {
+            tenantContextResolver.resolveTenant(tenantId);
+        } catch (SecurityException e) {
+            if (e.getMessage().contains("SSO")) {
+                return ResponseEntity.status(403).body(
+                    StructuredError.ssoRequired(tenantId).toMap()
+                );
+            }
+            return ResponseEntity.status(403).body(
+                StructuredError.forbidden(e.getMessage(), CapabilitiesService.TENANT_SETTINGS_EDIT).toMap()
+            );
+        }
+        
+        if (!hasCapability(CapabilitiesService.TENANT_SETTINGS_EDIT, tenantId)) {
+            return ResponseEntity.status(403).body(
+                StructuredError.forbidden(
+                    "You do not have permission to edit settings for this tenant",
+                    CapabilitiesService.TENANT_SETTINGS_EDIT
+                ).toMap()
+            );
         }
 
         try {
-            // Check if requireSso is being changed - only ADMIN can change this
-            if (request.containsKey("requireSso") && !isAdmin()) {
-                return ResponseEntity.status(403).body(Map.of(
-                    "error", "FORBIDDEN",
-                    "message", "Only admins can change SSO settings"
-                ));
+            // Check if requireSso is being changed - only SYSTEM_ADMIN can change this
+            if (request.containsKey("requireSso") && !canChangeSso(tenantId)) {
+                return ResponseEntity.status(403).body(
+                    StructuredError.forbidden(
+                        "Only system admins can change SSO settings",
+                        CapabilitiesService.TENANT_DANGER_DELETE
+                    ).toMap()
+                );
             }
 
             // Build update map
@@ -210,7 +319,7 @@ public class AdminTenantSettingsController {
             if (request.containsKey("allowedEmailDomains")) {
                 updates.put("allowedEmailDomains", request.get("allowedEmailDomains"));
             }
-            if (request.containsKey("requireSso") && isAdmin()) {
+            if (request.containsKey("requireSso") && canChangeSso(tenantId)) {
                 updates.put("requireSso", request.get("requireSso"));
             }
 
@@ -231,7 +340,17 @@ public class AdminTenantSettingsController {
                 }
             }
 
-            var updated = settingsService.updateSettings(tenantId, updates);
+            var actorInfo = getActorInfo();
+            String correlationId = getCorrelationId(httpRequest);
+            
+            var updated = settingsService.updateSettings(
+                tenantId, 
+                updates,
+                actorInfo.get("userIdentityId"),
+                actorInfo.get("actorSource")
+            );
+            
+            // Note: Audit logging is done in TenantSettingsService.updateSettings
             
             Map<String, Object> response = new java.util.HashMap<>();
             response.put("tenantId", updated.tenantId());
@@ -251,15 +370,13 @@ public class AdminTenantSettingsController {
             response.put("requireSso", updated.requireSso());
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(404).body(Map.of(
-                "error", "NOT_FOUND",
-                "message", e.getMessage()
-            ));
+            return ResponseEntity.status(404).body(
+                StructuredError.notFound(e.getMessage()).toMap()
+            );
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of(
-                "error", "INTERNAL_ERROR",
-                "message", e.getMessage()
-            ));
+            return ResponseEntity.status(500).body(
+                StructuredError.badRequest(e.getMessage()).toMap()
+            );
         }
     }
 }

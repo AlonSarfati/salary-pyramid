@@ -50,9 +50,10 @@ public class AuthMeController {
         
         // Dev-only debug log
         if (log.isDebugEnabled()) {
-            log.debug("AuthMeController: extractedEmail={}, iss={}, sub={}, allowlistMatch={}, matchMethod={}",
+            log.debug("AuthMeController: extractedEmail={}, iss={}, sub={}, allowlistMatch={}, matchMethod={}, role={}",
                     identity.email(), identity.issuer(), identity.subject(), 
-                    matchResult.matched(), matchResult.matchMethod());
+                    matchResult.matched(), matchResult.matchMethod(),
+                    matchResult.matched() ? matchResult.entry().get().role() : "N/A");
         }
 
         // If no match found

@@ -68,7 +68,17 @@ async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
 export const adminApi = {
   // Users
   async getUsers(tenantId: string): Promise<TenantUser[]> {
-    return apiCall<TenantUser[]>(`/admin/${tenantId}/users`);
+    const response = await apiCall<any>(`/admin/${tenantId}/users`);
+    // Backend now returns {users: [...], actingAs: {...}}
+    // Extract users array from response
+    if (response && response.users && Array.isArray(response.users)) {
+      return response.users;
+    }
+    // Fallback: if response is already an array (backwards compatibility)
+    if (Array.isArray(response)) {
+      return response;
+    }
+    return [];
   },
 
   async inviteUser(tenantId: string, request: InviteUserRequest): Promise<TenantInvite> {
@@ -87,14 +97,28 @@ export const adminApi = {
   },
 
   async getInvites(tenantId: string): Promise<TenantInvite[]> {
-    const response = await apiCall<any[]>(`/admin/${tenantId}/invites`);
+    const response = await apiCall<any>(`/admin/${tenantId}/invites`);
+    // Backend now returns {invites: [...], actingAs: {...}}
+    // Extract invites array from response
+    let inviteArray: any[] = [];
+    if (response && response.invites && Array.isArray(response.invites)) {
+      inviteArray = response.invites;
+    } else if (Array.isArray(response)) {
+      // Fallback: if response is already an array (backwards compatibility)
+      inviteArray = response;
+    }
     // Map backend response to frontend type
-    return response.map((i: any) => ({
+    return inviteArray.map((i: any) => ({
       id: i.id,
       email: i.email,
       role: i.role,
+      status: i.status || 'PENDING',
       invitedAt: i.invitedAt,
       invitedBy: i.invitedBy || "",
+      expiresAt: i.expiresAt,
+      expiresInDays: i.expiresInDays,
+      acceptedAt: i.acceptedAt,
+      acceptedBy: i.acceptedBy,
     }));
   },
 

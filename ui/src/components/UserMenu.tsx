@@ -23,18 +23,27 @@ export default function UserMenu() {
   const email = authData?.userIdentity?.email || "";
   const role = authData?.role || "";
   
-  // Capability checks
-  const isAdmin = role === "ADMIN";
-  const isSysAdmin = role === "SYS_ADMIN" || role === "SUPER_ADMIN";
+  // Capability checks - handle both new (SYSTEM_*) and old (ADMIN) role names
+  const isAdmin = role === "ADMIN" || role === "SYSTEM_ADMIN" || role === "TENANT_ADMIN";
+  const isSysAdmin = role === "SYS_ADMIN" || role === "SUPER_ADMIN" || role === "SYSTEM_ADMIN";
   
-  // Get role label
+  // Get role label - handle both new and old role names
   const getRoleLabel = (role: string) => {
     switch (role) {
+      case "SYSTEM_ADMIN":
       case "ADMIN":
         return "Admin";
+      case "SYSTEM_ANALYST":
       case "ANALYST":
         return "User";
+      case "SYSTEM_VIEWER":
       case "VIEWER":
+        return "Viewer";
+      case "TENANT_ADMIN":
+        return "Tenant Admin";
+      case "TENANT_EDITOR":
+        return "Editor";
+      case "TENANT_VIEWER":
         return "Viewer";
       default:
         return "User";
@@ -111,11 +120,17 @@ export default function UserMenu() {
             </div>
             <DropdownMenuItem onClick={() => handleNavigation("/admin/tenants")} className="rounded-sm">
               <Building2 className="mr-2 h-4 w-4" />
-              <span>Tenants</span>
+              <div className="flex flex-col">
+                <span>Manage Tenants</span>
+                <span className="text-xs text-gray-500 font-normal">Create, edit, deactivate tenant entities</span>
+              </div>
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleNavigation("/admin/global-users")} className="rounded-sm">
               <Users className="mr-2 h-4 w-4" />
-              <span>Global Users</span>
+              <div className="flex flex-col">
+                <span>System Access</span>
+                <span className="text-xs text-gray-500 font-normal">Grant system-level access (all tenants)</span>
+              </div>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>
@@ -129,11 +144,17 @@ export default function UserMenu() {
             </div>
             <DropdownMenuItem onClick={() => handleNavigation("/admin/users")} className="rounded-sm">
               <Users className="mr-2 h-4 w-4" />
-              <span>Users & Access</span>
+              <div className="flex flex-col">
+                <span>Team Members</span>
+                <span className="text-xs text-gray-500 font-normal">Manage users in this tenant</span>
+              </div>
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleNavigation("/admin/tenant")} className="rounded-sm">
               <Building2 className="mr-2 h-4 w-4" />
-              <span>Tenant Settings</span>
+              <div className="flex flex-col">
+                <span>Tenant Configuration</span>
+                <span className="text-xs text-gray-500 font-normal">Settings for this tenant</span>
+              </div>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>

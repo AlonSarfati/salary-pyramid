@@ -12,9 +12,11 @@ import java.util.*;
 @Service
 public class TenantSettingsService {
     private final NamedParameterJdbcTemplate jdbc;
+    private final AuditService auditService;
 
-    public TenantSettingsService(NamedParameterJdbcTemplate jdbc) {
+    public TenantSettingsService(NamedParameterJdbcTemplate jdbc, AuditService auditService) {
         this.jdbc = jdbc;
+        this.auditService = auditService;
     }
 
     public record TenantSettingsDto(
@@ -77,7 +79,27 @@ public class TenantSettingsService {
     }
 
     @Transactional
-    public TenantSettingsDto updateSettings(String tenantId, Map<String, Object> updates) {
+    public TenantSettingsDto updateSettings(String tenantId, Map<String, Object> updates, String actorUserId, String actorSource) {
+        // Get old settings for audit diff
+        var oldSettings = getSettings(tenantId).orElse(null);
+        Map<String, Object> diff = new HashMap<>();
+        
+        if (oldSettings != null) {
+            if (updates.containsKey("name") && !Objects.equals(updates.get("name"), oldSettings.name())) {
+                diff.put("name", Map.of("old", oldSettings.name(), "new", updates.get("name")));
+            }
+            if (updates.containsKey("timezone") && !Objects.equals(updates.get("timezone"), oldSettings.timezone())) {
+                diff.put("timezone", Map.of("old", oldSettings.timezone(), "new", updates.get("timezone")));
+            }
+            if (updates.containsKey("currency") && !Objects.equals(updates.get("currency"), oldSettings.currency())) {
+                diff.put("currency", Map.of("old", oldSettings.currency(), "new", updates.get("currency")));
+            }
+            if (updates.containsKey("requireSso") && !Objects.equals(updates.get("requireSso"), oldSettings.requireSso())) {
+                diff.put("requireSso", Map.of("old", oldSettings.requireSso(), "new", updates.get("requireSso")));
+            }
+            // Add more fields as needed
+        }
+        
         // Build dynamic update query
         Map<String, Object> params = new HashMap<>(Map.of("tenantId", tenantId));
         StringBuilder sql = new StringBuilder("UPDATE tenant_settings SET updated_at = now()");
@@ -139,6 +161,20 @@ public class TenantSettingsService {
         
         if (updated == 0) {
             throw new IllegalArgumentException("Tenant settings not found");
+        }
+        
+        // Log audit event
+        if (!diff.isEmpty()) {
+            auditService.logEvent(
+                tenantId,
+                actorUserId,
+                actorSource,
+                "SETTINGS_UPDATED",
+                "SETTINGS",
+                tenantId,
+                diff,
+                "Tenant settings updated"
+            );
         }
         
         return getSettings(tenantId).orElseThrow();

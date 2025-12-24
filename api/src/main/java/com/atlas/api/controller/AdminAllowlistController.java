@@ -1,5 +1,6 @@
 package com.atlas.api.controller;
 
+import com.atlas.api.auth.UserContext;
 import com.atlas.api.service.AllowlistService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -14,13 +15,34 @@ import java.util.UUID;
 public class AdminAllowlistController {
     private final AllowlistService allowlistService;
     private final String adminKey;
+    private final UserContext userContext;
 
     public AdminAllowlistController(
         AllowlistService allowlistService,
-        @Value("${lira.admin.key:}") String adminKey
+        @Value("${lira.admin.key:}") String adminKey,
+        UserContext userContext
     ) {
         this.allowlistService = allowlistService;
         this.adminKey = adminKey;
+        this.userContext = userContext;
+    }
+    
+    /**
+     * Check if current user is SYSTEM_ADMIN (for OIDC-authenticated requests)
+     */
+    private boolean isSystemAdmin() {
+        if (!userContext.isAuthenticated()) {
+            return false;
+        }
+        String role = userContext.getRole();
+        return "SYSTEM_ADMIN".equals(role) || "ADMIN".equals(role);
+    }
+    
+    /**
+     * Check authorization (either admin key OR SYSTEM_ADMIN via OIDC)
+     */
+    private boolean isAuthorized(String providedKey) {
+        return isValidAdminKey(providedKey) || isSystemAdmin();
     }
 
     @PostMapping
@@ -28,10 +50,10 @@ public class AdminAllowlistController {
         @RequestHeader(value = "X-LIRA-ADMIN-KEY", required = false) String providedKey,
         @RequestBody CreateAllowlistRequest request
     ) {
-        if (!isValidAdminKey(providedKey)) {
-            return ResponseEntity.status(401).body(Map.of(
-                "error", "UNAUTHORIZED",
-                "message", "Invalid or missing admin key"
+        if (!isAuthorized(providedKey)) {
+            return ResponseEntity.status(403).body(Map.of(
+                "error", "FORBIDDEN",
+                "message", "System administrator access required"
             ));
         }
 
@@ -65,8 +87,8 @@ public class AdminAllowlistController {
     public ResponseEntity<List<Map<String, Object>>> listAllowlistEntries(
         @RequestHeader(value = "X-LIRA-ADMIN-KEY", required = false) String providedKey
     ) {
-        if (!isValidAdminKey(providedKey)) {
-            return ResponseEntity.status(401).body(List.of());
+        if (!isAuthorized(providedKey)) {
+            return ResponseEntity.status(403).body(List.of());
         }
 
         var entries = allowlistService.listAll();
@@ -93,10 +115,10 @@ public class AdminAllowlistController {
         @RequestHeader(value = "X-LIRA-ADMIN-KEY", required = false) String providedKey,
         @PathVariable String id
     ) {
-        if (!isValidAdminKey(providedKey)) {
-            return ResponseEntity.status(401).body(Map.of(
-                "error", "UNAUTHORIZED",
-                "message", "Invalid or missing admin key"
+        if (!isAuthorized(providedKey)) {
+            return ResponseEntity.status(403).body(Map.of(
+                "error", "FORBIDDEN",
+                "message", "System administrator access required"
             ));
         }
 
@@ -117,10 +139,10 @@ public class AdminAllowlistController {
         @RequestHeader(value = "X-LIRA-ADMIN-KEY", required = false) String providedKey,
         @PathVariable String id
     ) {
-        if (!isValidAdminKey(providedKey)) {
-            return ResponseEntity.status(401).body(Map.of(
-                "error", "UNAUTHORIZED",
-                "message", "Invalid or missing admin key"
+        if (!isAuthorized(providedKey)) {
+            return ResponseEntity.status(403).body(Map.of(
+                "error", "FORBIDDEN",
+                "message", "System administrator access required"
             ));
         }
 
@@ -142,10 +164,10 @@ public class AdminAllowlistController {
         @PathVariable String id,
         @RequestBody ReplaceTenantsRequest request
     ) {
-        if (!isValidAdminKey(providedKey)) {
-            return ResponseEntity.status(401).body(Map.of(
-                "error", "UNAUTHORIZED",
-                "message", "Invalid or missing admin key"
+        if (!isAuthorized(providedKey)) {
+            return ResponseEntity.status(403).body(Map.of(
+                "error", "FORBIDDEN",
+                "message", "System administrator access required"
             ));
         }
 

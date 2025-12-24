@@ -56,10 +56,6 @@ public class AccessGateFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         String contextPath = request.getContextPath();
         String servletPath = request.getServletPath();
-        
-        // Log path details for debugging
-        log.info("AccessGateFilter: requestURI={}, contextPath={}, servletPath={}", 
-                path, contextPath, servletPath);
 
         // Skip allowlist check for public endpoints, actuator, and admin endpoints
         // But still populate UserContext for admin endpoints so controllers can check permissions
@@ -84,17 +80,7 @@ public class AccessGateFilter extends OncePerRequestFilter {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             if (authentication instanceof JwtAuthenticationToken jwtAuth) {
                 // JWT is already authenticated - populate context
-                boolean populated = populateContext(jwtAuth, null);
-                log.info("AccessGateFilter: Admin path={}, context populated={}, authenticated={}, role={}, allowedTenants={}", 
-                        path, populated, userContext.isAuthenticated(), 
-                        userContext.getRole(), userContext.getAllowedTenantIds());
-            } else if (hasBearerToken) {
-                // Bearer token present but not authenticated yet - let it pass through
-                // The BearerTokenAuthenticationFilter will authenticate it, then the controller
-                // can extract from SecurityContextHolder directly
-                log.info("AccessGateFilter: Admin path={} has Bearer token but not authenticated yet, letting it pass", path);
-            } else {
-                log.warn("AccessGateFilter: Admin path={} but no JWT authentication or Bearer token found", path);
+                populateContext(jwtAuth, null);
             }
             filterChain.doFilter(request, response);
             return;
@@ -112,9 +98,6 @@ public class AccessGateFilter extends OncePerRequestFilter {
         }
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        log.info("AccessGateFilter: path={}, authentication={}, authenticated={}", path,
-                authentication != null ? authentication.getClass().getName() : "null",
-                authentication != null && authentication.isAuthenticated());
 
         // For /api/auth/me or /auth/me: require JWT at SecurityConfig level but don't block here;
         // we still try to populate context so controller can know allowlist status.
@@ -141,29 +124,19 @@ public class AccessGateFilter extends OncePerRequestFilter {
                 // This suggests a filter order issue - the OAuth2 filter hasn't run yet
                 // In this case, let the request continue and let Spring Security handle it
                 // The OAuth2 filter will process the token, and if it's invalid, Spring Security will return 401
-                log.warn("AccessGateFilter: Bearer token present but JWT not processed yet for path={}, " +
-                         "this may indicate a filter order issue. Letting request continue.", path);
                 filterChain.doFilter(request, response);
                 return;
             } else {
                 // No Bearer token or authentication failed - deny access
-                log.warn("AccessGateFilter: no JwtAuthenticationToken found for path={}, " +
-                         "authentication={}, hasBearerToken={}", 
-                        path, 
-                        authentication != null ? authentication.getClass().getName() : "null",
-                        hasBearerToken);
                 sendAccessDenied(response, "ACCESS_DENIED", "Authentication required");
                 return;
             }
         }
 
         // Check allowlist and populate context
-        log.info("AccessGateFilter: processing allowlist check for path={}", path);
         if (!populateContext(jwtAuth, response)) {
-            log.warn("AccessGateFilter: allowlist check failed for path={}", path);
             return; // Error already sent
         }
-        log.info("AccessGateFilter: allowlist check passed for path={}", path);
 
         // Continue with the request
         filterChain.doFilter(request, response);
@@ -181,9 +154,6 @@ public class AccessGateFilter extends OncePerRequestFilter {
         var identity = authContextService.extractIdentity(jwtAuth.getToken());
         var matchResult = authContextService.matchAllowlist(identity);
 
-        log.info("AccessGateFilter.populateContext: issuer={}, subject={}, email={}, displayName={}, match={}, method={}",
-                identity.issuer(), identity.subject(), identity.email(), identity.displayName(),
-                matchResult.matched(), matchResult.matchMethod());
 
         if (identity.issuer() == null || identity.subject() == null) {
             if (response != null) {
@@ -198,8 +168,6 @@ public class AccessGateFilter extends OncePerRequestFilter {
 
         // If no match found
         if (!matchResult.matched()) {
-            log.warn("AccessGateFilter: no allowlist entry found for issuer={}, subject={}, email={}",
-                    identity.issuer(), identity.subject(), identity.email());
             if (response != null) {
                 try {
                     sendAccessDenied(response, "ACCESS_DENIED", "Your account is not approved yet.");
@@ -214,8 +182,6 @@ public class AccessGateFilter extends OncePerRequestFilter {
 
         // Check if account is disabled
         if (!"ACTIVE".equals(entry.status())) {
-            log.debug("AccessGateFilter: allowlist entry disabled for issuer={}, subject={}", 
-                    identity.issuer(), identity.subject());
             if (response != null) {
                 try {
                     sendAccessDenied(response, "ACCOUNT_DISABLED", "Your account is disabled.");

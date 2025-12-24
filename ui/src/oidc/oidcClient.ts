@@ -15,11 +15,6 @@ function createUserManager() {
       "   Required: VITE_OIDC_AUTHORITY and VITE_OIDC_CLIENT_ID"
     );
     // Do NOT throw - allow app to render AccessDenied screen with Sign In button
-  } else {
-    // Dev-only console log for verification
-    console.info("✅ OIDC configured:");
-    console.info("   OIDC authority:", authority);
-    console.info("   OIDC client_id:", clientId);
   }
 
   const redirectUri = `${window.location.origin}/auth/callback`;
@@ -63,18 +58,9 @@ export async function getCurrentUser(): Promise<User | null> {
     
     // If user is expired, try to renew it silently
     if (user && user.expired) {
-      if (import.meta.env.DEV) {
-        console.info("OIDC: Token expired, attempting silent renewal...");
-      }
       try {
         user = await mgr.signinSilent();
-        if (import.meta.env.DEV) {
-          console.info("OIDC: Silent renewal successful");
-        }
       } catch (silentError) {
-        if (import.meta.env.DEV) {
-          console.warn("OIDC: Silent renewal failed:", silentError);
-        }
         // If silent renewal fails, return null (user will need to sign in again)
         return null;
       }
@@ -86,7 +72,6 @@ export async function getCurrentUser(): Promise<User | null> {
     
     return user;
   } catch (e) {
-    console.warn("OIDC getUser failed:", e);
     return null;
   }
 }
