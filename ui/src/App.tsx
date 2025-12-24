@@ -35,7 +35,7 @@ import AdminTenantsPage from "./components/AdminTenantsPage";
 import AdminGlobalUsersPage from "./components/AdminGlobalUsersPage";
 import { tenantApi, authApi } from "./services/apiService";
 import { setAuthData, setAuthToken, getAuthData } from "./services/authService";
-import { getCurrentUser } from "./oidc/oidcClient";
+import { getCurrentUser, getUserManager } from "./oidc/oidcClient";
 import { ToastProvider } from "./components/ToastProvider";
 
 type Tenant = {
@@ -77,10 +77,50 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Set up token refresh interval to check and refresh tokens before they expire
+    const setupTokenRefresh = () => {
+      const userManager = getUserManager();
+      
+      // Listen for token expiration and auto-renew
+      userManager.events.addUserLoaded((user) => {
+        if (import.meta.env.DEV) {
+          console.info("OIDC: User loaded, token expires in", 
+            Math.floor((user.expires_at || 0) - Date.now() / 1000), "seconds");
+        }
+        // Update token in authService
+        if (user.access_token) {
+          setAuthToken(user.access_token);
+        }
+      });
+      
+      userManager.events.addAccessTokenExpiring(() => {
+        if (import.meta.env.DEV) {
+          console.info("OIDC: Access token expiring soon, renewing...");
+        }
+        // The automaticSilentRenew will handle this, but we can also manually trigger
+        userManager.signinSilent().catch(err => {
+          console.warn("OIDC: Failed to silently renew token:", err);
+        });
+      });
+      
+      userManager.events.addAccessTokenExpired(() => {
+        if (import.meta.env.DEV) {
+          console.warn("OIDC: Access token expired");
+        }
+        // Try to renew
+        userManager.signinSilent().catch(err => {
+          console.warn("OIDC: Failed to renew expired token:", err);
+        });
+      });
+    };
+
     (async () => {
       try {
         setAuthLoading(true);
         setAuthError(null);
+
+        // Set up token refresh listeners
+        setupTokenRefresh();
 
         // 1) Try to load existing OIDC user session
         const user = await getCurrentUser();

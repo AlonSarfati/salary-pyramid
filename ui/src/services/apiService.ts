@@ -136,11 +136,39 @@ async function apiCall<T>(
     headers['Pragma'] = 'no-cache';
   }
   
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     headers,
     ...(isGetRequest ? { cache: 'no-store' as RequestCache } : {}), // Prevent browser caching for GET
     ...options,
   });
+
+  // If we get a 401, try to refresh token and retry once
+  if (response.status === 401 && headers['Authorization']) {
+    try {
+      const { getCurrentUser } = await import('../oidc/oidcClient');
+      const user = await getCurrentUser();
+      if (user?.access_token) {
+        const { setAuthToken } = await import('./authService');
+        setAuthToken(user.access_token);
+        
+        // Retry the request with new token
+        const retryHeaders = {
+          ...headers,
+          'Authorization': `Bearer ${user.access_token}`,
+        };
+        response = await fetch(url, {
+          headers: retryHeaders,
+          ...(isGetRequest ? { cache: 'no-store' as RequestCache } : {}),
+          ...options,
+        });
+      }
+    } catch (refreshError) {
+      // If refresh fails, continue with original error handling
+      if (import.meta.env.DEV) {
+        console.warn("Token refresh failed:", refreshError);
+      }
+    }
+  }
 
   if (!response.ok) {
     let errorCode: string | null = null;
