@@ -34,6 +34,7 @@ public class ComponentGroupsController {
             // Replace %20 with space, and handle other common encodings
             String normalizedGroupName = groupName.replace("%20", " ").replace("+", " ");
             
+            String newGroupName = (String) request.get("groupName");
             String displayName = (String) request.get("displayName");
             String color = (String) request.get("color");
             Integer displayOrder = request.get("displayOrder") instanceof Number 
@@ -45,10 +46,10 @@ public class ComponentGroupsController {
             }
 
             ComponentGroupsService.GroupDto updated = groupsService.updateGroup(
-                normalizedGroupName, displayName, color, displayOrder);
+                normalizedGroupName, newGroupName, displayName, color, displayOrder);
             return ResponseEntity.ok(updated.toMap());
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }

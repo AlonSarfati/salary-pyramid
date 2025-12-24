@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Loader2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { componentGroupsApi, type ComponentGroup } from '../services/apiService';
@@ -58,19 +58,24 @@ export default function ComponentGroups({ tenantId = 'default' }: { tenantId?: s
     setSaving(true);
     try {
       if (editingGroup) {
-        await componentGroupsApi.update(tenantId, editingGroup.groupName, {
-          displayName: groupFormData.displayName,
-          color: groupFormData.color,
-          displayOrder: groupFormData.displayOrder,
-        });
+        const newGroupName = groupFormData.groupName !== editingGroup.groupName 
+          ? groupFormData.groupName 
+          : null;
+        await componentGroupsApi.update(
+          editingGroup.groupName,
+          newGroupName,
+          groupFormData.displayName,
+          groupFormData.color,
+          groupFormData.displayOrder
+        );
         showToast('success', 'Group updated', `Group "${groupFormData.groupName}" has been updated.`);
       } else {
-        await componentGroupsApi.create(tenantId, {
-          groupName: groupFormData.groupName,
-          displayName: groupFormData.displayName,
-          color: groupFormData.color,
-          displayOrder: groupFormData.displayOrder,
-        });
+        await componentGroupsApi.create(
+          groupFormData.groupName,
+          groupFormData.displayName,
+          groupFormData.color,
+          groupFormData.displayOrder
+        );
         showToast('success', 'Group created', `Group "${groupFormData.groupName}" has been created.`);
       }
       
@@ -91,9 +96,9 @@ export default function ComponentGroups({ tenantId = 'default' }: { tenantId?: s
   const handleDeleteGroup = async () => {
     if (!groupNameToDelete) return;
 
-    setSaving(true);
+      setSaving(true);
     try {
-      await componentGroupsApi.delete(tenantId, groupNameToDelete);
+      await componentGroupsApi.delete(groupNameToDelete);
       showToast('success', 'Group deleted', `Group "${groupNameToDelete}" has been deleted.`);
       
       // Reload groups
@@ -220,6 +225,9 @@ export default function ComponentGroups({ tenantId = 'default' }: { tenantId?: s
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingGroup ? 'Edit Group' : 'Add Group'}</DialogTitle>
+            <DialogDescription>
+              {editingGroup ? 'Update the display name, color, or display order for this component group.' : 'Create a new component group to organize your salary components.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-4">
             <div>
@@ -228,11 +236,10 @@ export default function ComponentGroups({ tenantId = 'default' }: { tenantId?: s
                 id="groupName"
                 value={groupFormData.groupName}
                 onChange={(e) => setGroupFormData({ ...groupFormData, groupName: e.target.value })}
-                disabled={!!editingGroup}
                 className="mt-1"
                 placeholder="e.g., core, bonus"
               />
-              <p className="text-xs text-gray-500 mt-1">Group name cannot be changed after creation</p>
+              <p className="text-xs text-gray-500 mt-1">Unique identifier for this component group</p>
             </div>
             <div>
               <Label htmlFor="displayName">Display Name</Label>
@@ -291,6 +298,9 @@ export default function ComponentGroups({ tenantId = 'default' }: { tenantId?: s
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Group</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The component group will be permanently removed.
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-gray-600 mt-2">
             Are you sure you want to delete group "{groupNameToDelete}"? This action cannot be undone.

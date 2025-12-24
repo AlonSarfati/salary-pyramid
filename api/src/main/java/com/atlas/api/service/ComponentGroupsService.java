@@ -47,7 +47,7 @@ public class ComponentGroupsService {
         );
     }
 
-    public GroupDto updateGroup(String groupName, String displayName, String color, int displayOrder) {
+    public GroupDto updateGroup(String groupName, String newGroupName, String displayName, String color, int displayOrder) {
         // Normalize group name to lowercase for lookup (group names are stored in lowercase)
         String normalizedGroupName = groupName.toLowerCase().trim();
         
@@ -69,9 +69,22 @@ public class ComponentGroupsService {
         // Get the actual group name from database (to preserve exact casing/spacing)
         String actualGroupName = existing.get(0);
         
+        // If newGroupName is provided and different, check if it already exists
+        String finalGroupName = actualGroupName;
+        if (newGroupName != null && !newGroupName.trim().isEmpty() && !newGroupName.equalsIgnoreCase(actualGroupName)) {
+            String normalizedNewGroupName = newGroupName.toLowerCase().trim();
+            List<String> conflicting = jdbc.query(checkSql, Map.of("groupName", normalizedNewGroupName), 
+                (rs, rowNum) -> rs.getString("group_name"));
+            if (!conflicting.isEmpty()) {
+                throw new IllegalArgumentException("Group name already exists: " + newGroupName);
+            }
+            finalGroupName = newGroupName.trim();
+        }
+        
         String sql = """
             UPDATE component_groups
-            SET display_name = :displayName,
+            SET group_name = :finalGroupName,
+                display_name = :displayName,
                 color = :color,
                 display_order = :displayOrder,
                 updated_at = now()
@@ -81,6 +94,7 @@ public class ComponentGroupsService {
 
         Map<String, Object> params = Map.of(
             "actualGroupName", actualGroupName,
+            "finalGroupName", finalGroupName,
             "displayName", displayName,
             "color", color,
             "displayOrder", displayOrder
