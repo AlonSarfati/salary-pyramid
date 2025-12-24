@@ -1,3 +1,5 @@
+import { getAuthHeader } from './authService';
+
 const API_BASE = '/api';
 
 // Types matching the backend DTOs
@@ -111,24 +113,37 @@ async function apiCall<T>(
 ): Promise<T> {
   // Prevent browser caching for GET requests (baseline API calls)
   const isGetRequest = !options?.method || options.method === 'GET';
+  const url = `${API_BASE}${endpoint}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    ...getAuthHeader(), // Include JWT token if available
   };
   
+  if (import.meta.env.DEV) {
+    // Dev-only diagnostics: log whether auth header is present (but not the token value)
+    console.debug(
+      "API call",
+      url,
+      "authHeader?",
+      !!headers['Authorization']
+    );
+  }
+
   if (isGetRequest) {
     // Add cache-busting headers for GET requests to prevent stale data
     headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
     headers['Pragma'] = 'no-cache';
   }
   
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const response = await fetch(url, {
     headers,
     ...(isGetRequest ? { cache: 'no-store' as RequestCache } : {}), // Prevent browser caching for GET
     ...options,
   });
 
   if (!response.ok) {
+    let errorCode: string | null = null;
     let errorMessage = `API call failed: ${response.status}`;
     try {
       // Clone response to read body without consuming the original
@@ -137,7 +152,8 @@ async function apiCall<T>(
       if (contentType && contentType.includes('application/json')) {
         const errorData = await clonedResponse.json();
         if (errorData.error) {
-          errorMessage = errorData.error;
+          errorCode = errorData.error;
+          errorMessage = errorData.message || errorData.error;
         } else if (typeof errorData === 'string') {
           errorMessage = errorData;
         }
@@ -150,7 +166,10 @@ async function apiCall<T>(
     } catch {
       // If parsing fails, use default error message
     }
-    throw new Error(errorMessage);
+    const err: any = new Error(errorCode || errorMessage);
+    err.status = response.status;
+    err.error = errorCode;
+    throw err;
   }
 
   return response.json();
@@ -741,6 +760,29 @@ export const optimizerApi = {
   },
 };
 
+// Auth API
+export type AuthMeResponse = {
+  userIdentity: {
+    issuer: string;
+    subject: string;
+    email: string | null;
+    displayName: string | null;
+  };
+  role: string;
+  mode: string;
+  allowedTenantIds: string[];
+  primaryTenantId?: string;
+};
+
+export const authApi = {
+  async getMe(): Promise<AuthMeResponse> {
+    return apiCall("/auth/me");
+  },
+  async debugClaims(): Promise<any> {
+    return apiCall("/auth/debug-claims");
+  },
+};
+
 export default {
   ruleset: rulesetApi,
   rule: ruleApi,
@@ -753,5 +795,6 @@ export default {
   baseline: baselineApi,
   ruleAssistant: ruleAssistantApi,
   optimizer: optimizerApi,
+  auth: authApi,
 };
 
