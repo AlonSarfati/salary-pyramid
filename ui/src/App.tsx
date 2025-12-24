@@ -26,8 +26,15 @@ import RulesLayout from "./components/RulesLayout";
 import SimulateLayout from "./components/SimulateLayout";
 import AccessDenied from "./components/AccessDenied";
 import AuthCallback from "./components/AuthCallback";
+import UserMenu from "./components/UserMenu";
+import UserInfo from "./components/UserInfo";
+import UserSettings from "./components/UserSettings";
+import AdminUsersPage from "./components/AdminUsersPage";
+import AdminTenantPage from "./components/AdminTenantPage";
+import AdminTenantsPage from "./components/AdminTenantsPage";
+import AdminGlobalUsersPage from "./components/AdminGlobalUsersPage";
 import { tenantApi, authApi } from "./services/apiService";
-import { setAuthData, setAuthToken } from "./services/authService";
+import { setAuthData, setAuthToken, getAuthData } from "./services/authService";
 import { getCurrentUser } from "./oidc/oidcClient";
 import { ToastProvider } from "./components/ToastProvider";
 
@@ -115,10 +122,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             console.info("✅ /api/auth/me succeeded:", authData);
           }
           setAuthData(authData);
-
-          if (authData.primaryTenantId) {
-            setSelectedTenantId(authData.primaryTenantId);
-          }
         } catch (error: any) {
           if (import.meta.env.DEV) {
             console.error("❌ /api/auth/me failed:", error);
@@ -150,18 +153,36 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           console.log("Auth check failed (OIDC may not be configured):", error);
         }
 
-        // 4) Load tenants
-        const data = await tenantApi.list();
-        setTenants(data);
+        // 4) Load tenants and filter by user's allowed tenants
+        const allTenants = await tenantApi.list();
+        
+        // Get current auth data (might have been set in step 3)
+        const currentAuthData = getAuthData();
+        
+        // Filter tenants based on user's allowedTenantIds
+        let filteredTenants = allTenants;
+        if (currentAuthData?.allowedTenantIds && currentAuthData.allowedTenantIds.length > 0) {
+          filteredTenants = allTenants.filter(tenant => 
+            currentAuthData.allowedTenantIds.includes(tenant.tenantId)
+          );
+        }
+        
+        setTenants(filteredTenants);
 
-        const defaultTenant = data.find((t) => t.tenantId === "default");
-        const firstActive = data.find((t) => t.status === "ACTIVE");
-        if (defaultTenant) {
-          setSelectedTenantId("default");
-        } else if (firstActive) {
-          setSelectedTenantId(firstActive.tenantId);
-        } else if (data.length > 0) {
-          setSelectedTenantId(data[0].tenantId);
+        // Set default tenant from filtered list
+        if (filteredTenants.length > 0) {
+          const currentAuthData = getAuthData();
+          const defaultTenant = filteredTenants.find((t) => t.tenantId === "default");
+          const firstActive = filteredTenants.find((t) => t.status === "ACTIVE");
+          if (currentAuthData?.primaryTenantId && filteredTenants.some(t => t.tenantId === currentAuthData.primaryTenantId)) {
+            setSelectedTenantId(currentAuthData.primaryTenantId);
+          } else if (defaultTenant) {
+            setSelectedTenantId("default");
+          } else if (firstActive) {
+            setSelectedTenantId(firstActive.tenantId);
+          } else {
+            setSelectedTenantId(filteredTenants[0].tenantId);
+          }
         }
       } catch (error: any) {
         console.error("Failed to load tenants:", error);
@@ -201,8 +222,23 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     return location.pathname.startsWith(path);
   };
 
-  const reloadTenants = () => {
-    tenantApi.list().then(setTenants).catch(console.error);
+  const reloadTenants = async () => {
+    try {
+      const allTenants = await tenantApi.list();
+      const currentAuthData = getAuthData();
+      
+      // Filter tenants based on user's allowedTenantIds
+      let filteredTenants = allTenants;
+      if (currentAuthData?.allowedTenantIds && currentAuthData.allowedTenantIds.length > 0) {
+        filteredTenants = allTenants.filter(tenant => 
+          currentAuthData.allowedTenantIds.includes(tenant.tenantId)
+        );
+      }
+      
+      setTenants(filteredTenants);
+    } catch (error) {
+      console.error("Failed to reload tenants:", error);
+    }
   };
 
   // Show access denied screen if auth check failed
@@ -265,27 +301,47 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
             <h2 className="text-[#1E1E1E]">Lira Compensation Simulator</h2>
             <div className="flex items-center gap-4">
-              {!tenantsLoading && tenants.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-600">Tenant:</span>
-                  <select
-                    value={selectedTenantId}
-                    onChange={(e) => setSelectedTenantId(e.target.value)}
-                    className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-[#1E1E1E] min-w-[200px]"
-                  >
-                    {tenants
-                      .filter(t => t.status === 'ACTIVE')
-                      .map((tenant) => (
-                        <option key={tenant.tenantId} value={tenant.tenantId}>
-                          {tenant.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
-              <div className="w-10 h-10 rounded-full bg-[#0052CC] flex items-center justify-center text-white">
-                JD
-              </div>
+              {!tenantsLoading && tenants.length > 0 && (() => {
+                const authData = getAuthData();
+                const isMultiTenant = authData?.mode === "MULTI_TENANT" || 
+                                     (authData?.allowedTenantIds && authData.allowedTenantIds.length > 1);
+                
+                if (isMultiTenant) {
+                  // Show dropdown for multi-tenant
+                  return (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Tenant:</span>
+                      <select
+                        value={selectedTenantId}
+                        onChange={(e) => setSelectedTenantId(e.target.value)}
+                        className="px-4 py-2 border border-gray-300 rounded bg-white text-[#1E1E1E] min-w-[200px] text-sm"
+                      >
+                        {tenants
+                          .filter(t => t.status === 'ACTIVE')
+                          .map((tenant) => (
+                            <option key={tenant.tenantId} value={tenant.tenantId}>
+                              {tenant.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  );
+                } else {
+                  // Show static text for single-tenant
+                  const primaryTenant = tenants.find(t => t.tenantId === authData?.primaryTenantId) ||
+                                      tenants.find(t => t.tenantId === "default") ||
+                                      tenants[0];
+                  const tenantName = primaryTenant?.name || primaryTenant?.tenantId || "Default";
+                  
+                  return (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Tenant:</span>
+                      <span className="text-sm text-[#1E1E1E] font-medium">{tenantName}</span>
+                    </div>
+                  );
+                }
+              })()}
+              <UserMenu />
             </div>
           </div>
 
@@ -383,6 +439,12 @@ export default function App() {
                 <Route path="/visual" element={<VisualRoute />} />
                 <Route path="/results" element={<ResultsRoute />} />
                 <Route path="/admin" element={<AdminRoute />} />
+                <Route path="/admin/users" element={<AdminUsersPage />} />
+                <Route path="/admin/tenant" element={<AdminTenantPage />} />
+                <Route path="/admin/tenants" element={<AdminTenantsPage />} />
+                <Route path="/admin/global-users" element={<AdminGlobalUsersPage />} />
+                <Route path="/user/info" element={<UserInfo />} />
+                <Route path="/user/settings" element={<UserSettings />} />
               </Routes>
             </AppLayout>
           }

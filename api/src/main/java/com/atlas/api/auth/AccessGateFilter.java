@@ -61,13 +61,41 @@ public class AccessGateFilter extends OncePerRequestFilter {
         log.info("AccessGateFilter: requestURI={}, contextPath={}, servletPath={}", 
                 path, contextPath, servletPath);
 
-        // Skip filter for public endpoints, actuator, and admin endpoints
-        // Admin endpoints are protected by admin key in the controller, not by allowlist
+        // Skip allowlist check for public endpoints, actuator, and admin endpoints
+        // But still populate UserContext for admin endpoints so controllers can check permissions
         // Note: With context-path=/api, requestURI may be /api/... or just /... depending on servlet container
-        if (path.startsWith("/api/public/") || path.startsWith("/public/") ||
-            path.startsWith("/api/actuator/") || path.startsWith("/actuator/") ||
-            path.startsWith("/api/admin/") || path.startsWith("/admin/") ||
-            path.equals("/api/auth/debug-claims") || path.equals("/auth/debug-claims")) {
+        boolean isPublicPath = path.startsWith("/api/public/") || path.startsWith("/public/");
+        boolean isActuatorPath = path.startsWith("/api/actuator/") || path.startsWith("/actuator/");
+        boolean isAdminPath = path.startsWith("/api/admin/") || path.startsWith("/admin/");
+        boolean isDebugPath = path.equals("/api/auth/debug-claims") || path.equals("/auth/debug-claims");
+        
+        if (isPublicPath || isActuatorPath) {
+            // Skip completely for public/actuator
+            filterChain.doFilter(request, response);
+            return;
+        }
+        
+        // For admin and debug paths, populate UserContext but don't block
+        if (isAdminPath || isDebugPath) {
+            // Check if there's a Bearer token - if so, authentication might not be complete yet
+            String authHeader = request.getHeader("Authorization");
+            boolean hasBearerToken = authHeader != null && authHeader.startsWith("Bearer ");
+            
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication instanceof JwtAuthenticationToken jwtAuth) {
+                // JWT is already authenticated - populate context
+                boolean populated = populateContext(jwtAuth, null);
+                log.info("AccessGateFilter: Admin path={}, context populated={}, authenticated={}, role={}, allowedTenants={}", 
+                        path, populated, userContext.isAuthenticated(), 
+                        userContext.getRole(), userContext.getAllowedTenantIds());
+            } else if (hasBearerToken) {
+                // Bearer token present but not authenticated yet - let it pass through
+                // The BearerTokenAuthenticationFilter will authenticate it, then the controller
+                // can extract from SecurityContextHolder directly
+                log.info("AccessGateFilter: Admin path={} has Bearer token but not authenticated yet, letting it pass", path);
+            } else {
+                log.warn("AccessGateFilter: Admin path={} but no JWT authentication or Bearer token found", path);
+            }
             filterChain.doFilter(request, response);
             return;
         }
