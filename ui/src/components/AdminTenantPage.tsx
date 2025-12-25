@@ -142,8 +142,8 @@ export default function AdminTenantPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-[#1E1E1E] mb-1">Tenant Configuration</h1>
         <p className="text-sm text-gray-600">
-          Configure settings for this tenant (timezone, currency, locale, exports, security, etc.). 
-          To create or edit tenant entities, use "Manage Tenants" in the system admin menu.
+          Configure settings for <strong>this tenant</strong> (timezone, currency, locale, exports, security, etc.). 
+          To create or edit tenant entities, use "Tenants" in the Admin section.
         </p>
       </div>
 

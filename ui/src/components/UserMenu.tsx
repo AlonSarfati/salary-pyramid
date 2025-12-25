@@ -118,43 +118,13 @@ export default function UserMenu() {
             <div className="px-3 py-1.5 mt-1 pointer-events-none">
               <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">System</span>
             </div>
-            <DropdownMenuItem onClick={() => handleNavigation("/admin/tenants")} className="rounded-sm">
+            <DropdownMenuItem onClick={() => handleNavigation("/system/tenants")} className="rounded-sm">
               <Building2 className="mr-2 h-4 w-4" />
-              <div className="flex flex-col">
-                <span>Manage Tenants</span>
-                <span className="text-xs text-gray-500 font-normal">Create, edit, deactivate tenant entities</span>
-              </div>
+              <span>Tenants</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleNavigation("/admin/global-users")} className="rounded-sm">
+            <DropdownMenuItem onClick={() => handleNavigation("/system/users")} className="rounded-sm">
               <Users className="mr-2 h-4 w-4" />
-              <div className="flex flex-col">
-                <span>System Access</span>
-                <span className="text-xs text-gray-500 font-normal">Grant system-level access (all tenants)</span>
-              </div>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        )}
-
-        {/* Admin Section */}
-        {isAdmin && (
-          <>
-            <div className="px-3 py-1.5 mt-1 pointer-events-none">
-              <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">Administration</span>
-            </div>
-            <DropdownMenuItem onClick={() => handleNavigation("/admin/users")} className="rounded-sm">
-              <Users className="mr-2 h-4 w-4" />
-              <div className="flex flex-col">
-                <span>Team Members</span>
-                <span className="text-xs text-gray-500 font-normal">Manage users in this tenant</span>
-              </div>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleNavigation("/admin/tenant")} className="rounded-sm">
-              <Building2 className="mr-2 h-4 w-4" />
-              <div className="flex flex-col">
-                <span>Tenant Configuration</span>
-                <span className="text-xs text-gray-500 font-normal">Settings for this tenant</span>
-              </div>
+              <span>Users</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>

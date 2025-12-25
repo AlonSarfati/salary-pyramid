@@ -77,6 +77,8 @@ export interface TenantSettings {
   sessionTimeoutMinutes: number;
   allowedEmailDomains: string[];
   requireSso: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface InviteUserRequest {

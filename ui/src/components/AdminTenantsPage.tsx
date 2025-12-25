@@ -184,28 +184,16 @@ export default function AdminTenantsPage() {
   }
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      <Breadcrumb className="mb-6">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/admin">Administration</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Tenants</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
+    <div>
       <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#1E1E1E] mb-2 flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-[#0052CC]" />
-            Manage Tenants
-          </h1>
-          <p className="text-gray-600">
-            Create, edit, and deactivate tenant entities. This manages the tenant objects themselves, not their settings.
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-[#1E1E1E] mb-1">Tenants</h2>
+            <p className="text-sm text-gray-600">
+              Manage tenant lifecycle: create, edit, and deactivate tenant entities.
+            </p>
+          </div>
+          <Badge variant="outline" className="rounded-sm">System-level</Badge>
         </div>
         <Button onClick={handleAdd} className="rounded-sm">
           <Plus className="w-4 h-4 mr-2" />

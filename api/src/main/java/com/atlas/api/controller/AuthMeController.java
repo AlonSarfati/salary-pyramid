@@ -2,6 +2,8 @@ package com.atlas.api.controller;
 
 import com.atlas.api.service.AuthContextService;
 import com.atlas.api.service.AllowlistService;
+import com.atlas.api.service.UserIdentityService;
+import com.atlas.api.service.TenantUserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/auth")
@@ -23,10 +26,18 @@ public class AuthMeController {
     private static final Logger log = LoggerFactory.getLogger(AuthMeController.class);
     private final AuthContextService authContextService;
     private final AllowlistService allowlistService;
+    private final UserIdentityService userIdentityService;
+    private final TenantUserService tenantUserService;
 
-    public AuthMeController(AuthContextService authContextService, AllowlistService allowlistService) {
+    public AuthMeController(
+            AuthContextService authContextService, 
+            AllowlistService allowlistService,
+            UserIdentityService userIdentityService,
+            TenantUserService tenantUserService) {
         this.authContextService = authContextService;
         this.allowlistService = allowlistService;
+        this.userIdentityService = userIdentityService;
+        this.tenantUserService = tenantUserService;
     }
 
     @GetMapping("/me")
@@ -96,6 +107,26 @@ public class AuthMeController {
             !entry.tenantIds().isEmpty()) {
             response.put("primaryTenantId", entry.tenantIds().get(0));
         }
+        
+        // Get tenant roles from tenant_users table
+        Map<String, String> tenantRoles = new HashMap<>();
+        var userIdentityOpt = userIdentityService.findByIssuerAndSubject(identity.issuer(), identity.subject());
+        if (userIdentityOpt.isPresent()) {
+            String userIdentityId = userIdentityOpt.get().id().toString();
+            // Get all tenant memberships for this user
+            if (entry.tenantIds() != null) {
+                for (String tenantId : entry.tenantIds()) {
+                    var tenantUsers = tenantUserService.getUsersByTenant(tenantId);
+                    var tenantUser = tenantUsers.stream()
+                        .filter(u -> u.userIdentityId().equals(userIdentityId))
+                        .findFirst();
+                    if (tenantUser.isPresent()) {
+                        tenantRoles.put(tenantId, tenantUser.get().role());
+                    }
+                }
+            }
+        }
+        response.put("tenantRoles", tenantRoles);
         
         return ResponseEntity.ok(response);
     }

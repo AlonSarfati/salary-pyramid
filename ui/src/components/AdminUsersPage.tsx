@@ -1,16 +1,8 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { useTenant } from "../App";
-import { useAdminUsers } from "../hooks/useAdminUsers";
-import { canManageUsers, canChangeUserRole, canModifyUser } from "../utils/permissions";
-import {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "./ui/breadcrumb";
+import React, { useState, useEffect } from "react";
+import { Users, Plus, Edit, CheckCircle, XCircle, Building2, Mail, ChevronRight } from "lucide-react";
+import { useToast } from "./ToastProvider";
+import { apiCall } from "../services/apiService";
+import { tenantApi } from "../services/apiService";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import {
@@ -45,436 +37,620 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Badge } from "./ui/badge";
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { Users, UserPlus, Mail, MoreVertical, Trash2, Ban, CheckCircle, HelpCircle, Clock } from "lucide-react";
-import { useToast } from "./ToastProvider";
-import type { TenantUser, TenantInvite, TenantUserRole } from "../types/admin";
+import { Textarea } from "./ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
-const ROLE_DESCRIPTIONS: Record<TenantUserRole, string> = {
-  ADMIN: "Full access to all tenant settings and user management",
-  EDITOR: "Can create and edit content, but cannot manage users",
-  VIEWER: "Read-only access to tenant data",
+type AllowlistEntry = {
+  id: string;
+  email: string;
+  issuer?: string;
+  subject?: string;
+  status: 'ACTIVE' | 'DISABLED';
+  mode: 'SINGLE_TENANT' | 'MULTI_TENANT';
+  role: 'SYSTEM_ADMIN' | 'SYSTEM_ANALYST' | 'SYSTEM_VIEWER' | 'ADMIN' | 'ANALYST' | 'VIEWER' | null;
+  tenantIds: string[];
+  createdAt: string;
+  notes?: string;
+};
+
+type TenantMembership = {
+  tenantId: string;
+  tenantName: string;
+  role: string;
+  status: string;
 };
 
 export default function AdminUsersPage() {
-  const { tenantId } = useTenant();
-  
-  // This page manages tenant-specific users (tenant_users table)
-  // For system-level access, see "System Access" page
-  const {
-    users,
-    invites,
-    loading,
-    error,
-    inviteUser,
-    deleteInvite,
-    updateUserRole,
-    updateUserStatus,
-    deleteUser,
-  } = useAdminUsers(tenantId);
   const { showToast } = useToast();
-
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<TenantUserRole>("EDITOR");
-  const [inviting, setInviting] = useState(false);
-  const [deleteUserDialog, setDeleteUserDialog] = useState<{ open: boolean; user: TenantUser | null }>({
+  const [entries, setEntries] = useState<AllowlistEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<{ type: 'network' | 'system'; message?: string } | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [userDetailsOpen, setUserDetailsOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<AllowlistEntry | null>(null);
+  const [userTenantMemberships, setUserTenantMemberships] = useState<TenantMembership[]>([]);
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; entry: AllowlistEntry | null }>({
     open: false,
-    user: null,
+    entry: null,
   });
+  const [editingEntry, setEditingEntry] = useState<AllowlistEntry | null>(null);
+  const [formData, setFormData] = useState({
+    email: '',
+    systemRole: 'SYSTEM_ADMIN' as 'SYSTEM_ADMIN' | 'SYSTEM_ANALYST' | 'SYSTEM_VIEWER' | null,
+    tenantIds: [] as string[],
+    status: 'ACTIVE' as 'ACTIVE' | 'DISABLED',
+    notes: '',
+  });
+  const [availableTenants, setAvailableTenants] = useState<Array<{ tenantId: string; name: string }>>([]);
+  const [newTenantId, setNewTenantId] = useState('');
 
-  const canManage = canManageUsers();
+  useEffect(() => {
+    loadEntries();
+    loadTenants();
+  }, []);
 
-  const handleInvite = async () => {
-    if (!inviteEmail.trim()) {
+  const loadTenants = async () => {
+    try {
+      const tenants = await tenantApi.list();
+      const tenantList = tenants.map((t: any) => ({
+        tenantId: t.tenantId || t.tenant_id,
+        name: t.tenantName || t.name || t.tenantId,
+      }));
+      setAvailableTenants(tenantList);
+    } catch (e) {
+      console.error("Failed to load tenants:", e);
+    }
+  };
+
+  const loadEntries = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await apiCall<AllowlistEntry[]>('/admin/allowlist');
+      setEntries(data);
+    } catch (e: any) {
+      const isNetworkError = e.message?.includes('fetch') || e.message?.includes('network') || e.message?.includes('Failed to fetch');
+      setError({
+        type: isNetworkError ? 'network' : 'system',
+        message: e.message || 'Failed to load users. System administrator access required.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadUserTenantMemberships = async (email: string) => {
+    // This would need a backend endpoint to get tenant memberships for a user
+    // For now, we'll show a placeholder
+    setUserTenantMemberships([]);
+  };
+
+  const handleAdd = () => {
+    setEditingEntry(null);
+    setFormData({
+      email: '',
+      systemRole: 'SYSTEM_ADMIN',
+      tenantIds: [],
+      status: 'ACTIVE',
+      notes: '',
+    });
+    setNewTenantId('');
+    setDialogOpen(true);
+  };
+
+  const normalizeRole = (role: string | null | undefined): 'SYSTEM_ADMIN' | 'SYSTEM_ANALYST' | 'SYSTEM_VIEWER' | null => {
+    if (!role) return null;
+    switch (role) {
+      case 'SYSTEM_ADMIN':
+      case 'ADMIN':
+        return 'SYSTEM_ADMIN';
+      case 'SYSTEM_ANALYST':
+      case 'ANALYST':
+        return 'SYSTEM_ANALYST';
+      case 'SYSTEM_VIEWER':
+      case 'VIEWER':
+        return 'SYSTEM_VIEWER';
+      default:
+        return null;
+    }
+  };
+
+  const handleEdit = (entry: AllowlistEntry) => {
+    setEditingEntry(entry);
+    setFormData({
+      email: entry.email,
+      systemRole: normalizeRole(entry.role),
+      tenantIds: [...entry.tenantIds],
+      status: entry.status,
+      notes: entry.notes || '',
+    });
+    setNewTenantId('');
+    setDialogOpen(true);
+  };
+
+  const handleViewDetails = async (entry: AllowlistEntry) => {
+    setSelectedUser(entry);
+    await loadUserTenantMemberships(entry.email);
+    setUserDetailsOpen(true);
+  };
+
+  const handleAddTenant = () => {
+    if (newTenantId.trim() && !formData.tenantIds.includes(newTenantId.trim())) {
+      setFormData({
+        ...formData,
+        tenantIds: [...formData.tenantIds, newTenantId.trim()],
+      });
+      setNewTenantId('');
+    }
+  };
+
+  const handleRemoveTenant = (tenantId: string) => {
+    setFormData({
+      ...formData,
+      tenantIds: formData.tenantIds.filter(id => id !== tenantId),
+    });
+  };
+
+  const handleSave = async () => {
+    if (!formData.email.trim()) {
       showToast("error", "Validation", "Email is required");
       return;
     }
 
-    setInviting(true);
     try {
-      await inviteUser({ email: inviteEmail.trim(), role: inviteRole });
-      setInviteDialogOpen(false);
-      setInviteEmail("");
-      setInviteRole("EDITOR");
-    } catch (err) {
-      // Error already handled in hook
-    } finally {
-      setInviting(false);
+      if (editingEntry) {
+        // Update existing
+        if (formData.tenantIds.length !== editingEntry.tenantIds.length || 
+            !formData.tenantIds.every(id => editingEntry.tenantIds.includes(id))) {
+          await apiCall(`/admin/allowlist/${editingEntry.id}/tenants`, {
+            method: 'POST',
+            body: JSON.stringify({ tenantIds: formData.tenantIds }),
+          });
+        }
+        showToast("success", "Success", "User updated successfully");
+      } else {
+        // Determine mode based on tenantIds
+        const mode = formData.tenantIds.length === 0 ? 'MULTI_TENANT' : 
+                    formData.tenantIds.length === 1 ? 'SINGLE_TENANT' : 'MULTI_TENANT';
+        
+        await apiCall('/admin/allowlist', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: formData.email.trim(),
+            mode: mode,
+            role: formData.systemRole || 'SYSTEM_VIEWER',
+            notes: formData.notes,
+            tenantIds: formData.tenantIds,
+          }),
+        });
+        showToast("success", "Success", "User added successfully");
+      }
+      setDialogOpen(false);
+      loadEntries();
+    } catch (e: any) {
+      showToast("error", "Error", e.message || "Failed to save user. System administrator access required.");
     }
   };
 
-  const handleDeleteUser = async () => {
-    if (!deleteUserDialog.user) return;
+  const handleToggleStatus = async (entry: AllowlistEntry) => {
     try {
-      await deleteUser(deleteUserDialog.user.id);
-      setDeleteUserDialog({ open: false, user: null });
-    } catch (err) {
-      // Error already handled
+      const endpoint = entry.status === 'ACTIVE' ? 'disable' : 'enable';
+      await apiCall(`/admin/allowlist/${entry.id}/${endpoint}`, {
+        method: 'POST',
+      });
+      showToast("success", "Success", `User ${entry.status === 'ACTIVE' ? 'disabled' : 'enabled'} successfully`);
+      loadEntries();
+    } catch (e: any) {
+      showToast("error", "Error", e.message || "Failed to update user status");
     }
   };
 
-  const handleResendInvite = async (invite: TenantInvite) => {
-    try {
-      await inviteUser({ email: invite.email, role: invite.role });
-      showToast("success", "Invitation resent", `Invitation resent to ${invite.email}`);
-    } catch (err) {
-      // Error already handled
-    }
+  const handleDelete = async () => {
+    if (!deleteDialog.entry) return;
+    await handleToggleStatus(deleteDialog.entry);
+    setDeleteDialog({ open: false, entry: null });
   };
 
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return "Never";
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+  const getRoleLabel = (role: string | null) => {
+    if (!role) return 'None';
+    switch (role) {
+      case 'SYSTEM_ADMIN':
+      case 'ADMIN':
+        return 'System Admin';
+      case 'SYSTEM_ANALYST':
+      case 'ANALYST':
+        return 'System Analyst';
+      case 'SYSTEM_VIEWER':
+      case 'VIEWER':
+        return 'System Viewer';
+      default:
+        return role;
+    }
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "ACTIVE":
-        return <Badge className="bg-green-100 text-green-800 border-0 rounded-sm">Active</Badge>;
-      case "DISABLED":
-        return <Badge className="bg-red-100 text-red-800 border-0 rounded-sm">Disabled</Badge>;
-      case "INVITED":
-        return <Badge className="bg-yellow-100 text-yellow-800 border-0 rounded-sm">Invited</Badge>;
-      default:
-        return <Badge className="rounded-sm">{status}</Badge>;
-    }
+    return status === 'ACTIVE' ? (
+      <Badge className="bg-green-100 text-green-800 border-0 rounded-sm">
+        <CheckCircle className="w-3 h-3 mr-1" />
+        Active
+      </Badge>
+    ) : (
+      <Badge className="bg-red-100 text-red-800 border-0 rounded-sm">
+        <XCircle className="w-3 h-3 mr-1" />
+        Disabled
+      </Badge>
+    );
   };
 
-  const getRoleBadge = (role: TenantUserRole) => {
-    const colors: Record<TenantUserRole, string> = {
-      ADMIN: "bg-blue-100 text-blue-800",
-      EDITOR: "bg-gray-100 text-gray-800",
-      VIEWER: "bg-gray-50 text-gray-600",
-    };
-    return <Badge className={`${colors[role]} border-0 rounded-sm`}>{role}</Badge>;
-  };
+  if (loading) {
+    return (
+      <div>
+        <Skeleton className="h-64" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>
+          {error.message || 'An error occurred while loading users.'}
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      {/* Breadcrumb */}
-      <Breadcrumb className="mb-4">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link to="/admin">Administration</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Team Members</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#1E1E1E] mb-1">Team Members</h1>
-          <p className="text-sm text-gray-600">
-            Manage users who are members of this tenant (TENANT_ADMIN, TENANT_EDITOR, TENANT_VIEWER). 
-            For system-level access across all tenants, use "System Access" in the system admin menu.
-          </p>
-        </div>
-        {canManage && (
-          <Button
-            onClick={() => setInviteDialogOpen(true)}
-            className="bg-[#0052CC] hover:bg-[#003D99] text-white rounded-sm"
-          >
-            <UserPlus className="mr-2 h-4 w-4" />
-            Invite User
-          </Button>
-        )}
-      </div>
-
-      {/* Error Banner */}
-      {error && (
-        <Alert variant="destructive" className="mb-6 rounded-sm">
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Users Table */}
-      <Card className="mb-6 rounded-sm border">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-[#1E1E1E] mb-4">Users</h2>
-          
-          {loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map(i => (
-                <Skeleton key={i} className="h-12 w-full" />
-              ))}
-            </div>
-          ) : users.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-              <p className="text-gray-500 mb-2">No users found</p>
-              <p className="text-sm text-gray-400 mb-4">
-                Start by inviting users to this tenant
-              </p>
-              {canManage && (
-                <Button
-                  onClick={() => setInviteDialogOpen(true)}
-                  className="bg-[#0052CC] hover:bg-[#003D99] text-white rounded-sm"
-                >
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  Invite First User
-                </Button>
-              )}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b">
-                  <TableHead className="rounded-none">Name</TableHead>
-                  <TableHead className="rounded-none">Email</TableHead>
-                  <TableHead className="rounded-none">Role</TableHead>
-                  <TableHead className="rounded-none">Status</TableHead>
-                  <TableHead className="rounded-none">Last Login</TableHead>
-                  <TableHead className="rounded-none w-[100px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.id} className="border-b">
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      {canManage && canChangeUserRole(user.role) ? (
-                        <Select
-                          value={user.role}
-                          onValueChange={(value) => updateUserRole(user.id, value)}
-                        >
-                          <SelectTrigger className="w-[140px] h-7 rounded-sm border-gray-300">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Object.keys(ROLE_DESCRIPTIONS).map((role) => (
-                              <SelectItem key={role} value={role}>
-                                {role}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          {getRoleBadge(user.role)}
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="h-3 w-3 text-gray-400" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="max-w-xs">{ROLE_DESCRIPTIONS[user.role]}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(user.status)}</TableCell>
-                    <TableCell className="text-sm text-gray-600">
-                      {formatDate(user.lastLoginAt)}
-                    </TableCell>
-                    <TableCell>
-                      {canModifyUser(user.role) && (
-                        <div className="flex items-center gap-2">
-                          {user.status === "ACTIVE" ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => updateUserStatus(user.id, "DISABLED")}
-                                  className="h-7 w-7 p-0 rounded-sm"
-                                >
-                                  <Ban className="h-4 w-4 text-gray-600" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Disable user</TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => updateUserStatus(user.id, "ACTIVE")}
-                                  className="h-7 w-7 p-0 rounded-sm"
-                                >
-                                  <CheckCircle className="h-4 w-4 text-green-600" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Enable user</TooltipContent>
-                            </Tooltip>
-                          )}
-                          {user.role !== "ADMIN" && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setDeleteUserDialog({ open: true, user })}
-                                  className="h-7 w-7 p-0 rounded-sm text-red-600 hover:text-red-700"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Remove user</TooltipContent>
-                            </Tooltip>
-                          )}
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-      </Card>
-
-      {/* Pending Invites */}
-      {invites.length > 0 && (
-        <Card className="mb-6 rounded-sm border">
-          <div className="p-6">
-            <h2 className="text-lg font-semibold text-[#1E1E1E] mb-4 flex items-center gap-2">
-              <Clock className="h-5 w-5 text-gray-500" />
-              Pending Invitations
-            </h2>
-            <div className="space-y-3">
-              {invites.map((invite) => (
-                <div
-                  key={invite.id}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-sm bg-gray-50"
-                >
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-gray-400" />
-                    <div>
-                      <p className="font-medium text-sm">{invite.email}</p>
-                      <p className="text-xs text-gray-500">
-                        {getRoleBadge(invite.role)} • Invited {formatDate(invite.invitedAt)}
-                      </p>
-                    </div>
-                  </div>
-                  {canManage && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleResendInvite(invite)}
-                        className="rounded-sm"
-                      >
-                        Resend
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => deleteInvite(invite.id)}
-                        className="rounded-sm text-red-600 hover:text-red-700"
-                      >
-                        Revoke
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* Audit Log Placeholder */}
-      <Card className="rounded-sm border">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-[#1E1E1E] mb-4">Audit Log</h2>
-          <div className="text-center py-8 border border-dashed border-gray-300 rounded-sm">
-            <p className="text-sm text-gray-500">Audit log coming soon</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Track user actions and changes to tenant settings
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-[#1E1E1E] mb-1">Users</h2>
+            <p className="text-sm text-gray-600">
+              Manage system-level user access. Users with system roles can access multiple or all tenants.
             </p>
           </div>
+          <Badge variant="outline" className="rounded-sm">System-level</Badge>
         </div>
+        <Button onClick={handleAdd} className="rounded-sm">
+          <Plus className="w-4 h-4 mr-2" />
+          Add User
+        </Button>
+      </div>
+
+      <Card className="rounded-sm">
+        {entries.length === 0 ? (
+          <div className="p-12 text-center">
+            <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-500 mb-2">No users found</p>
+            <p className="text-sm text-gray-400 mb-4">Add users to grant system-level access</p>
+            <Button onClick={handleAdd} variant="outline" className="rounded-sm">
+              <Plus className="w-4 h-4 mr-2" />
+              Add User
+            </Button>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>System Role</TableHead>
+                <TableHead>Tenants</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((entry) => (
+                <TableRow 
+                  key={entry.id}
+                  className="cursor-pointer hover:bg-gray-50"
+                  onClick={() => handleViewDetails(entry)}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-gray-400" />
+                      <span className="font-medium">{entry.email}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="rounded-sm">
+                      {getRoleLabel(entry.role)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {entry.tenantIds.length === 0 ? (
+                      <span className="text-sm text-gray-500">All tenants</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {entry.tenantIds.slice(0, 2).map((tid) => (
+                          <Badge key={tid} variant="outline" className="rounded-sm text-xs">
+                            {tid}
+                          </Badge>
+                        ))}
+                        {entry.tenantIds.length > 2 && (
+                          <Badge variant="outline" className="rounded-sm text-xs">
+                            +{entry.tenantIds.length - 2}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {getStatusBadge(entry.status)}
+                  </TableCell>
+                  <TableCell className="text-sm text-gray-500">
+                    {new Date(entry.createdAt).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(entry)}
+                        className="rounded-sm"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleStatus(entry)}
+                        className="rounded-sm"
+                      >
+                        {entry.status === 'ACTIVE' ? (
+                          <XCircle className="w-4 h-4 text-orange-600" />
+                        ) : (
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                        )}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </Card>
 
-      {/* Invite User Dialog */}
-      <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
-        <DialogContent className="rounded-sm">
+      {/* Add/Edit User Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="rounded-sm max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Invite User</DialogTitle>
+            <DialogTitle>{editingEntry ? 'Edit User' : 'Add User'}</DialogTitle>
             <DialogDescription>
-              Send an invitation to join this tenant. The user will receive an email with instructions.
+              {editingEntry ? 'Update system-level access settings' : 'Grant system-level access to a user'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <Label htmlFor="invite-email">Email</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
-                id="invite-email"
+                id="email"
                 type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                disabled={!!editingEntry}
+                className="rounded-sm"
                 placeholder="user@example.com"
-                className="mt-1 rounded-sm"
               />
+              {editingEntry && (
+                <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
+              )}
             </div>
             <div>
-              <Label htmlFor="invite-role">Role</Label>
-              <Select value={inviteRole} onValueChange={(value) => setInviteRole(value as TenantUserRole)}>
-                <SelectTrigger id="invite-role" className="mt-1 rounded-sm">
+              <Label htmlFor="systemRole">System Role</Label>
+              <Select
+                value={formData.systemRole || 'none'}
+                onValueChange={(value) => setFormData({ ...formData, systemRole: value === 'none' ? null : value as any })}
+              >
+                <SelectTrigger className="rounded-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(ROLE_DESCRIPTIONS).map(([role, desc]) => (
-                    <SelectItem key={role} value={role}>
-                      <div>
-                        <div className="font-medium">{role}</div>
-                        <div className="text-xs text-gray-500">{desc}</div>
-                      </div>
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="SYSTEM_ADMIN">System Admin</SelectItem>
+                  <SelectItem value="SYSTEM_ANALYST">System Analyst</SelectItem>
+                  <SelectItem value="SYSTEM_VIEWER">System Viewer</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label>Allowed Tenants</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  value={newTenantId}
+                  onChange={(e) => setNewTenantId(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddTenant()}
+                  className="rounded-sm"
+                  placeholder="Enter tenant ID"
+                  list="tenant-list"
+                />
+                <datalist id="tenant-list">
+                  {availableTenants.map(t => (
+                    <option key={t.tenantId} value={t.tenantId} />
+                  ))}
+                </datalist>
+                <Button type="button" onClick={handleAddTenant} variant="outline" className="rounded-sm">
+                  Add
+                </Button>
+              </div>
+              {formData.tenantIds.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {formData.tenantIds.map((tid) => (
+                    <Badge key={tid} variant="outline" className="rounded-sm">
+                      {tid}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTenant(tid)}
+                        className="ml-2 hover:text-red-600"
+                      >
+                        ×
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                Leave empty to grant access to all tenants (SYSTEM_ADMIN only)
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="notes">Notes (optional)</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                className="rounded-sm"
+                placeholder="Internal notes about this user"
+                rows={3}
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setInviteDialogOpen(false)}
-              className="rounded-sm"
-            >
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="rounded-sm">
               Cancel
             </Button>
-            <Button
-              onClick={handleInvite}
-              disabled={inviting || !inviteEmail.trim()}
-              className="bg-[#0052CC] hover:bg-[#003D99] text-white rounded-sm"
-            >
-              {inviting ? "Sending..." : "Send Invitation"}
+            <Button onClick={handleSave} className="rounded-sm">
+              {editingEntry ? 'Update' : 'Add'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete User Dialog */}
-      <AlertDialog open={deleteUserDialog.open} onOpenChange={(open) => setDeleteUserDialog({ open, user: null })}>
+      {/* User Details Dialog */}
+      <Dialog open={userDetailsOpen} onOpenChange={setUserDetailsOpen}>
+        <DialogContent className="rounded-sm max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>User Details</DialogTitle>
+            <DialogDescription>
+              {selectedUser?.email}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <Tabs defaultValue="profile" className="w-full">
+              <TabsList className="rounded-sm">
+                <TabsTrigger value="profile">Profile</TabsTrigger>
+                <TabsTrigger value="memberships">Tenant Memberships</TabsTrigger>
+                <TabsTrigger value="system">System Role</TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+              </TabsList>
+              <TabsContent value="profile" className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs text-gray-500">Email</Label>
+                    <p className="text-sm font-medium">{selectedUser.email}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">Created</Label>
+                    <p className="text-sm">{new Date(selectedUser.createdAt).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">Status</Label>
+                    <div className="mt-1">{getStatusBadge(selectedUser.status)}</div>
+                  </div>
+                  {selectedUser.issuer && (
+                    <div>
+                      <Label className="text-xs text-gray-500">Issuer</Label>
+                      <p className="text-sm font-mono text-xs">{selectedUser.issuer}</p>
+                    </div>
+                  )}
+                </div>
+                {selectedUser.notes && (
+                  <div>
+                    <Label className="text-xs text-gray-500">Notes</Label>
+                    <p className="text-sm mt-1">{selectedUser.notes}</p>
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="memberships" className="mt-4">
+                {userTenantMemberships.length === 0 ? (
+                  <p className="text-sm text-gray-500">No tenant memberships found</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tenant</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {userTenantMemberships.map((membership) => (
+                        <TableRow key={membership.tenantId}>
+                          <TableCell>{membership.tenantName}</TableCell>
+                          <TableCell>{membership.role}</TableCell>
+                          <TableCell>{membership.status}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </TabsContent>
+              <TabsContent value="system" className="mt-4 space-y-4">
+                <div>
+                  <Label className="text-xs text-gray-500">System Role</Label>
+                  <p className="text-sm font-medium mt-1">{getRoleLabel(selectedUser.role)}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Access Mode</Label>
+                  <p className="text-sm mt-1">
+                    {selectedUser.mode === 'MULTI_TENANT' ? 'Multi-Tenant' : 'Single Tenant'}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Allowed Tenants</Label>
+                  {selectedUser.tenantIds.length === 0 ? (
+                    <p className="text-sm mt-1 text-gray-500">All tenants</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {selectedUser.tenantIds.map((tid) => (
+                        <Badge key={tid} variant="outline" className="rounded-sm">
+                          {tid}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+              <TabsContent value="activity" className="mt-4">
+                <p className="text-sm text-gray-500">Activity log coming soon</p>
+              </TabsContent>
+            </Tabs>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUserDetailsOpen(false)} className="rounded-sm">
+              Close
+            </Button>
+            {selectedUser && (
+              <Button onClick={() => {
+                setUserDetailsOpen(false);
+                handleEdit(selectedUser);
+              }} className="rounded-sm">
+                <Edit className="w-4 h-4 mr-2" />
+                Edit
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ open, entry: null })}>
         <AlertDialogContent className="rounded-sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove User</AlertDialogTitle>
+            <AlertDialogTitle>Disable User</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to remove {deleteUserDialog.user?.name} from this tenant? This action cannot be undone.
+              Are you sure you want to disable access for "{deleteDialog.entry?.email}"? 
+              This will prevent them from accessing the system. This action can be reversed later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-sm">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteUser}
-              className="bg-red-600 hover:bg-red-700 text-white rounded-sm"
-            >
-              Remove
+            <AlertDialogAction onClick={handleDelete} className="rounded-sm bg-red-600 hover:bg-red-700">
+              Disable
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -15,6 +15,7 @@ export type AuthData = {
   mode: string;
   allowedTenantIds: string[];
   primaryTenantId?: string;
+  tenantRoles?: Record<string, string>; // Map of tenantId -> role
 };
 
 // Store JWT token (call this after OIDC login)

@@ -5,20 +5,50 @@ import type { TenantUserRole } from "../types/admin";
  * Check if user can manage users (invite, edit roles, disable/enable)
  * SYSTEM_ADMIN and TENANT_ADMIN can manage users
  */
-export function canManageUsers(): boolean {
+export function canManageUsers(tenantId?: string): boolean {
   const authData = getAuthData();
-  const role = authData?.role;
-  return role === 'ADMIN' || role === 'SYSTEM_ADMIN' || role === 'TENANT_ADMIN';
+  if (!authData) return false;
+  
+  const systemRole = authData.role;
+  // Check system role
+  if (systemRole === 'ADMIN' || systemRole === 'SYSTEM_ADMIN') {
+    return true;
+  }
+  
+  // Check tenant role if tenantId is provided
+  if (tenantId && authData.tenantRoles) {
+    const tenantRole = authData.tenantRoles[tenantId];
+    if (tenantRole === 'ADMIN' || tenantRole === 'TENANT_ADMIN') {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**
  * Check if user can edit tenant settings
  * SYSTEM_ADMIN and TENANT_ADMIN can edit settings
  */
-export function canEditTenantSettings(): boolean {
+export function canEditTenantSettings(tenantId?: string): boolean {
   const authData = getAuthData();
-  const role = authData?.role;
-  return role === 'ADMIN' || role === 'SYSTEM_ADMIN' || role === 'TENANT_ADMIN';
+  if (!authData) return false;
+  
+  const systemRole = authData.role;
+  // Check system role
+  if (systemRole === 'ADMIN' || systemRole === 'SYSTEM_ADMIN') {
+    return true;
+  }
+  
+  // Check tenant role if tenantId is provided
+  if (tenantId && authData.tenantRoles) {
+    const tenantRole = authData.tenantRoles[tenantId];
+    if (tenantRole === 'ADMIN' || tenantRole === 'TENANT_ADMIN') {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**

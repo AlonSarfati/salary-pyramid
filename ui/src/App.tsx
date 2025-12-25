@@ -18,7 +18,6 @@ import TableBuilder from "./components/TableBuilder";
 import ComponentGroups from "./components/ComponentGroups";
 import ComponentsGraph from "./components/ComponentsGraph";
 import ResultsPage from "./components/ResultsPage";
-import AdminPage from "./components/AdminPage";
 import EmployeeManager from "./components/EmployeeManager";
 import GlobalPayrollDashboard from "./components/GlobalPayrollDashboard";
 import Optimizer from "./components/Optimizer";
@@ -29,10 +28,15 @@ import AuthCallback from "./components/AuthCallback";
 import UserMenu from "./components/UserMenu";
 import UserInfo from "./components/UserInfo";
 import UserSettings from "./components/UserSettings";
-import AdminUsersPage from "./components/AdminUsersPage";
-import AdminTenantPage from "./components/AdminTenantPage";
+import TenantAdminLayout from "./components/TenantAdminLayout";
+import SystemAdminLayout from "./components/SystemAdminLayout";
 import AdminTenantsPage from "./components/AdminTenantsPage";
-import AdminGlobalUsersPage from "./components/AdminGlobalUsersPage";
+import AdminUsersPage from "./components/AdminUsersPage";
+import AdminRolesPage from "./components/AdminRolesPage";
+import AdminIntegrationsPage from "./components/AdminIntegrationsPage";
+import AdminAuditPage from "./components/AdminAuditPage";
+import AdminTenantMembersPage from "./components/AdminTenantMembersPage";
+import AdminTenantSettingsPage from "./components/AdminTenantSettingsPage";
 import { tenantApi, authApi } from "./services/apiService";
 import { setAuthData, setAuthToken, getAuthData } from "./services/authService";
 import { getCurrentUser, getUserManager } from "./oidc/oidcClient";
@@ -223,6 +227,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     if (path === '/') {
       return location.pathname === '/';
     }
+    // Special handling for /admin - only match tenant admin pages
+    if (path === '/admin') {
+      const tenantAdminPaths = ['/admin/tenant-members', '/admin/tenant-settings'];
+      return location.pathname === '/admin' || tenantAdminPaths.some(p => location.pathname.startsWith(p));
+    }
     return location.pathname.startsWith(path);
   };
 
@@ -409,10 +418,7 @@ function ResultsRoute() {
   return <ResultsPage tenantId={tenantId} />;
 }
 
-function AdminRoute() {
-  const { reloadTenants } = useTenant();
-  return <AdminPage onTenantChange={reloadTenants} />;
-}
+// Admin routes are handled by AdminLayout with nested routes
 
 export default function App() {
   return (
@@ -441,11 +447,24 @@ export default function App() {
                 </Route>
                 <Route path="/visual" element={<VisualRoute />} />
                 <Route path="/results" element={<ResultsRoute />} />
-                <Route path="/admin" element={<AdminRoute />} />
-                <Route path="/admin/users" element={<AdminUsersPage />} />
-                <Route path="/admin/tenant" element={<AdminTenantPage />} />
-                <Route path="/admin/tenants" element={<AdminTenantsPage />} />
-                <Route path="/admin/global-users" element={<AdminGlobalUsersPage />} />
+                
+                {/* Tenant Admin Section - Sidebar "Admin" tab */}
+                <Route path="/admin" element={<TenantAdminLayout />}>
+                  <Route index element={<AdminTenantMembersPage />} />
+                  <Route path="tenant-members" element={<AdminTenantMembersPage />} />
+                  <Route path="tenant-settings" element={<AdminTenantSettingsPage />} />
+                </Route>
+                
+                {/* System Admin Section - User menu only */}
+                <Route path="/system" element={<SystemAdminLayout />}>
+                  <Route index element={<AdminTenantsPage />} />
+                  <Route path="tenants" element={<AdminTenantsPage />} />
+                  <Route path="users" element={<AdminUsersPage />} />
+                  <Route path="roles" element={<AdminRolesPage />} />
+                  <Route path="integrations" element={<AdminIntegrationsPage />} />
+                  <Route path="audit" element={<AdminAuditPage />} />
+                </Route>
+                
                 <Route path="/user/info" element={<UserInfo />} />
                 <Route path="/user/settings" element={<UserSettings />} />
               </Routes>
