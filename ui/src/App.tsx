@@ -85,85 +85,142 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Set up token refresh interval to check and refresh tokens before they expire
-    const setupTokenRefresh = () => {
-      const userManager = getUserManager();
-      
-      // Listen for token expiration and auto-renew
-      userManager.events.addUserLoaded((user) => {
-        // Update token in authService when user is loaded/renewed
-        if (user.access_token) {
-          setAuthToken(user.access_token);
-        }
-      });
-      
-      userManager.events.addAccessTokenExpiring(() => {
-        // The automaticSilentRenew will handle this, but we can also manually trigger
-        userManager.signinSilent().catch(() => {
-          // Silent renewal failed - will be handled by automaticSilentRenew
-        });
-      });
-      
-      userManager.events.addAccessTokenExpired(() => {
-        // Try to renew expired token
-        userManager.signinSilent().catch(() => {
-          // Renewal failed - user may need to sign in again
-        });
-      });
-    };
-
     (async () => {
       try {
         setAuthLoading(true);
         setAuthError(null);
 
-        // Set up token refresh listeners
-        setupTokenRefresh();
+        // Check if OIDC is configured
+        const { isOidcConfigured } = await import("./oidc/oidcClient");
+        const oidcConfigured = isOidcConfigured();
+        let oidcEnabled = false;
 
-        // 1) Try to load existing OIDC user session
-        const user = await getCurrentUser();
+        if (oidcConfigured) {
+          // OIDC is configured - try to use it, but fall back to no-auth if Keycloak is unavailable
+          try {
+            const { getUserManager, getCurrentUser } = await import("./oidc/oidcClient");
+            
+            // Set up token refresh interval to check and refresh tokens before they expire
+            const setupTokenRefresh = () => {
+              const userManager = getUserManager();
+              if (!userManager) return;
+              
+              // Listen for token expiration and auto-renew
+              userManager.events.addUserLoaded((user) => {
+                // Update token in authService when user is loaded/renewed
+                if (user.access_token) {
+                  setAuthToken(user.access_token);
+                }
+              });
+              
+              userManager.events.addAccessTokenExpiring(() => {
+                // The automaticSilentRenew will handle this, but we can also manually trigger
+                userManager.signinSilent().catch(() => {
+                  // Silent renewal failed - will be handled by automaticSilentRenew
+                });
+              });
+              
+              userManager.events.addAccessTokenExpired(() => {
+                // Try to renew expired token
+                userManager.signinSilent().catch(() => {
+                  // Renewal failed - user may need to sign in again
+                });
+              });
+            };
 
-        if (!user || !user.access_token) {
-          setAuthError({
-            error: "NOT_AUTHENTICATED",
-            message:
-              "You are not logged in. Please sign in to access the simulator.",
-          });
-          return;
+            // First, check if backend is in permit-all mode by trying to call an API without auth
+            // This avoids trying to use OIDC if backend doesn't require it
+            try {
+              await tenantApi.list();
+              // If this succeeds without auth, backend is in permit-all mode - skip OIDC
+              console.info("Backend appears to be in permit-all mode. Skipping OIDC authentication.");
+              oidcEnabled = false;
+            } catch (e: any) {
+              // If this fails with 401/403, backend requires auth - try OIDC
+              if (e.status === 401 || e.status === 403) {
+                // Backend requires auth - set up OIDC
+                setupTokenRefresh();
+
+                // Try to load existing OIDC user session
+                const user = await getCurrentUser();
+
+                if (user && user.access_token) {
+                  // OIDC is working - use it
+                  oidcEnabled = true;
+                  setAuthToken(user.access_token);
+                } else {
+                  // No user session - OIDC is needed but user not logged in
+                  oidcEnabled = true;
+                  setAuthError({
+                    error: "NOT_AUTHENTICATED",
+                    message:
+                      "You are not logged in. Please sign in to access the simulator.",
+                  });
+                  return;
+                }
+              } else {
+                // Other error - assume permit-all mode
+                console.info("API call failed with non-auth error. Assuming permit-all mode.");
+                oidcEnabled = false;
+              }
+            }
+          } catch (e: any) {
+            // OIDC connection failed (e.g., Keycloak not running) - fall back to no-auth
+            console.info("OIDC configured but connection failed (Keycloak may not be running). Falling back to no-auth mode.");
+            oidcEnabled = false;
+          }
+        } else {
+          // OIDC not configured - use no-auth mode
+          console.info("OIDC not configured. Running in no-auth mode (backend permit-all)");
         }
 
-        // 2) Set token for API calls (ensure in-memory token is set on refresh)
-        setAuthToken(user.access_token);
-
         // 3) Check backend auth/me to get role/mode/tenants
-        try {
-          const authData = await authApi.getMe();
-          setAuthData(authData);
-        } catch (error: any) {
-          if (error.status === 401 || error.error === "NOT_AUTHENTICATED") {
-            setAuthError({
-              error: "NOT_AUTHENTICATED",
-              message:
-                "You are not logged in. Please sign in to access the simulator.",
-            });
-            return;
-          }
+        if (oidcEnabled && oidcConfigured) {
+          // OIDC mode: call /api/auth/me to get user info
+          try {
+            const authData = await authApi.getMe();
+            setAuthData(authData);
+          } catch (error: any) {
+            // Handle auth errors
+            if (error.status === 401 || error.error === "NOT_AUTHENTICATED") {
+              setAuthError({
+                error: "NOT_AUTHENTICATED",
+                message:
+                  "You are not logged in. Please sign in to access the simulator.",
+              });
+              return;
+            }
 
-          if (error.error === "ACCESS_DENIED" || error.error === "ACCOUNT_DISABLED") {
-            const errorData =
-              error.error === "ACCESS_DENIED"
-                ? {
-                    error: "ACCESS_DENIED",
-                    message: "Your account is not approved yet.",
-                  }
-                : {
-                    error: "ACCOUNT_DISABLED",
-                    message: "Your account has been disabled.",
-                  };
-            setAuthError(errorData);
-            return;
+            if (error.error === "ACCESS_DENIED" || error.error === "ACCOUNT_DISABLED") {
+              const errorData =
+                error.error === "ACCESS_DENIED"
+                  ? {
+                      error: "ACCESS_DENIED",
+                      message: "Your account is not approved yet.",
+                    }
+                  : {
+                      error: "ACCOUNT_DISABLED",
+                      message: "Your account has been disabled.",
+                    };
+              setAuthError(errorData);
+              return;
+            }
           }
-
+        } else {
+          // No-OIDC mode (permit-all): create default auth data
+          // /api/auth/me requires JWT, so skip it in permit-all mode
+          console.info("Backend in permit-all mode, using default auth data");
+          setAuthData({
+            userIdentity: {
+              issuer: "local",
+              subject: "local-user",
+              email: "local@example.com",
+              displayName: "Local User",
+            },
+            role: "SYSTEM_ADMIN",
+            mode: "MULTI_TENANT",
+            allowedTenantIds: [],
+          });
         }
 
         // 4) Load tenants (backend now filters based on user's access)

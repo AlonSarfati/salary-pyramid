@@ -1,5 +1,6 @@
 import { AlertCircle, LogIn, Mail, Shield } from "lucide-react";
-import { getUserManager } from "../oidc/oidcClient";
+import { getUserManager, isOidcConfigured } from "../oidc/oidcClient";
+import { tenantApi } from "../services/apiService";
 
 type AccessDeniedProps = {
   error?: string;
@@ -10,13 +11,47 @@ export default function AccessDenied({ error, message }: AccessDeniedProps) {
   const isDisabled = error === "ACCOUNT_DISABLED";
   const isNotAuthenticated = error === "NOT_AUTHENTICATED";
   const isNotApproved = error === "ACCESS_DENIED" || (!error && !isNotAuthenticated);
+  const oidcConfigured = isOidcConfigured();
 
   const handleSignIn = async () => {
+    // First, check if backend is in permit-all mode by trying to call an API without auth
     try {
-      const mgr = getUserManager();
-      await mgr.signinRedirect();
-    } catch (e) {
-      console.error("OIDC signinRedirect failed:", e);
+      await tenantApi.list();
+      // If this succeeds, backend is in permit-all mode - just reload
+      console.info("Backend is in permit-all mode. Reloading page.");
+      window.location.reload();
+      return;
+    } catch (e: any) {
+      // If API call fails with 401/403, backend requires auth - try OIDC
+      if (e.status === 401 || e.status === 403) {
+        if (!oidcConfigured) {
+          // OIDC not configured but backend requires auth - show error
+          console.error("Backend requires authentication but OIDC is not configured.");
+          window.location.reload();
+          return;
+        }
+        
+        // Try OIDC sign-in
+        try {
+          const mgr = getUserManager();
+          if (mgr) {
+            await mgr.signinRedirect();
+          } else {
+            // OIDC configured but manager not available - reload
+            window.location.reload();
+          }
+        } catch (oidcError: any) {
+          console.error("OIDC signinRedirect failed:", oidcError);
+          // If OIDC connection fails (Keycloak not running), reload to check backend mode again
+          if (oidcError.message?.includes("Failed to fetch") || oidcError.message?.includes("Network Error")) {
+            console.info("OIDC connection failed (Keycloak may not be running). Reloading to check backend mode.");
+            window.location.reload();
+          }
+        }
+      } else {
+        // Other error - just reload
+        window.location.reload();
+      }
     }
   };
 
@@ -76,7 +111,7 @@ export default function AccessDenied({ error, message }: AccessDeniedProps) {
           </div>
         )}
 
-        {isNotAuthenticated ? (
+        {isNotAuthenticated && oidcConfigured ? (
           <button
             onClick={handleSignIn}
             className="mt-6 px-6 py-2 bg-[#0052CC] text-white rounded-lg hover:bg-[#0042A3] transition-colors flex items-center justify-center gap-2 mx-auto"
@@ -86,10 +121,10 @@ export default function AccessDenied({ error, message }: AccessDeniedProps) {
           </button>
         ) : (
           <button
-            onClick={() => window.location.reload()}
+            onClick={handleSignIn}
             className="mt-6 px-6 py-2 bg-[#0052CC] text-white rounded-lg hover:bg-[#0042A3] transition-colors"
           >
-            Retry
+            {oidcConfigured ? "Retry" : "Reload"}
           </button>
         )}
       </div>

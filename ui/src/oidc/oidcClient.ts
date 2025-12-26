@@ -4,17 +4,27 @@ import { UserManager, WebStorageStateStore, Log, User } from "oidc-client-ts";
 
 let userManager: UserManager | null = null;
 
+/**
+ * Check if OIDC is configured
+ */
+export function isOidcConfigured(): boolean {
+  const authority = import.meta.env.VITE_OIDC_AUTHORITY;
+  const clientId = import.meta.env.VITE_OIDC_CLIENT_ID;
+  return !!(authority && clientId);
+}
+
 function createUserManager() {
   const authority = import.meta.env.VITE_OIDC_AUTHORITY;
   const clientId = import.meta.env.VITE_OIDC_CLIENT_ID;
 
   // Safety check: ensure OIDC env vars are configured
   if (!authority || !clientId) {
-    console.error(
-      "❌ OIDC not configured. Ensure ui/.env.local exists and restart Vite.\n" +
-      "   Required: VITE_OIDC_AUTHORITY and VITE_OIDC_CLIENT_ID"
+    console.info(
+      "ℹ️ OIDC not configured. Running in no-auth mode (backend permit-all mode).\n" +
+      "   To enable OIDC, set VITE_OIDC_AUTHORITY and VITE_OIDC_CLIENT_ID in ui/.env.local"
     );
-    // Do NOT throw - allow app to render AccessDenied screen with Sign In button
+    // Return null to indicate OIDC is not available
+    return null as any;
   }
 
   const redirectUri = `${window.location.origin}/auth/callback`;
@@ -44,16 +54,25 @@ function createUserManager() {
   });
 }
 
-export function getUserManager(): UserManager {
+export function getUserManager(): UserManager | null {
+  if (!isOidcConfigured()) {
+    return null;
+  }
   if (!userManager) {
     userManager = createUserManager();
   }
-  return userManager!;
+  return userManager;
 }
 
 export async function getCurrentUser(): Promise<User | null> {
+  if (!isOidcConfigured()) {
+    return null;
+  }
   try {
     const mgr = getUserManager();
+    if (!mgr) {
+      return null;
+    }
     let user = await mgr.getUser();
     
     // If user is expired, try to renew it silently

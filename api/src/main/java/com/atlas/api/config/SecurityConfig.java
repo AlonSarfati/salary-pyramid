@@ -1,6 +1,7 @@
 package com.atlas.api.config;
 
 import com.atlas.api.auth.AccessGateFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -9,6 +10,7 @@ import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -17,11 +19,23 @@ import org.springframework.security.web.SecurityFilterChain;
 
 import java.util.List;
 
+/**
+ * Spring Security configuration.
+ * 
+ * Supports two security modes via app.security.mode:
+ * - "permit-all": Local development mode, no authentication required
+ * - "oidc": Production mode, requires OAuth2/OIDC JWT authentication (Keycloak)
+ * 
+ * In OIDC mode, requires spring.security.oauth2.resourceserver.jwt.issuer-uri to be set.
+ */
 @Configuration
 public class SecurityConfig {
 
     private final AccessGateFilter accessGateFilter;
     private final ApplicationContext applicationContext;
+    
+    @Value("${app.security.mode:oidc}")
+    private String securityMode;
 
     public SecurityConfig(AccessGateFilter accessGateFilter, ApplicationContext applicationContext) {
         this.accessGateFilter = accessGateFilter;
@@ -45,68 +59,83 @@ public class SecurityConfig {
                 // Stateless API + SPA, no CSRF tokens
                 .csrf(AbstractHttpConfigurer::disable);
 
-        // Conditionally configure OAuth2 Resource Server only if JwtDecoder bean exists
-        // Spring Boot auto-creates JwtDecoder when spring.security.oauth2.resourceserver.jwt.issuer-uri is set
-        boolean oidcEnabled = applicationContext.getBeanNamesForType(JwtDecoder.class).length > 0;
+        boolean isPermitAllMode = "permit-all".equalsIgnoreCase(securityMode);
         
-        if (oidcEnabled) {
-            // Spring Boot has auto-configured JwtDecoder, so we can configure oauth2ResourceServer
-            http.oauth2ResourceServer(oauth2 -> oauth2
-                    .jwt(jwt -> {
-                        // Try to use custom converter if available
-                        try {
-                            Converter<Jwt, AbstractAuthenticationToken> converter = 
-                                applicationContext.getBean("jwtAuthenticationConverter", Converter.class);
-                            jwt.jwtAuthenticationConverter(converter);
-                        } catch (Exception e) {
-                            // Custom converter not available, use default
+        if (isPermitAllMode) {
+            // Local development mode: permit all requests without authentication
+            // Still add AccessGateFilter to populate UserContext with default values
+            http.addFilterBefore(accessGateFilter, org.springframework.security.web.access.ExceptionTranslationFilter.class);
+            
+            http
+                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                    .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                    .httpBasic(AbstractHttpConfigurer::disable)
+                    .formLogin(AbstractHttpConfigurer::disable);
+        } else {
+            // OIDC mode: require authentication via OAuth2 Resource Server
+            // Check if JwtDecoder bean exists (auto-created when issuer-uri is set)
+            boolean oidcEnabled = applicationContext.getBeanNamesForType(JwtDecoder.class).length > 0;
+            
+            if (oidcEnabled) {
+                // Spring Boot has auto-configured JwtDecoder, so we can configure oauth2ResourceServer
+                http.oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> {
+                            // Try to use custom converter if available
+                            try {
+                                Converter<Jwt, AbstractAuthenticationToken> converter = 
+                                    applicationContext.getBean("jwtAuthenticationConverter", Converter.class);
+                                jwt.jwtAuthenticationConverter(converter);
+                            } catch (Exception e) {
+                                // Custom converter not available, use default
+                            }
+                        })
+                );
+                
+                // Add access gate filter AFTER oauth2ResourceServer configuration
+                // This ensures it runs after BearerTokenAuthenticationFilter
+                // We add it before ExceptionTranslationFilter to ensure it runs after authentication
+                http.addFilterBefore(accessGateFilter, org.springframework.security.web.access.ExceptionTranslationFilter.class);
+            }
+
+            http
+                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                    // Our authorization rules
+                    .authorizeHttpRequests(auth -> {
+                        if (oidcEnabled) {
+                            // With OIDC enabled: require authentication for protected endpoints
+                            auth
+                                    // Health endpoint for ALB / monitoring (under context-path /api)
+                                    .requestMatchers("/actuator/health/**", "/actuator/info/**").permitAll()
+                                    // Auth endpoints - require JWT but are not blocked by allowlist
+                                    .requestMatchers("/auth/me", "/auth/debug-claims").authenticated()
+                                    // Admin endpoints - permit all (admin key check happens in controller)
+                                    .requestMatchers("/admin/**").permitAll()
+                                    // Frontend entry & static assets (served by S3/CloudFront, but allow if backend serves them)
+                                    .requestMatchers(
+                                            "/",
+                                            "/index.html",
+                                            "/favicon.ico",
+                                            "/assets/**",
+                                            "/static/**",
+                                            "/*.js",
+                                            "/*.css",
+                                            "/*.png",
+                                            "/*.svg"
+                                    ).permitAll()
+                                    // All other /api/** endpoints require authentication
+                                    // AccessGateFilter will enforce allowlist
+                                    .requestMatchers("/**").authenticated()
+                                    // Fallback: permit all for non-API paths
+                                    .anyRequest().permitAll();
+                        } else {
+                            // Without OIDC configured but mode=oidc: permit all (backward compatible)
+                            auth.anyRequest().permitAll();
                         }
                     })
-            );
-            
-            // Add access gate filter AFTER oauth2ResourceServer configuration
-            // This ensures it runs after BearerTokenAuthenticationFilter
-            // We add it before ExceptionTranslationFilter to ensure it runs after authentication
-            http.addFilterBefore(accessGateFilter, org.springframework.security.web.access.ExceptionTranslationFilter.class);
+                    // Do NOT enable HTTP Basic or form login (no login pages)
+                    .httpBasic(AbstractHttpConfigurer::disable)
+                    .formLogin(AbstractHttpConfigurer::disable);
         }
-
-        http
-                // Our authorization rules
-                .authorizeHttpRequests(auth -> {
-                    if (oidcEnabled) {
-                        // With OIDC enabled: require authentication for protected endpoints
-                        auth
-                                // Health endpoint for ALB / monitoring (under context-path /api)
-                                .requestMatchers("/actuator/health/**", "/actuator/info/**").permitAll()
-                                // Auth endpoints - require JWT but are not blocked by allowlist
-                                .requestMatchers("/auth/me", "/auth/debug-claims").authenticated()
-                                // Admin endpoints - permit all (admin key check happens in controller)
-                                .requestMatchers("/admin/**").permitAll()
-                                // Frontend entry & static assets (served by S3/CloudFront, but allow if backend serves them)
-                                .requestMatchers(
-                                        "/",
-                                        "/index.html",
-                                        "/favicon.ico",
-                                        "/assets/**",
-                                        "/static/**",
-                                        "/*.js",
-                                        "/*.css",
-                                        "/*.png",
-                                        "/*.svg"
-                                ).permitAll()
-                                // All other /api/** endpoints require authentication
-                                // AccessGateFilter will enforce allowlist
-                                .requestMatchers("/**").authenticated()
-                                // Fallback: permit all for non-API paths
-                                .anyRequest().permitAll();
-                    } else {
-                        // Without OIDC: permit all (backward compatible)
-                        auth.anyRequest().permitAll();
-                    }
-                })
-                // Do NOT enable HTTP Basic or form login (no login pages)
-                .httpBasic(AbstractHttpConfigurer::disable)
-                .formLogin(AbstractHttpConfigurer::disable);
 
         return http.build();
     }

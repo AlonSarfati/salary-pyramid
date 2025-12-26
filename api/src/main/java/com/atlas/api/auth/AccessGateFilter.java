@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -33,6 +34,9 @@ public class AccessGateFilter extends OncePerRequestFilter {
     private final UserIdentityService userIdentityService;
     private final UserContext userContext;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    
+    @Value("${app.security.mode:oidc}")
+    private String securityMode;
 
     public AccessGateFilter(
         AuthContextService authContextService,
@@ -56,6 +60,22 @@ public class AccessGateFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         String contextPath = request.getContextPath();
         String servletPath = request.getServletPath();
+        
+        boolean isPermitAllMode = "permit-all".equalsIgnoreCase(securityMode);
+        
+        // In permit-all mode, populate a default UserContext and skip all checks
+        if (isPermitAllMode) {
+            // Populate UserContext with default values for permit-all mode
+            userContext.setIssuer("local");
+            userContext.setSubject("local-user");
+            userContext.setEmail("local@example.com");
+            userContext.setDisplayName("Local User");
+            userContext.setRole("SYSTEM_ADMIN");
+            userContext.setMode("MULTI_TENANT");
+            userContext.setAllowedTenantIds(List.of()); // Empty list means access to all
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         // Skip allowlist check for public endpoints, actuator, and admin endpoints
         // But still populate UserContext for admin endpoints so controllers can check permissions
