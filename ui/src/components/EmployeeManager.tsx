@@ -500,7 +500,10 @@ export default function EmployeeManager({ tenantId = "default" }: { tenantId?: s
             <Upload className="w-4 h-4 mr-2" />
             Import CSV/XLSX
           </Button>
-          <Button onClick={handleAdd}>
+          <Button 
+            onClick={handleAdd}
+            className="shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5"
+          >
             <Plus className="w-4 h-4 mr-2" />
             Add Employee
           </Button>

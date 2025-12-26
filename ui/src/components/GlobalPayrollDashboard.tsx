@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { DollarSign, Users, TrendingUp, FileText, Loader2, Info, Play, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card } from './ui/card';
 import { Label } from './ui/label';
+import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { baselineApi, rulesetApi, componentGroupsApi, type BaselineSummary, type BaselineTrendPoint, type BaselineBreakdown, type FullSimulationResult, type ComponentGroup } from '../services/apiService';
 import { ChartTooltip } from './ui/chart';
@@ -257,7 +258,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
   
   // Get colors for breakdown data, using group colors or fallback
   const getColorForCategory = (category: string, index: number): string => {
-    return categoryColorMap.get(category) || ['#0052CC', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4'][index % 6];
+    return categoryColorMap.get(category) || ['#1FB5B8', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4'][index % 6];
   };
 
   const handleRunFullSimulation = async () => {
@@ -344,7 +345,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
     return (
       <div className="p-8 max-w-[1600px] mx-auto">
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-[#0052CC]" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#1FB5B8]" />
         </div>
       </div>
     );
@@ -394,10 +395,10 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
               </SelectContent>
             </Select>
           </div>
-          <button
+          <Button
             onClick={handleRunFullSimulation}
             disabled={!selectedRulesetId || runningSimulation}
-            className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-6 py-3 rounded-xl"
           >
             {runningSimulation ? (
               <>
@@ -410,7 +411,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                 Run Full Simulation
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -418,8 +419,8 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-[#0052CC]" />
+            <div className="w-10 h-10 bg-cyan-100 rounded-lg flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-[#1FB5B8]" />
             </div>
             <div className="text-sm text-gray-600">Total Current Payroll</div>
           </div>
@@ -521,7 +522,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                         return (
                           <div className="bg-white p-2 border border-gray-200 rounded shadow">
                             <p className="text-sm">{`${payload[0].payload.month}`}</p>
-                            <p className="text-sm font-semibold text-[#0052CC]">
+                            <p className="text-sm font-semibold text-[#1FB5B8]">
                               {formatCurrency(payload[0].value as number)}
                             </p>
                           </div>
@@ -533,9 +534,9 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                   <Line 
                     type="monotone" 
                     dataKey="payroll" 
-                    stroke="#0052CC" 
+                    stroke="#1FB5B8" 
                     strokeWidth={2}
-                    dot={{ fill: '#0052CC', r: 4 }}
+                    dot={{ fill: '#1FB5B8', r: 4 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -583,7 +584,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                         return (
                           <div className="bg-white p-2 border border-gray-200 rounded shadow">
                             <p className="text-sm font-semibold">{data.category}</p>
-                            <p className="text-sm text-[#0052CC]">
+                            <p className="text-sm text-[#1FB5B8]">
                               {formatCurrency(payload[0].value as number)}
                             </p>
                           </div>
@@ -668,7 +669,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                       return (
                         <tr key={component} className="border-b border-gray-100">
                           <td className="w-1/2 py-3 px-4 text-sm text-[#1E1E1E]">{component}</td>
-                          <td className="w-1/4 py-3 px-4 text-sm text-[#0052CC] text-right">
+                          <td className="w-1/4 py-3 px-4 text-sm text-[#1FB5B8] text-right">
                             {formatCurrency(total)}
                           </td>
                           <td className="w-1/4 py-3 px-4 text-sm text-gray-600 text-right">
@@ -700,7 +701,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
                     <tr key={emp.employeeId} className="border-b border-gray-100 hover:bg-[#EEF2F8]">
                       <td className="py-3 px-4 text-sm text-[#1E1E1E]">{emp.employeeId}</td>
                       <td className="py-3 px-4 text-sm text-gray-600">{emp.employeeName || '-'}</td>
-                      <td className="py-3 px-4 text-sm text-[#0052CC] text-right font-semibold">
+                      <td className="py-3 px-4 text-sm text-[#1FB5B8] text-right font-semibold">
                         {formatCurrency(emp.total)}
                       </td>
                       <td className="py-3 px-4 text-sm text-gray-600 text-right">
@@ -718,7 +719,7 @@ export default function GlobalPayrollDashboard({ tenantId = 'default' }: GlobalP
       {/* Metadata Section */}
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
         <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-[#0052CC] mt-0.5" />
+          <Info className="w-5 h-5 text-[#1FB5B8] mt-0.5" />
           <div className="flex-1">
             <h3 className="text-[#1E1E1E] mb-3">Dashboard Information</h3>
             <div className="space-y-2 text-sm text-gray-600">

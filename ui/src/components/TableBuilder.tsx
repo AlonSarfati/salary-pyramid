@@ -858,7 +858,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
     <div className="space-y-6">
       <Card className="p-6 bg-white rounded-xl shadow-sm border-0">
         <div className="flex items-center gap-3 mb-6">
-          <Database className="w-6 h-6 text-[#0052CC]" />
+          <Database className="w-6 h-6 text-[#1FB5B8]" />
           <h2 className="text-2xl font-bold text-[#1E1E1E]">Table Builder</h2>
         </div>
 
@@ -909,7 +909,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
               </div>
               {loading ? (
                 <div className="flex items-center justify-center p-4">
-                  <Loader2 className="w-5 h-5 animate-spin text-[#0052CC]" />
+                  <Loader2 className="w-5 h-5 animate-spin text-[#1FB5B8]" />
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -919,7 +919,7 @@ export default function TableBuilder({ tenantId = 'default' }: { tenantId?: stri
                       onClick={() => setSelectedTable(table.tableName)}
                       className={`p-3 rounded-lg border cursor-pointer transition-colors ${
                         selectedTable === table.tableName
-                          ? 'bg-[#0052CC] text-white border-[#0052CC]'
+                          ? 'bg-[#1FB5B8] text-white border-[#1FB5B8]'
                           : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
                       }`}
                     >

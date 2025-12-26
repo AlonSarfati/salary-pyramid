@@ -331,42 +331,77 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       setTenantId: setSelectedTenantId,
       reloadTenants,
     }}>
-      <div className="flex h-screen bg-[#EEF2F8]">
-        {/* Left Sidebar */}
-        <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-          <div className="p-6 border-b border-gray-200 flex items-center">
-            <img
-              src="/assets/icons/lira-logo-rev.png"
-              alt="Lira logo"
-              className="sidebar-logo w-auto"
-            />
-          </div>
-          <nav className="flex-1 p-4">
-            {navItems.map((item) => {
-              const active = isActive(item.path);
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition-colors ${
-                    active
-                      ? 'bg-[#0052CC] text-white'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
+      <div 
+        className="flex h-screen"
+        style={{
+          background: "linear-gradient(90deg, #E7EDF1 0%, #DDE9EC 45%, #CFE7E5 100%)",
+        }}
+      >
+{/* Left Sidebar */}
+<div
+  className="flex flex-col"
+  style={{
+    width: 180,
+    background: "linear-gradient(180deg, #1A5F7A 0%, #155A73 45%, #0F4A5C 100%)",
+  }}
+>
+  <div className="px-6 py-6 flex items-center justify-center">
+    <img
+      src="/assets/icons/blaa.png"
+      alt="Lira logo"
+      className="w-[120px] h-auto opacity-95"
+    />
+  </div>
+
+  <nav className="flex-1 px-3">
+    {navItems.map((item) => {
+      const active = isActive(item.path);
+
+      return (
+          <Link
+            key={item.path}
+            to={item.path}
+            className="relative w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-md transition-all"
+            style={{
+              color: "#FFFFFF",
+              background: active
+                ? "rgba(71, 215, 215, 0.18)" // ירקרק־כחול כמו בתמונה
+                : "transparent",
+            }}
+          >
+          <span
+            className="absolute left-0 top-0 h-full rounded-r"
+            style={{
+              width: 4,
+              background: active ? "#47D7D7" : "transparent",
+            }}
+          />
+          <item.icon className="w-5 h-5 shrink-0" />
+          <span className="text-[14px] font-medium">{item.label}</span>
+        </Link>
+      );
+    })}
+  </nav>
+
+  <div className="h-8" />
+</div>
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div 
+          className="flex-1 flex flex-col overflow-hidden"
+          style={{
+            background: "linear-gradient(90deg, #E7EDF1 0%, #DDE9EC 45%, #CFE7E5 100%)",
+          }}
+        >
           {/* Top Bar */}
-          <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-[#1E1E1E]">Lira Compensation Simulator</h2>
+          <div 
+            className="px-6 py-4 flex items-center justify-between border-b"
+            style={{
+              background: "#FFFFFF",
+              borderColor: "#E5E7EB",
+            }}
+          >
+            <h2 className="text-gray-800 font-semibold">Lira Compensation Simulator</h2>
             <div className="flex items-center gap-4">
               {!tenantsLoading && tenants.length > 0 && (() => {
                 const authData = getAuthData();
@@ -383,7 +418,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                       <select
                         value={selectedTenantId}
                         onChange={(e) => setSelectedTenantId(e.target.value)}
-                        className="px-4 py-2 border border-gray-300 rounded-sm bg-white text-[#1E1E1E] min-w-[200px] text-sm focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                        className="px-4 py-2 border rounded-sm min-w-[200px] text-sm focus:outline-none focus:ring-2 focus:ring-[#47D7D7] bg-white"
+                        style={{
+                          borderColor: "#D1D5DB",
+                          color: "#1F2937",
+                        }}
                       >
                         {tenants
                           .filter(t => t.status === 'ACTIVE')
@@ -405,7 +444,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
                   return (
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Tenant:</span>
-                      <span className="text-sm text-[#1E1E1E] font-medium">{tenantName}</span>
+                      <span className="text-sm text-gray-800 font-medium">{tenantName}</span>
                     </div>
                   );
                 }
@@ -415,7 +454,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Page Content */}
-          <div className="flex-1 overflow-auto">
+          <div 
+            className="flex-1 overflow-auto"
+            style={{
+              background: "linear-gradient(90deg, #E7EDF1 0%, #DDE9EC 45%, #CFE7E5 100%)",
+            }}
+          >
             {children}
           </div>
         </div>

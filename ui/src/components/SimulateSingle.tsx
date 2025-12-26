@@ -638,7 +638,12 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
             <button 
               onClick={() => setShowSaveScenarioDialog(true)}
               disabled={!simulationResult}
-              className="flex items-center gap-2 px-6 py-3 bg-white text-[#0052CC] border border-[#0052CC] rounded-xl hover:bg-[#EEF2F8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-6 py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: "#E3EBF0",
+                border: "1px solid #BFD8DC",
+                color: "#2F4F5B",
+              }}
             >
               <Save className="w-5 h-5" />
               Save Scenario
@@ -936,10 +941,10 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                     );
                   })}
 
-                  <button
+                  <Button
                     onClick={handleRun}
                     disabled={simulating || !selectedRulesetId}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors mt-6 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl mt-6"
                   >
                     {simulating ? (
                       <>
@@ -952,7 +957,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                         Run Simulation
                       </>
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
             </Card>
@@ -1004,7 +1009,7 @@ export default function SimulateSingle({ tenantId = "default" }: { tenantId?: st
                             className="absolute left-0 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 rounded -ml-8"
                             title="Show calculation trace"
                           >
-                            <Info className="w-4 h-4 text-[#0052CC]" />
+                            <Info className="w-4 h-4 text-[#1FB5B8]" />
                           </button>
                           <div className="col-span-4 flex items-center text-[#1E1E1E] min-w-0">
                             <span className="truncate">{result.component}</span>

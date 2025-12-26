@@ -196,7 +196,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
   const [groupFormData, setGroupFormData] = useState({ 
     groupName: '', 
     displayName: '', 
-    color: '#0052CC', 
+    color: '#1FB5B8', 
     displayOrder: 1 
   });
 
@@ -1915,7 +1915,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
       
       setShowGroupDialog(false);
       setEditingGroup(null);
-      setGroupFormData({ groupName: '', displayName: '', color: '#0052CC', displayOrder: 1 });
+      setGroupFormData({ groupName: '', displayName: '', color: '#1FB5B8', displayOrder: 1 });
     } catch (err: any) {
       showToast('error', "Couldn't save group", "Please try again.");
     } finally {
@@ -2649,7 +2649,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
         // Convert hex color to Tailwind classes (simplified mapping)
         // For now, use a default set of colors based on index
         const colorClasses = [
-          'bg-blue-100 text-blue-800',
+          'bg-cyan-100 text-cyan-800',
           'bg-green-100 text-green-800',
           'bg-yellow-100 text-yellow-800',
           'bg-purple-100 text-purple-800',
@@ -2813,27 +2813,27 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               </button>
             </div>
             <div className="flex items-center gap-3">
-              <button
+              <Button
                 onClick={() => setShowImportDialog(true)}
                 disabled={!selectedRulesetId || importing}
-                className="flex items-center gap-2 px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl hover:bg-gray-100"
                 title="Import rules from CSV"
               >
                 <Upload className="w-5 h-5" />
                 Import CSV
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl hover:bg-gray-100"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                 Save Draft
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleValidate}
                 disabled={loading}
-                className="flex items-center gap-2 px-6 py-3 bg-white text-[#0052CC] border border-[#0052CC] rounded-xl hover:bg-[#EEF2F8] transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl hover:bg-gray-100"
               >
                 {loading ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -2845,15 +2845,15 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                   <CheckCircle className="w-5 h-5" />
                 )}
                 {lastValidationStatus === "success" ? "Validated" : "Validate"}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handlePublish}
                 disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-[#0052CC] text-white rounded-xl hover:bg-[#0047b3] transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-6 py-3 rounded-xl"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
                 Publish
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -2967,7 +2967,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                     title="Add Component"
                   >
-                    <Plus className="w-5 h-5 text-[#0052CC]" />
+                    <Plus className="w-5 h-5 text-[#1FB5B8]" />
                   </button>
                 </div>
                 
@@ -2997,7 +2997,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                       key={component.id}
                       className={`p-4 rounded-lg transition-colors ${
                         selectedComponent === component.id
-                          ? 'bg-[#0052CC] text-white'
+                          ? 'bg-black text-white'
                           : 'bg-[#EEF2F8] hover:bg-gray-200'
                       }`}
                     >
@@ -3158,7 +3158,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                 insertAutocompleteSuggestion(suggestion);
                               }}
                               className={`px-3 py-2 cursor-pointer hover:bg-gray-100 ${
-                                index === autocompleteSelectedIndex ? 'bg-blue-50' : ''
+                                index === autocompleteSelectedIndex ? 'bg-cyan-50' : ''
                               }`}
                             >
                               <span className="font-mono text-sm">{suggestion}</span>
@@ -3178,7 +3178,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                         {dependsOn.map((dep) => (
                           <Badge
                             key={dep}
-                            className="bg-[#0052CC] text-white px-3 py-1 cursor-pointer"
+                            className="bg-[#1FB5B8] text-white px-3 py-1 cursor-pointer"
                             onClick={() => handleRemoveDependency(dep)}
                           >
                             {dep} ×
@@ -3279,12 +3279,12 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                             }}
                             className={`flex items-center justify-between px-3 py-2 border rounded-[6px] text-left ${
                               layer === 'base'
-                                ? 'border-[#0052CC] bg-[#EEF2F8] text-[#0A0A0A]'
+                                ? 'border-black bg-[#EEF2F8] text-[#0A0A0A]'
                                 : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                             }`}
                           >
                             <span>Employee (Base)</span>
-                            {layer === 'base' && <CheckCircle className="w-4 h-4 text-[#0052CC]" />}
+                            {layer === 'base' && <CheckCircle className="w-4 h-4 text-black" />}
                           </button>
                           <button
                             type="button"
@@ -3385,7 +3385,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                   ? 'bg-red-50 border border-red-200'
                                   : result.severity === 'warning'
                                   ? 'bg-yellow-50 border border-yellow-200'
-                                  : 'bg-blue-50 border border-blue-200'
+                                  : 'bg-cyan-50 border border-cyan-200'
                               }`}
                             >
                               <AlertCircle
@@ -3394,7 +3394,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                     ? 'text-red-600'
                                     : result.severity === 'warning'
                                     ? 'text-yellow-600'
-                                    : 'text-blue-600'
+                                    : 'text-cyan-600'
                                 }`}
                               />
                               <div className="flex-1 text-sm text-[#1E1E1E]">
@@ -3692,7 +3692,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                     }}
                                     className={`p-4 rounded-[10px] border-2 text-left transition-all ${
                                       group.ruleType === 'fixed'
-                                        ? 'border-[#0052CC] bg-blue-50'
+                                        ? 'border-[#1FB5B8] bg-cyan-50'
                                         : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
                                     }`}
                                   >
@@ -3708,7 +3708,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                     }}
                                     className={`p-4 rounded-[10px] border-2 text-left transition-all ${
                                       group.ruleType === 'percentage'
-                                        ? 'border-[#0052CC] bg-blue-50'
+                                        ? 'border-[#1FB5B8] bg-cyan-50'
                                         : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
                                     }`}
                                   >
@@ -3724,7 +3724,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                     }}
                                     className={`p-4 rounded-[10px] border-2 text-left transition-all ${
                                       group.ruleType === 'table'
-                                        ? 'border-[#0052CC] bg-blue-50'
+                                        ? 'border-[#1FB5B8] bg-cyan-50'
                                         : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
                                     }`}
                                   >
@@ -3740,7 +3740,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                     }}
                                     className={`p-4 rounded-[10px] border-2 text-left transition-all ${
                                       group.ruleType === 'capfloor'
-                                        ? 'border-[#0052CC] bg-blue-50'
+                                        ? 'border-[#1FB5B8] bg-cyan-50'
                                         : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
                                     }`}
                                   >
@@ -3751,7 +3751,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                 {group.ruleType && (
                                   <div className="mt-3 flex items-center gap-2 text-sm text-gray-600">
                                     <span className="font-medium">Selected:</span>
-                                    <span className="text-[#0052CC] font-semibold">
+                                    <span className="text-[#1FB5B8] font-semibold">
                                       {group.ruleType === 'fixed' && 'Fixed Value'}
                                       {group.ruleType === 'percentage' && 'Percentage Adjustment'}
                                       {group.ruleType === 'table' && 'Table Lookup'}
@@ -3988,7 +3988,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                     {/* Section 3: Preview & Explanation - Dominant and Live */}
                     <div className="border-b border-gray-200 pb-6">
                       <h4 className="text-[#1E1E1E] font-semibold mb-4">3. Preview & Explanation</h4>
-                      <div className="bg-white border-2 border-[#0052CC] rounded-[10px] p-6 shadow-sm">
+                      <div className="bg-white border-2 border-[#1FB5B8] rounded-[10px] p-6 shadow-sm">
                         {target && filterGroups.length > 0 ? (
                           <>
                             {/* Rule Summary - Structured Format */}
@@ -4123,7 +4123,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                               {dependsOn.map((dep) => (
                                 <Badge
                                   key={dep}
-                                  className="bg-[#0052CC] text-white px-3 py-1 cursor-pointer"
+                                  className="bg-[#1FB5B8] text-white px-3 py-1 cursor-pointer"
                                   onClick={() => handleRemoveDependency(dep)}
                                 >
                                   {dep} ×
@@ -4309,7 +4309,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                               ? 'bg-red-50 border border-red-200'
                               : result.severity === 'warning'
                               ? 'bg-yellow-50 border border-yellow-200'
-                              : 'bg-blue-50 border border-blue-200'
+                              : 'bg-cyan-50 border border-cyan-200'
                           }`}
                         >
                           <AlertCircle
@@ -4318,7 +4318,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                 ? 'text-red-600'
                                 : result.severity === 'warning'
                                 ? 'text-yellow-600'
-                                : 'text-blue-600'
+                                : 'text-cyan-600'
                             }`}
                           />
                           <div className="flex-1 text-sm text-[#1E1E1E]">
@@ -4344,7 +4344,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                 ? 'bg-red-50 border border-red-200'
                                 : result.severity === 'warning'
                                 ? 'bg-yellow-50 border border-yellow-200'
-                                : 'bg-blue-50 border border-blue-200'
+                                : 'bg-cyan-50 border border-cyan-200'
                             }`}
                           >
                             <AlertCircle
@@ -4353,7 +4353,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                                   ? 'text-red-600'
                                   : result.severity === 'warning'
                                   ? 'text-yellow-600'
-                                  : 'text-blue-600'
+                                  : 'text-cyan-600'
                               }`}
                             />
                             <div className="flex-1 text-sm text-[#1E1E1E]">
@@ -4421,7 +4421,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                   }}
                   className={`flex items-center justify-between px-3 py-2 border rounded-[6px] text-left ${
                     newComponentLayer === 'base'
-                      ? 'border-[#0052CC] bg-[#EEF2F8] text-[#0A0A0A]'
+                      ? 'border-black bg-[#EEF2F8] text-[#0A0A0A]'
                       : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                   }`}
                 >
@@ -4476,10 +4476,10 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               </div>
             )}
             <div className="flex gap-3 pt-4">
-              <button
+              <Button
                 onClick={handleAddComponent}
                 disabled={saving || !newComponentName.trim()}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#0052CC] text-white rounded-lg hover:bg-[#0047b3] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg"
               >
                 {saving ? (
                   <>
@@ -4492,7 +4492,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                     Create Component
                   </>
                 )}
-              </button>
+              </Button>
               <button
                 onClick={() => {
                   setShowAddComponent(false);
@@ -4807,7 +4807,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
                 <Input
                   value={groupFormData.color}
                   onChange={(e) => setGroupFormData({ ...groupFormData, color: e.target.value })}
-                  placeholder="#0052CC"
+                  placeholder="#1FB5B8"
                   className="flex-1"
                 />
               </div>
@@ -4831,7 +4831,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               onClick={() => {
                 setShowGroupDialog(false);
                 setEditingGroup(null);
-                setGroupFormData({ groupName: '', displayName: '', color: '#0052CC', displayOrder: 1 });
+                setGroupFormData({ groupName: '', displayName: '', color: '#1FB5B8', displayOrder: 1 });
               }}
             >
               Cancel
@@ -4982,7 +4982,7 @@ export default function RuleBuilder({ tenantId = 'default' }: { tenantId?: strin
               Publishing this ruleset will make it active and affect all calculations. Are you sure you want to continue?
             </p>
             {target && ruleType && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-4">
                 <p className="text-sm font-medium text-gray-900 mb-2">Rule Summary:</p>
                 <p className="text-sm text-gray-700 whitespace-pre-line">{generateRuleExplanation()}</p>
                 {filterGroups.length > 0 && filterGroups.some(g => g.filters.length > 0) && (

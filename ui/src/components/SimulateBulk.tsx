@@ -984,7 +984,11 @@ export default function SimulateBulk({ tenantId = "default" }: { tenantId?: stri
                 </Select>
               </>
             )}
-            <Button onClick={handleAddEmployee} size="sm">
+            <Button 
+              onClick={handleAddEmployee} 
+              size="sm"
+              className="shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5"
+            >
               <Plus className="w-4 h-4 mr-2" />
               Add Employee
             </Button>
